@@ -42,7 +42,7 @@ export default defineConfig({
           items: [
             { text: 'What is Shipwick?', link: '/docs/' },
             { text: 'Install on a server', link: '/docs/getting-started/install' },
-            { text: 'Install deployctl', link: '/docs/getting-started/install-cli' },
+            { text: 'Install the CLI', link: '/docs/getting-started/install-cli' },
             { text: 'Your first deployment', link: '/docs/getting-started/first-deployment' },
           ],
         },
@@ -74,7 +74,7 @@ export default defineConfig({
           text: 'Reference',
           items: [
             { text: 'deploy.yaml', link: '/docs/reference/deploy-yaml' },
-            { text: 'deployctl', link: '/docs/reference/deployctl' },
+            { text: 'shipwick CLI', link: '/docs/reference/cli' },
             { text: 'Agent configuration', link: '/docs/reference/agent-configuration' },
             { text: 'REST API', link: '/docs/reference/api' },
           ],

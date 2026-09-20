@@ -1,11 +1,11 @@
 ---
 title: Your first deployment
-description: Write a deploy.yaml, deploy it with deployctl, watch a rolling update, and see what a failed deployment looks like.
+description: Write a deploy.yaml, deploy it with the shipwick CLI, watch a rolling update, and see what a failed deployment looks like.
 ---
 
 # Your first deployment
 
-This page takes one application from nothing to running on your server, then updates it, then breaks it on purpose. It assumes a server with [Shipwick installed](/docs/getting-started/install) and `deployctl` [installed and logged in](/docs/getting-started/install-cli).
+This page takes one application from nothing to running on your server, then updates it, then breaks it on purpose. It assumes a server with [Shipwick installed](/docs/getting-started/install) and `shipwick` [installed and logged in](/docs/getting-started/install-cli).
 
 You need a Docker image the server can pull. The examples use `ghcr.io/company/my-api`, which listens on port 8080 and answers `GET /health`. For an image in a private registry, see [Pull from private registries](/docs/tasks/private-registries) first.
 
@@ -14,19 +14,19 @@ You need a Docker image the server can pull. The examples use `ghcr.io/company/m
 In your application's repository:
 
 ```bash
-deployctl init
+shipwick init
 ```
 
 `init` asks for the application name (the default is the directory name), the image, the port the application listens on, and a public domain. Port and domain are optional. With `--image` it never prompts, which suits scripts:
 
 ```bash
-deployctl init --name my-api --image ghcr.io/company/my-api:1.4.1 --port 8080 --domain api.example.com
+shipwick init --name my-api --image ghcr.io/company/my-api:1.4.1 --port 8080 --domain api.example.com
 ```
 
 ```text
 ✓ Created deploy.yaml
 
-Review it, then run: deployctl deploy
+Review it, then run: shipwick deploy
 ```
 
 `init` refuses to overwrite an existing `deploy.yaml` unless you pass `--force`.
@@ -79,7 +79,7 @@ The DNS record for `domain` must point at the server. Every field is described i
 `validate` checks the file offline and shows how it will be applied, defaults included:
 
 ```bash
-deployctl validate
+shipwick validate
 ```
 
 ```text
@@ -115,7 +115,7 @@ resources.memory:
 ## Deploy
 
 ```bash
-deployctl deploy
+shipwick deploy
 ```
 
 `deploy` sends the file to the agent and waits for the result. On a first deployment there is nothing to replace, so all replicas start together:
@@ -138,19 +138,19 @@ Pressing Ctrl+C while `deploy` waits stops the waiting, not the deployment.
 ## Look at what is running
 
 ```bash
-deployctl status     # version, CPU and memory, replicas, recent deployments, supervisor events
-deployctl ps         # every application on the server
-deployctl logs -f    # follow the logs of all replicas
+shipwick status     # version, CPU and memory, replicas, recent deployments, supervisor events
+shipwick ps         # every application on the server
+shipwick logs -f    # follow the logs of all replicas
 ```
 
-Run in the directory that holds `deploy.yaml`, these commands act on the application named in it. Elsewhere, name the application: `deployctl status my-api`. More in [Inspect applications and read logs](/docs/tasks/inspect-and-logs).
+Run in the directory that holds `deploy.yaml`, these commands act on the application named in it. Elsewhere, name the application: `shipwick status my-api`. More in [Inspect applications and read logs](/docs/tasks/inspect-and-logs).
 
 ## Deploy a new version
 
 Change the image tag in `deploy.yaml` to `1.4.2` and deploy again:
 
 ```bash
-deployctl deploy
+shipwick deploy
 ```
 
 ```text
@@ -192,7 +192,7 @@ Suppose the next version cannot start, because it needs an environment variable 
 my-api is still running 1.4.2; the failed deployment did not affect it.
 ```
 
-`deployctl deploy` exits with status 1. The failed replica's last log lines are saved with the deployment, the new containers are removed, and the old version keeps serving.
+`shipwick deploy` exits with status 1. The failed replica's last log lines are saved with the deployment, the new containers are removed, and the old version keeps serving.
 
 What happens next depends on how far the rollout got:
 
@@ -209,11 +209,11 @@ A replica that never answers its health check fails the deployment the same way:
 
 A new replica has `interval × retries` to answer — 30 seconds by default. Raise `retries` for an application that starts slowly.
 
-Every attempt, failed or not, is kept in the history that `deployctl status` shows. Only one deployment per application runs at a time; a second is refused rather than queued.
+Every attempt, failed or not, is kept in the history that `shipwick status` shows. Only one deployment per application runs at a time; a second is refused rather than queued.
 
 ## What's next
 
-- [Deploy from CI](/docs/tasks/deploy-from-ci) with `deployctl deploy --image`.
+- [Deploy from CI](/docs/tasks/deploy-from-ci) with `shipwick deploy --image`.
 - [Roll back](/docs/tasks/roll-back) to an earlier version.
 - Concepts: [Deployments](/docs/concepts/deployments), [Health and supervision](/docs/concepts/health-and-supervision), [Routing and HTTPS](/docs/concepts/routing-and-https).
-- Reference: [deploy.yaml](/docs/reference/deploy-yaml), [deployctl](/docs/reference/deployctl).
+- Reference: [deploy.yaml](/docs/reference/deploy-yaml), [shipwick](/docs/reference/cli).

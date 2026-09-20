@@ -46,7 +46,7 @@ Two forms are accepted:
 
 The agent echoes this address into the configuration it loads, so that Caddy's admin endpoint stays where it is.
 
-When the variable is unset, routing is disabled: the agent warns at startup, domains are recorded but nothing serves them, and `deployctl server status` reports the proxy as not configured. See [Routing and HTTPS](/docs/concepts/routing-and-https).
+When the variable is unset, routing is disabled: the agent warns at startup, domains are recorded but nothing serves them, and `shipwick server status` reports the proxy as not configured. See [Routing and HTTPS](/docs/concepts/routing-and-https).
 
 ### SHIPWICK_AGENT_DOMAIN and SHIPWICK_DASHBOARD_DOMAIN
 

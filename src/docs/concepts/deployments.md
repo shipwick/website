@@ -14,7 +14,7 @@ Every attempt is recorded, whether it succeeds or not. A record holds:
 | Field | Meaning |
 |---|---|
 | `id` | Identifier, unique on the server. This is what the API uses. |
-| `sequence` | Per-application counter: #1, #2, and so on. This is what `deployctl status` shows and what `deployctl rollback --to` takes. It is also part of the container names. |
+| `sequence` | Per-application counter: #1, #2, and so on. This is what `shipwick status` shows and what `shipwick rollback --to` takes. It is also part of the container names. |
 | `version` | Derived from the image reference: its tag, or a shortened digest, or `latest` when the reference has neither. |
 | `image` | The image reference. |
 | `spec` | The complete configuration, as validated. Stored with the deployment and never changed afterwards. |
@@ -92,7 +92,7 @@ Deploying to a stopped application starts it: the commit sets the application's 
 
 ### Progress events
 
-Each deployment carries a list of events. `state` events mark transitions; `step` events are meant to be shown to users, and `deployctl deploy` prints them as they appear:
+Each deployment carries a list of events. `state` events mark transitions; `step` events are meant to be shown to users, and `shipwick deploy` prints them as they appear:
 
 ```text
 state  BUILDING
@@ -118,7 +118,7 @@ A deployment's status settles (`ACTIVE`, `FAILED`) slightly before the agent is 
 
 > Poll `GET /api/v1/deployments/:id` until `completed_at` is set. From that moment a new operation on the application is guaranteed not to be rejected as busy.
 
-`FAILED` in particular is not necessarily the end: a deployment that fails after some replicas were replaced continues through `ROLLBACK`, `RESTORING` and `ROLLED_BACK`. `deployctl deploy` waits for `completed_at`, not for the first settled status.
+`FAILED` in particular is not necessarily the end: a deployment that fails after some replicas were replaced continues through `ROLLBACK`, `RESTORING` and `ROLLED_BACK`. `shipwick deploy` waits for `completed_at`, not for the first settled status.
 
 ## One operation per application
 
@@ -128,7 +128,7 @@ There is no queue. A queue hides the conflict from the person who needs to know 
 
 | Held by | A user operation |
 |---|---|
-| Another user operation | Fails at once with `409 DEPLOYMENT_IN_PROGRESS`. `deployctl` prints "Another operation is already in progress for this application." |
+| Another user operation | Fails at once with `409 DEPLOYMENT_IN_PROGRESS`. `shipwick` prints "Another operation is already in progress for this application." |
 | The supervisor | Waits, up to 30 seconds. The supervisor holds an application for moments, to restart a replica. |
 
 The supervisor itself never waits. A busy application is looked at again on its next tick, one second later.
@@ -164,4 +164,4 @@ Measured on a real server stack under constant load: a rolling redeploy of 3 rep
 
 If the agent is shut down while a deployment runs, the deployment is cancelled, marked `FAILED` and cleaned up. A failing rollout does not start a restore it could not finish during shutdown. If the agent crashes instead, the deployment is marked `FAILED` on the next start and its leftover containers are removed. In both cases the previous deployment is still the active one in the database, and the supervisor's reconciliation completes it again. See [Health checks and supervision](/docs/concepts/health-and-supervision).
 
-Pressing Ctrl+C in `deployctl deploy` stops the waiting, not the deployment.
+Pressing Ctrl+C in `shipwick deploy` stops the waiting, not the deployment.

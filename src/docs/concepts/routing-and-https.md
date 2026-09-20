@@ -56,7 +56,7 @@ Syncing every second is affordable because the rendered configuration is fingerp
 
 The fingerprint covers the rendered configuration, not only the routes, so an agent upgrade that renders routes differently reloads Caddy too. It is embedded in the configuration as the `@id` of the final catch-all route. Every 10 seconds the agent asks Caddy for that id and loads the configuration again if it is gone, which is the case when Caddy came back from a restart with an older configuration. The agent also syncs the proxy once at its own startup.
 
-If Caddy cannot be reached, the agent logs the problem when it appears and when it clears, and retries on every tick. Applications keep running. `GET /api/v1/server` and `deployctl server status` report the proxy's state: `enabled`, `reachable`, the last `error`, and the number of `routes`.
+If Caddy cannot be reached, the agent logs the problem when it appears and when it clears, and retries on every tick. Applications keep running. `GET /api/v1/server` and `shipwick server status` report the proxy's state: `enabled`, `reachable`, the last `error`, and the number of `routes`.
 
 ### During a rollout
 
@@ -84,7 +84,7 @@ Each application route is generated with these settings:
 | Situation | What the client gets |
 |---|---|
 | The application has no ready replica | `503 Service Unavailable`, with `Retry-After: 5` and the body `503 Service Unavailable: no healthy replica.` |
-| The application was stopped with `deployctl stop` | The same `503`. The route stays in the configuration, so the domain keeps its certificate. |
+| The application was stopped with `shipwick stop` | The same `503`. The route stays in the configuration, so the domain keeps its certificate. |
 | No application is served at the requested hostname | `404 Not Found`, with the body `404 Not Found: no application is served at this address.` |
 
 An explicit `503` is generated because Caddy's own answer to a route without upstreams would be a bare `502`. The application is known; it just has no healthy replica. The domain answers at once instead of timing out.
@@ -129,7 +129,7 @@ The agent can serve its own API and the dashboard through the same Caddy, which 
 | `SHIPWICK_DASHBOARD_DOMAIN` | The dashboard is served at this hostname, proxied to `SHIPWICK_DASHBOARD_UPSTREAM` (default `dashboard:3000`). |
 
 ```bash
-deployctl login --url https://agent.example.com
+shipwick login --url https://agent.example.com
 ```
 
 Both require `SHIPWICK_CADDY_ADMIN` to be set, and the two hostnames must differ. Both routes are generated with response buffering disabled, because followed logs are a stream and must arrive line by line.

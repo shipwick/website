@@ -19,7 +19,7 @@ There is nothing to put in `deploy.yaml`. The image reference is enough:
 image: ghcr.io/company/my-api:1.4.2
 ```
 
-Credentials never pass through `deployctl` or the API.
+Credentials never pass through `shipwick` or the API.
 
 ## Log in on the server
 
@@ -80,7 +80,7 @@ If the file has a `credsStore` key and the entry under `auths` is empty, the cre
 
 ## When a pull fails
 
-A deployment whose image cannot be pulled fails before anything is started, and the running version is not affected. `deployctl deploy` prints the reason.
+A deployment whose image cannot be pulled fails before anything is started, and the running version is not affected. `shipwick deploy` prints the reason.
 
 One exception: if the pull fails but the image already exists on the server — it was built there, or pulled earlier — the agent uses the local copy and records a warning with the deployment:
 

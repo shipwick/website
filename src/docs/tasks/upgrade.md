@@ -1,6 +1,6 @@
 ---
 title: Upgrade Shipwick
-description: Upgrade the agent, Caddy setup, dashboard and deployctl by running the installer again, and what happens to running applications meanwhile.
+description: Upgrade the agent, Caddy setup, dashboard and CLI by running the installer again, and what happens to running applications meanwhile.
 ---
 
 # Upgrade Shipwick
@@ -25,7 +25,7 @@ curl -fsSL https://get.shipwick.com | sh
 ✓ Keeping the existing /opt/shipwick/.env (your API token is unchanged)
 ✓ Started the Shipwick services
 ✓ The agent is healthy
-✓ Installed deployctl to /usr/local/bin/deployctl
+✓ Installed the shipwick CLI to /usr/local/bin/shipwick
 ```
 
 A server does not upgrade by itself. The compose file of each release pins both Shipwick images to that release's version, so a server runs the version it installed until you run the installer again.
@@ -36,7 +36,7 @@ What the installer does on an upgrade:
 2. Keeps `/opt/shipwick/.env` exactly as it is. The token does not change, and it is not printed again. The hostnames do not change, and the installer does not ask for them.
 3. Pulls the images that the new compose file names, and recreates the containers whose definition changed.
 4. Waits for the agent to report healthy.
-5. Replaces `deployctl` on the server with the release's version, verified the same way.
+5. Replaces `shipwick` on the server with the release's version, verified the same way.
 
 ::: info compose.yml is the installer's, compose.override.yml is yours
 The installer writes a fresh `/opt/shipwick/compose.yml` on every run. Keep your own changes — [publishing the API on loopback](/docs/tasks/access-without-a-hostname), [mounting registry credentials](/docs/tasks/private-registries) — in `/opt/shipwick/compose.override.yml`. Compose merges the two files, and the installer never touches the override or `.env`.
@@ -59,7 +59,7 @@ Running applications do not depend on the agent being up. Restarting or upgradin
 While the agent is down:
 
 - Nothing supervises the applications. A replica that crashes during that time is not restarted until the agent is back.
-- The API does not answer, so `deployctl` and the dashboard cannot show or do anything. A `deployctl` command that is waiting on a deployment rides out a short outage before it gives up.
+- The API does not answer, so `shipwick` and the dashboard cannot show or do anything. A `shipwick` command that is waiting on a deployment rides out a short outage before it gives up.
 
 When the new agent starts, before it serves requests, it reconciles what it finds:
 
@@ -67,27 +67,27 @@ When the new agent starts, before it serves requests, it reconciles what it find
 2. Containers that belong to a known application but not to its active deployment are removed.
 3. Containers of applications the agent's database does not know are never touched.
 
-Supervision then resumes. The supervisor's state is held in memory, so every replica starts with a clean slate: its backoff history is gone, and its health is unknown until it has been probed again. `deployctl status` shows such a replica as `checking`. Unknown counts as healthy, so an application does not flap to `DOWN` because the agent was restarted. Only the restart counter is kept, for display.
+Supervision then resumes. The supervisor's state is held in memory, so every replica starts with a clean slate: its backoff history is gone, and its health is unknown until it has been probed again. `shipwick status` shows such a replica as `checking`. Unknown counts as healthy, so an application does not flap to `DOWN` because the agent was restarted. Only the restart counter is kept, for display.
 
 After a server reboot, the agent brings every application back up according to its restart policy.
 
-## Upgrade deployctl elsewhere
+## Upgrade the CLI elsewhere
 
-The server's copy of `deployctl` is upgraded with the server. On laptops and in CI, run the CLI installer again:
+The server's copy of `shipwick` is upgraded with the server. On laptops and in CI, run the CLI installer again:
 
 ```bash
 curl -fsSL https://get.shipwick.com | sh -s -- --cli
 ```
 
-On Windows, download the new `deployctl_windows_amd64.exe` from the [releases page](https://github.com/shipwick/shipwick/releases).
+On Windows, download the new `shipwick_windows_amd64.exe` from the [releases page](https://github.com/shipwick/shipwick/releases).
 
 To compare the versions of the CLI and the agent:
 
 ```bash
-deployctl server status
+shipwick server status
 ```
 
-If `deployctl` is newer than the agent and uses an operation the agent does not have, it says so: `The agent does not know this operation — it is probably older than this deployctl.`
+If `shipwick` is newer than the agent and uses an operation the agent does not have, it says so: `The agent does not know this operation — it is probably older than this shipwick.`
 
 ## If you installed without the installer
 

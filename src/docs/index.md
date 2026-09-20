@@ -21,7 +21,7 @@ replicas: 2
 ```
 
 ```bash
-deployctl deploy
+shipwick deploy
 ```
 
 It is for developers and small teams running 1–20 applications on a VPS — Hetzner, DigitalOcean, OVH, EC2 or similar — who want Docker in production without writing their own deploy scripts, restart logic, health checks, rollbacks and reverse-proxy configuration.
@@ -35,7 +35,7 @@ The parts:
 | Part | Role |
 |---|---|
 | Agent | Runs on the server. Owns the deployment lifecycle, supervises containers, configures Caddy. Keeps its state in SQLite. |
-| `deployctl` | The command-line client, for your laptop and for CI. |
+| `shipwick` | The command-line client, for your laptop and for CI. |
 | Dashboard | The same information and everyday actions in a browser. |
 | Caddy | Serves application domains over HTTPS. The agent tells it what to route where. |
 
@@ -56,7 +56,7 @@ The current version is 0.1.0. Before 1.0, a minor version may change the API, `d
 Install the server and the CLI, then deploy an application.
 
 - [Install Shipwick on a server](/docs/getting-started/install)
-- [Install deployctl](/docs/getting-started/install-cli)
+- [Install the CLI](/docs/getting-started/install-cli)
 - [Your first deployment](/docs/getting-started/first-deployment)
 
 ### Concepts
@@ -87,7 +87,7 @@ How to do one specific thing.
 Every field, command, variable and endpoint.
 
 - [deploy.yaml](/docs/reference/deploy-yaml)
-- [deployctl](/docs/reference/deployctl)
+- [shipwick](/docs/reference/cli)
 - [Agent configuration](/docs/reference/agent-configuration)
 - [HTTP API](/docs/reference/api)
 

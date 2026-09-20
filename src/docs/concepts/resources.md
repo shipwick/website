@@ -67,7 +67,7 @@ resources.memory:
 
 - During a deployment, the deployment fails with "replica 1 was killed for exceeding its memory limit shortly after start" (or "before it became healthy").
 - Afterwards, the supervisor records "Replica 1 was killed for exceeding its memory limit" and restarts the replica as `restart.policy` allows. An out-of-memory kill counts as a failure, so `on-failure` restarts it too.
-- `deployctl status` shows the container's state as `out of memory`, and the API reports `oom_killed: true` for it.
+- `shipwick status` shows the container's state as `out of memory`, and the API reports `oom_killed: true` for it.
 
 A replica that is killed repeatedly goes through the usual backoff and ends in `CRASH_LOOP`. See [Health checks and supervision](/docs/concepts/health-and-supervision).
 
@@ -76,7 +76,7 @@ A replica that is killed repeatedly goes through the usual backoff and ends in `
 Usage is one command away, and live in the dashboard:
 
 ```text
-$ deployctl status
+$ shipwick status
 my-api  ● HEALTHY
 
 Replicas   2/2 healthy
@@ -111,7 +111,7 @@ Memory is the working set: usage minus the page cache the kernel would give back
 
 ### How limits are reported
 
-Limits in the metrics come from the deployment's stored configuration, not from Docker, which reports the host's memory for an unlimited container. A limit of `0` means unlimited. `deployctl status` then shows the usage alone, without a ceiling.
+Limits in the metrics come from the deployment's stored configuration, not from Docker, which reports the host's memory for an unlimited container. A limit of `0` means unlimited. `shipwick status` then shows the usage alone, without a ceiling.
 
 Application-level numbers are sums over the replicas, for usage and for limits.
 

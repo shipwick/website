@@ -1,18 +1,18 @@
 ---
 title: Roll back and redeploy
-description: Return an application to an earlier successful deployment with deployctl rollback, or deploy the running configuration again with deployctl redeploy.
+description: Return an application to an earlier successful deployment with shipwick rollback, or deploy the running configuration again with shipwick redeploy.
 ---
 
 # Roll back and redeploy
 
-This page covers the two commands that deploy from the server's history instead of from a file: `deployctl rollback` returns to an earlier deployment, and `deployctl redeploy` deploys the running configuration again. Neither needs the `deploy.yaml` at hand.
+This page covers the two commands that deploy from the server's history instead of from a file: `shipwick rollback` returns to an earlier deployment, and `shipwick redeploy` deploys the running configuration again. Neither needs the `deploy.yaml` at hand.
 
 A deployment that fails is undone by the agent without your help. This page is about going back on request: the new version deployed successfully and turned out to be wrong.
 
 ## Roll back to the previous version
 
 ```bash
-deployctl rollback
+shipwick rollback
 ```
 
 ```text
@@ -28,12 +28,12 @@ Without `--to`, the target is the most recent deployment that once served succes
 Like other commands, `rollback` acts on the application named in `./deploy.yaml`. From anywhere else, name it:
 
 ```bash
-deployctl rollback my-api
+shipwick rollback my-api
 ```
 
 ## Roll back to a specific deployment
 
-Deployments are numbered per application. `deployctl status` lists the recent ones:
+Deployments are numbered per application. `shipwick status` lists the recent ones:
 
 ```text
 DEPLOY   VERSION   STATUS       VIA      WHEN
@@ -45,14 +45,14 @@ DEPLOY   VERSION   STATUS       VIA      WHEN
 Pass the number, without the `#`, to `--to`:
 
 ```bash
-deployctl rollback --to 3
+shipwick rollback --to 3
 ```
 
 ## Which deployments are valid targets
 
 Only deployments that once served successfully are targets. In the history they have the status `SUPERSEDED`: they were active, and a later deployment replaced them. A `FAILED` attempt is not a version to return to, and neither is one that was `ROLLED_BACK`.
 
-`deployctl` resolves the target before it asks the agent for anything, so what it announces is exactly what it requests. When the target is not valid, it says so and exits 1:
+`shipwick` resolves the target before it asks the agent for anything, so what it announces is exactly what it requests. When the target is not valid, it says so and exits 1:
 
 | Situation | Message |
 |---|---|
@@ -68,8 +68,8 @@ The agent applies the same rule. It also refuses a target that belongs to anothe
 A rollback is not a special mechanism. It is an ordinary deployment whose configuration comes from the history instead of from a file, and it goes through the same engine: rolled out replica by replica, health-checked, zero-downtime. If the old version no longer comes up today, the rollback is undone like any other failed deployment.
 
 - **The whole configuration returns**, not only the image: `env` values, replicas, limits, domain and health check, as they were stored with that deployment. Secrets are included, and they never leave the server to do so.
-- **History is appended to, never rewritten.** A rollback is a new deployment record with a new number. It is marked `rollback` in the `VIA` column of `deployctl status` and points at the deployment it re-used.
-- **Your `deploy.yaml` is not changed.** If the file in your repository still describes the version you rolled back from, the next `deployctl deploy` deploys that version again.
+- **History is appended to, never rewritten.** A rollback is a new deployment record with a new number. It is marked `rollback` in the `VIA` column of `shipwick status` and points at the deployment it re-used.
+- **Your `deploy.yaml` is not changed.** If the file in your repository still describes the version you rolled back from, the next `shipwick deploy` deploys that version again.
 
 Because both versions serve side by side for a moment during any rollout, the old version must be able to run next to the new one — for example, against the database schema the new version left behind.
 
@@ -78,7 +78,7 @@ Because both versions serve side by side for a moment during any rollout, the ol
 `redeploy` applies the same idea to the active deployment: the agent re-uses the configuration it stored with it, `env` values included.
 
 ```bash
-deployctl redeploy
+shipwick redeploy
 ```
 
 This replaces all containers of the application with fresh ones, one at a time. It is also a way out of a crash loop, since new containers start with a clean slate.
@@ -86,7 +86,7 @@ This replaces all containers of the application with fresh ones, one at a time. 
 To move the application to another image without touching anything else:
 
 ```bash
-deployctl redeploy --image ghcr.io/company/my-api:1.4.3
+shipwick redeploy --image ghcr.io/company/my-api:1.4.3
 ```
 
 ```text
@@ -98,7 +98,7 @@ A redeploy is recorded as a new deployment, marked `redeploy` in the history. If
 ```text
 This application has no successful deployment yet.
 
-Deploy it with: deployctl deploy
+Deploy it with: shipwick deploy
 ```
 
 ## Options

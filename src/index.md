@@ -50,7 +50,7 @@ resources:
 <div>
 
 ```text
-$ deployctl deploy
+$ shipwick deploy
 Deploying my-api...
 
 ✓ Validated deploy.yaml
@@ -85,7 +85,7 @@ Replicas are replaced one at a time, each only after its successor passed its he
 
 ### Rollback
 
-A rollout that fails half-way is undone on its own. Any earlier successful deployment can be brought back with `deployctl rollback`, with the configuration it had.
+A rollout that fails half-way is undone on its own. Any earlier successful deployment can be brought back with `shipwick rollback`, with the configuration it had.
 
 </div>
 <div>
@@ -106,14 +106,14 @@ Caddy sits in front. Every application's domain gets a certificate and is load-b
 
 ### Resource limits
 
-CPU and memory limits per replica, and current usage against them in `deployctl status` and the dashboard.
+CPU and memory limits per replica, and current usage against them in `shipwick status` and the dashboard.
 
 </div>
 <div>
 
 ### CLI, API and dashboard
 
-`deployctl` for terminals and CI pipelines, a REST API with one token, and a web dashboard with deployments, live logs and metrics.
+`shipwick` for terminals and CI pipelines, a REST API with one token, and a web dashboard with deployments, live logs and metrics.
 
 </div>
 </div>

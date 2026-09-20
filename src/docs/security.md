@@ -78,13 +78,13 @@ The agent image contains the agent binary and CA certificates. It has no shell a
 
 Everything the installer fetches comes from one release and is verified against that release's checksums. Downloads are HTTPS-only. A checksum mismatch installs nothing and leaves a running installation as it was. The images are pinned to the release's version.
 
-### Token handling in deployctl
+### Token handling in the CLI
 
-- `deployctl` never takes the token as a flag. Arguments leak through `ps` and shell history. The token comes from `SHIPWICK_AGENT_TOKEN`, from a prompt without echo, or from standard input.
+- `shipwick` never takes the token as a flag. Arguments leak through `ps` and shell history. The token comes from `SHIPWICK_AGENT_TOKEN`, from a prompt without echo, or from standard input.
 - The saved configuration file is written with mode `0600`, in a directory created with mode `0700`.
 - A saved token belongs to the URL it was saved for. If `--url` or `SHIPWICK_AGENT_URL` points at a different agent, the saved token is not sent there.
-- `deployctl` warns before a token crosses the network over plain HTTP to anything other than the local machine.
-- `deployctl login` verifies the token against the agent before saving it.
+- `shipwick` warns before a token crosses the network over plain HTTP to anything other than the local machine.
+- `shipwick login` verifies the token against the agent before saving it.
 
 ### Session handling in the dashboard
 
@@ -111,7 +111,7 @@ Do not open a public issue. Report privately, either way:
 - Email **security@shipwick.com**
 - GitHub private vulnerability reporting: [Report a vulnerability](https://github.com/shipwick/shipwick/security/advisories/new). Only maintainers see it.
 
-Helpful to include: the version (`deployctl --version`, or `deployctl server status` for the agent's), how the agent is run (the installer, a compose file of your own, a bare process), what an attacker needs to start with, and steps to reproduce. A proof of concept is welcome but not required.
+Helpful to include: the version (`shipwick --version`, or `shipwick server status` for the agent's), how the agent is run (the installer, a compose file of your own, a bare process), what an attacker needs to start with, and steps to reproduce. A proof of concept is welcome but not required.
 
 What to expect:
 

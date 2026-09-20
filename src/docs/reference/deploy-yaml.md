@@ -5,7 +5,7 @@ description: Complete reference of the deploy.yaml file, with every field, its t
 
 # deploy.yaml
 
-`deploy.yaml` describes one application: its image and how to run it. This page lists every field with its type, default and validation rules, the units used for sizes and durations, and the error format that `deployctl` and the API produce.
+`deploy.yaml` describes one application: its image and how to run it. This page lists every field with its type, default and validation rules, the units used for sizes and durations, and the error format that `shipwick` and the API produce.
 
 ## The file
 
@@ -22,9 +22,9 @@ replicas: 2
 - One file describes one application. A file with several YAML documents is rejected.
 - The maximum size is 64 KB.
 - **Unknown fields are errors.** A misspelled key is reported, not ignored.
-- `deployctl` looks for `deploy.yaml` in the current directory; `-f` / `--file` selects another file. `deployctl init` writes a starter file, and `deployctl validate` checks a file offline and prints it as it will be applied, defaults included.
+- `shipwick` looks for `deploy.yaml` in the current directory; `-f` / `--file` selects another file. `shipwick init` writes a starter file, and `shipwick validate` checks a file offline and prints it as it will be applied, defaults included.
 
-The same parser and validator run in `deployctl` and in the agent. The agent validates every submitted document again, whatever the client did.
+The same parser and validator run in `shipwick` and in the agent. The agent validates every submitted document again, whatever the client did.
 
 ## Fields
 
@@ -87,7 +87,7 @@ The deployment's **version** is derived from the reference:
 
 Pin a version tag. Deployments are recorded, and rolled back, by it.
 
-`deployctl deploy --image <ref>` replaces this field for one deployment without changing the file. For private registries, see [Pull from private registries](/docs/tasks/private-registries).
+`shipwick deploy --image <ref>` replaces this field for one deployment without changing the file. For private registries, see [Pull from private registries](/docs/tasks/private-registries).
 
 ### port
 
@@ -311,7 +311,7 @@ The agent returns the same information in the API's error envelope, as `400 INVA
 }
 ```
 
-`deployctl` renders an agent-side rejection exactly like a local one.
+`shipwick` renders an agent-side rejection exactly like a local one.
 
 ## Full example
 

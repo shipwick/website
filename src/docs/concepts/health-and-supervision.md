@@ -56,14 +56,14 @@ After deployment, such a replica is healthy for as long as it runs. The supervis
 
 The supervisor probes every running replica every `interval`. A single failed probe changes nothing. After `retries` consecutive failures the replica is marked `unhealthy`, leaves the proxy's rotation, and is restarted. This is the classic cure for a deadlocked process. One passing probe resets the failure count.
 
-A replica that the supervisor has just restarted, or that was started with `deployctl start`, is `starting`. It gets its startup budget again before failures count, is probed every second meanwhile, and receives no traffic until its first passing check. If the budget runs out, it becomes `unhealthy`.
+A replica that the supervisor has just restarted, or that was started with `shipwick start`, is `starting`. It gets its startup budget again before failures count, is probed every second meanwhile, and receives no traffic until its first passing check. If the budget runs out, it becomes `unhealthy`.
 
-Each replica has one of these health values, shown by `deployctl status` and in the API's container list:
+Each replica has one of these health values, shown by `shipwick status` and in the API's container list:
 
 | `health` | Meaning |
 |---|---|
 | `""` (empty) | The application defines no health check. |
-| `unknown` | Not probed yet, for example right after an agent restart. Counts as healthy. `deployctl status` shows it as `checking`. |
+| `unknown` | Not probed yet, for example right after an agent restart. Counts as healthy. `shipwick status` shows it as `checking`. |
 | `starting` | Started or restarted, still within its startup budget. Not routed to. |
 | `healthy` | The last probe passed. |
 | `unhealthy` | Failed `retries` consecutive probes, never came up within its budget, or is not running. Not routed to. |
@@ -149,7 +149,7 @@ There are three ways out of a crash loop:
 
 - The cause goes away and the replica has a stable run. The supervisor records "no longer crash-looping".
 - A new deployment. It replaces the containers, and new containers start with a clean slate.
-- `deployctl stop` followed by `deployctl start`. An explicit start resets the restart history of every replica.
+- `shipwick stop` followed by `shipwick start`. An explicit start resets the restart history of every replica.
 
 ### The stable-run rule
 
@@ -177,7 +177,7 @@ Applications keep running while the agent is down or being upgraded, but nothing
 
 ### Events
 
-What the supervisor sees and does is recorded as application events, shown by `deployctl status` and served by `GET /api/v1/applications/:name/events`:
+What the supervisor sees and does is recorded as application events, shown by `shipwick status` and served by `GET /api/v1/applications/:name/events`:
 
 ```text
 Replica 2 exited with code 137; restarting in 2s

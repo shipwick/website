@@ -29,7 +29,7 @@ The installer asks two questions. Both are optional; press Enter to skip either.
 
 | Question | Stored as | Effect |
 |---|---|---|
-| Hostname for the API, used by deployctl | `SHIPWICK_AGENT_DOMAIN` | The agent's API is served over HTTPS at this hostname, through Caddy |
+| Hostname for the API, used by the shipwick CLI | `SHIPWICK_AGENT_DOMAIN` | The agent's API is served over HTTPS at this hostname, through Caddy |
 | Hostname for the dashboard | `SHIPWICK_DASHBOARD_DOMAIN` | The dashboard is served over HTTPS at this hostname, through Caddy |
 
 Give bare hostnames such as `agent.example.com`: no `https://`, no port, no path. The two must be different. Hostnames are validated before anything is written.
@@ -50,7 +50,7 @@ Shipwick installer (shipwick/shipwick@latest)
 ✓ Wrote /opt/shipwick/.env
 ✓ Started the Shipwick services
 ✓ The agent is healthy
-✓ Installed deployctl to /usr/local/bin/deployctl
+✓ Installed the shipwick CLI to /usr/local/bin/shipwick
 
 Shipwick is running.
 
@@ -58,7 +58,7 @@ Shipwick is running.
 
       <64 hexadecimal characters>
 
-  From your laptop or CI:   deployctl login --url https://agent.example.com
+  From your laptop or CI:   shipwick login --url https://agent.example.com
   Dashboard:                https://dashboard.example.com
   Open ports 80 and 443 (and 443/udp) — and nothing else — in your firewall.
   Upgrade later by running this installer again.
@@ -70,7 +70,7 @@ Shipwick is running.
 2. Writes `/opt/shipwick/compose.yml`. This is the release's `compose.production.yml`, in which both Shipwick images are pinned to the release's version. The file is verified against the release's `checksums.txt` before it replaces anything.
 3. On the first run only, writes `/opt/shipwick/.env` with a freshly generated API token and the two hostnames. The file has mode `0600` and the directory `0700`.
 4. Pulls the images, starts the services, and waits for the agent to report healthy.
-5. Installs `deployctl` to `/usr/local/bin`, verified the same way. A checksum mismatch installs nothing and leaves a running installation as it was.
+5. Installs `shipwick` to `/usr/local/bin`, verified the same way. A checksum mismatch installs nothing and leaves a running installation as it was.
 6. Prints the token and the next steps.
 
 Three containers run afterwards, defined in `/opt/shipwick/compose.yml`:
@@ -91,7 +91,7 @@ The installer accepts these environment variables:
 | `SHIPWICK_AGENT_DOMAIN` | — | Hostname for the API; asked for when run in a terminal |
 | `SHIPWICK_DASHBOARD_DOMAIN` | — | Hostname for the dashboard; likewise |
 | `SHIPWICK_INSTALL_DIR` | `/opt/shipwick` | Where `compose.yml` and `.env` are written |
-| `SHIPWICK_BIN_DIR` | `/usr/local/bin` | Where `deployctl` is installed |
+| `SHIPWICK_BIN_DIR` | `/usr/local/bin` | Where `shipwick` is installed |
 
 ## The API token
 
@@ -165,6 +165,6 @@ The agent listens on `127.0.0.1:9000` by default and keeps its data in `/var/lib
 
 ## What's next
 
-- [Install deployctl](/docs/getting-started/install-cli) on your laptop.
+- [Install the CLI](/docs/getting-started/install-cli) on your laptop.
 - [Deploy your first application](/docs/getting-started/first-deployment).
 - [Open the dashboard](/docs/tasks/dashboard).

@@ -5,9 +5,9 @@ description: Enable the Shipwick dashboard on a hostname, sign in with the API t
 
 # Use the dashboard
 
-The dashboard shows in a browser what `deployctl` shows in a terminal, and offers the everyday actions: deploy another image, roll back, stop, start, delete. This page covers enabling it, signing in, what each page shows, and how it handles the API token.
+The dashboard shows in a browser what `shipwick` shows in a terminal, and offers the everyday actions: deploy another image, roll back, stop, start, delete. This page covers enabling it, signing in, what each page shows, and how it handles the API token.
 
-The dashboard is a client of the agent's HTTP API and nothing more. It has no database and keeps no state of its own. Anything it does, `deployctl` and `curl` can do too.
+The dashboard is a client of the agent's HTTP API and nothing more. It has no database and keeps no state of its own. Anything it does, `shipwick` and `curl` can do too.
 
 ## Enable the dashboard
 
@@ -53,7 +53,7 @@ A few things to know when reading it:
 - **Every history entry shows its origin**, such as "rollback to #3 1.4.0" or "redeploy of #6", linked to the deployment it came from.
 - **CPU is in percent of one core**, with the application's limit as the ceiling. An application without a CPU limit has no ceiling.
 - **Metrics are point-in-time samples.** The history in the charts is built in your browser while the page is open; the agent stores none.
-- **A deployment started elsewhere** — from `deployctl` or from CI — can be followed live from the application's page.
+- **A deployment started elsewhere** — from `shipwick` or from CI — can be followed live from the application's page.
 
 ## What you can do
 
@@ -61,14 +61,14 @@ From an application's page:
 
 | Action | Equivalent |
 |---|---|
-| Deploy another image | `deployctl redeploy --image …` |
-| Roll back, to one of the listed targets | `deployctl rollback --to N` |
-| Stop, start | `deployctl stop`, `deployctl start` |
-| Delete | `deployctl delete` |
+| Deploy another image | `shipwick redeploy --image …` |
+| Roll back, to one of the listed targets | `shipwick rollback --to N` |
+| Stop, start | `shipwick stop`, `shipwick start` |
+| Delete | `shipwick delete` |
 
 The rollback dialog lists exactly the deployments that are valid targets: the ones that once served successfully and were replaced.
 
-The dashboard never submits a `deploy.yaml`. An application's first deployment, and any change to its configuration other than the image, goes through `deployctl deploy`.
+The dashboard never submits a `deploy.yaml`. An application's first deployment, and any change to its configuration other than the image, goes through `shipwick deploy`.
 
 ## How the dashboard handles the token
 

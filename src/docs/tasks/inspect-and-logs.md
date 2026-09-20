@@ -1,18 +1,18 @@
 ---
 title: Inspect applications and read logs
-description: List applications, read an application's status, follow its logs, check the server, and stop, start or delete an application with deployctl.
+description: List applications, read an application's status, follow its logs, check the server, and stop, start or delete an application with shipwick.
 ---
 
 # Inspect applications and read logs
 
-This page covers the `deployctl` commands that show what is running on a server — `ps`, `status`, `logs` and `server status` — and the ones that stop, start and delete an application.
+This page covers the `shipwick` commands that show what is running on a server — `ps`, `status`, `logs` and `server status` — and the ones that stop, start and delete an application.
 
 Commands that take `[app]` default to the application named in `./deploy.yaml`. Outside that directory, name the application, or select another file with `--file`.
 
 ## List applications
 
 ```bash
-deployctl ps
+shipwick ps
 ```
 
 ```text
@@ -35,7 +35,7 @@ my-api   HEALTHY   1.4.2     2/2        api.example.com   2h ago
 | `DEGRADED` | Some are |
 | `DOWN` | None are: not running, or running but failing their health check |
 | `CRASH_LOOP` | A replica keeps dying or never turns healthy, and its restarts are now limited to one every 5 minutes. Outranks `DEGRADED` and `DOWN`: it says that restarting is not helping |
-| `STOPPED` | Stopped on request, with `deployctl stop` or from the dashboard |
+| `STOPPED` | Stopped on request, with `shipwick stop` or from the dashboard |
 | `DEPLOYING` | The first deployment is in flight; nothing is active yet |
 | `FAILED` | No deployment has ever succeeded |
 
@@ -46,8 +46,8 @@ An application that is being upgraded reads `HEALTHY`, not `DEGRADED`: during a 
 ## Read an application's status
 
 ```bash
-deployctl status            # the application in ./deploy.yaml
-deployctl status my-api
+shipwick status            # the application in ./deploy.yaml
+shipwick status my-api
 ```
 
 The output has four parts.
@@ -103,10 +103,10 @@ A crash-looping application recovers on its own if the cause goes away. Deployin
 ## Read logs
 
 ```bash
-deployctl logs              # the last 100 lines
-deployctl logs -n 500       # the last 500
-deployctl logs -f           # follow
-deployctl logs -f -t        # follow, with timestamps
+shipwick logs              # the last 100 lines
+shipwick logs -n 500       # the last 500
+shipwick logs -f           # follow
+shipwick logs -f -t        # follow, with timestamps
 ```
 
 | Flag | Default | |
@@ -129,7 +129,7 @@ Container logs are size-capped on the server, so very old output is not kept.
 ## Check the server
 
 ```bash
-deployctl server status
+shipwick server status
 ```
 
 The command first checks that the agent is reachable. That check needs no token, so a wrong URL and a wrong token produce different errors. It then prints the agent and CLI versions, the server's hostname, operating system, kernel and architecture, the Docker version, CPUs and memory, the number of applications and running containers, and the state of the reverse proxy:
@@ -140,13 +140,13 @@ The command first checks that the agent is reachable. That check needs no token,
 | `unreachable`, with an error | The agent cannot reach Caddy's admin endpoint |
 | `not configured` | `SHIPWICK_CADDY_ADMIN` is not set on the agent. Domains are recorded but not served |
 
-If a command fails with "The agent does not know this operation", the agent is probably older than your `deployctl`. Compare the two versions here.
+If a command fails with "The agent does not know this operation", the agent is probably older than your `shipwick`. Compare the two versions here.
 
 ## Stop and start an application
 
 ```bash
-deployctl stop my-api
-deployctl start my-api
+shipwick stop my-api
+shipwick start my-api
 ```
 
 ```text
@@ -154,12 +154,12 @@ deployctl start my-api
 ✓ Started my-api (2/2 replicas running)
 ```
 
-A stopped application stays stopped until you start it or deploy it again; the supervisor does not restart it. While it is stopped, its domain answers `503` rather than timing out, and keeps its certificate. `start` reports how many replicas are running; whether they are healthy is not known yet, so check with `deployctl status`.
+A stopped application stays stopped until you start it or deploy it again; the supervisor does not restart it. While it is stopped, its domain answers `503` rather than timing out, and keeps its certificate. `start` reports how many replicas are running; whether they are healthy is not known yet, so check with `shipwick status`.
 
 ## Delete an application
 
 ```bash
-deployctl delete my-api
+shipwick delete my-api
 ```
 
 `delete` removes the application, its containers and its deployment history from the server. There is nothing to roll back to afterwards.
@@ -169,4 +169,4 @@ It always wants the name spelled out and never reads it from `deploy.yaml`, so t
 ## What's next
 
 - The same information is in the [dashboard](/docs/tasks/dashboard), with CPU and memory updating live.
-- All flags are in the [deployctl reference](/docs/reference/deployctl).
+- All flags are in the [shipwick reference](/docs/reference/cli).

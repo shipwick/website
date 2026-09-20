@@ -5,7 +5,7 @@ description: Reference of the Shipwick agent's REST API, covering authentication
 
 # REST API
 
-The agent serves a JSON REST API. `deployctl` and the dashboard are clients of it and have no private channel: anything they do can be done with `curl`. This page covers authentication, the envelopes, error codes, every endpoint, the asynchronous deployment pattern, log streaming, and the types.
+The agent serves a JSON REST API. `shipwick` and the dashboard are clients of it and have no private channel: anything they do can be done with `curl`. This page covers authentication, the envelopes, error codes, every endpoint, the asynchronous deployment pattern, log streaming, and the types.
 
 ## Basics
 
@@ -102,7 +102,7 @@ In every path, `:name` must be a valid application name (lowercase letters, digi
 
 ### GET /health
 
-Liveness, for load balancers and `deployctl server status`. The only unauthenticated endpoint. It reveals nothing beyond the version.
+Liveness, for load balancers and `shipwick server status`. The only unauthenticated endpoint. It reveals nothing beyond the version.
 
 | Status | Body |
 |---|---|
@@ -370,7 +370,7 @@ Do not stop at the first settled status:
 
 `completed_at` is stamped after cleanup and after the application's lock is released. From that moment a new operation on the application is guaranteed not to be rejected as busy.
 
-`deployctl` polls every 500 milliseconds. While a deployment is in flight, the application's `deploying` is `true` and `in_flight_deployment_id` names it, which lets a client follow a deployment that was started elsewhere.
+`shipwick` polls every 500 milliseconds. While a deployment is in flight, the application's `deploying` is `true` and `in_flight_deployment_id` names it, which lets a client follow a deployment that was started elsewhere.
 
 ### Deployment events
 

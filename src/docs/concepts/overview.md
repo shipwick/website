@@ -10,7 +10,7 @@ Shipwick is one long-running process per server, the agent, plus clients that ta
 ## Components
 
 ```text
-                 deployctl / dashboard
+                 shipwick / dashboard
                           │  HTTP + bearer token
                           ▼
                     Shipwick Agent
@@ -26,7 +26,7 @@ Shipwick is one long-running process per server, the agent, plus clients that ta
 | Component | Role |
 |---|---|
 | Agent (`shipwick-agent`) | The only stateful part of Shipwick. Runs deployments, supervises replicas, keeps the proxy configuration in line with what is running, and serves the REST API. |
-| `deployctl` | Command-line client. Validates `deploy.yaml` locally, submits it, waits for the result. |
+| `shipwick` | Command-line client. Validates `deploy.yaml` locally, submits it, waits for the result. |
 | Dashboard | Web client. Its own server holds the session and relays requests to the agent. It has no database and no state of its own. |
 | Caddy | Reverse proxy in front of the applications. Terminates TLS, obtains and renews certificates, balances across replicas. |
 | Docker | The container runtime. The agent uses the Docker daemon that is already on the server. |
@@ -36,9 +36,9 @@ There is no control plane, no cluster and no external database. The installer se
 
 ## How the components talk
 
-**Clients to agent.** `deployctl` and the dashboard use the same REST API under `/api/v1`. Every endpoint except `GET /api/v1/health` requires `Authorization: Bearer <token>`. There is one token per agent. The API is plain HTTP and listens on `127.0.0.1:9000` by default; it is meant to be reached through Caddy over HTTPS, through an SSH tunnel, or over a private network. See the [REST API reference](/docs/reference/api) and [Security](/docs/security).
+**Clients to agent.** `shipwick` and the dashboard use the same REST API under `/api/v1`. Every endpoint except `GET /api/v1/health` requires `Authorization: Bearer <token>`. There is one token per agent. The API is plain HTTP and listens on `127.0.0.1:9000` by default; it is meant to be reached through Caddy over HTTPS, through an SSH tunnel, or over a private network. See the [REST API reference](/docs/reference/api) and [Security](/docs/security).
 
-**Browser to dashboard to agent.** The browser talks only to the dashboard's own server. That server keeps the token in an `httpOnly` cookie and relays requests to the agent with the `Authorization` header added. The browser never holds the token and never contacts the agent, so the agent needs no CORS support. Anything the dashboard does, `deployctl` and `curl` can do too.
+**Browser to dashboard to agent.** The browser talks only to the dashboard's own server. That server keeps the token in an `httpOnly` cookie and relays requests to the agent with the `Authorization` header added. The browser never holds the token and never contacts the agent, so the agent needs no CORS support. Anything the dashboard does, `shipwick` and `curl` can do too.
 
 **Agent to Docker.** The agent talks to the Docker Engine API directly through the Docker socket. It never runs the `docker` command line or any shell. The standard `DOCKER_HOST` and `DOCKER_CONFIG` variables are honored.
 
@@ -50,7 +50,7 @@ There is no control plane, no cluster and no external database. The installer se
 
 `POST /api/v1/applications/:name/deploy` takes the `deploy.yaml` document itself as the request body. JSON works too, since YAML subsumes it.
 
-One parser and one validator serve both `deployctl` and the agent, so error messages are identical on both sides. The agent validates again regardless of what the client did: client-side validation is a convenience, not a trust boundary.
+One parser and one validator serve both `shipwick` and the agent, so error messages are identical on both sides. The agent validates again regardless of what the client did: client-side validation is a convenience, not a trust boundary.
 
 ## What the agent owns
 

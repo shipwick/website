@@ -1,14 +1,14 @@
 ---
-title: deployctl
-description: Complete reference of the deployctl command-line client, covering how it finds the agent, its configuration file and environment variables, exit codes, and every command with its flags.
+title: shipwick CLI
+description: Complete reference of the shipwick command-line client, covering how it finds the agent, its configuration file and environment variables, exit codes, and every command with its flags.
 ---
 
-# deployctl
+# shipwick CLI
 
-`deployctl` is the command-line client of a Shipwick agent. This page describes how it finds the agent and its token, its configuration file, environment variables and exit codes, and then every command with its flags.
+`shipwick` is the command-line client of a Shipwick agent. This page describes how it finds the agent and its token, its configuration file, environment variables and exit codes, and then every command with its flags.
 
 ```text
-deployctl [command] [flags]
+shipwick [command] [flags]
 ```
 
 | Command | |
@@ -34,7 +34,7 @@ deployctl [command] [flags]
 | Flag | |
 |---|---|
 | `--url <url>` | Agent URL. Overrides `SHIPWICK_AGENT_URL` and the saved configuration. |
-| `--version` | Print the version of `deployctl`. |
+| `--version` | Print the version of `shipwick`. |
 | `-h`, `--help` | Help for any command. |
 
 ### How the agent is found
@@ -45,18 +45,18 @@ The URL and the token are resolved separately, highest precedence first:
 |---|---|---|
 | 1. Flag | `--url` | Never a flag |
 | 2. Environment | `SHIPWICK_AGENT_URL` | `SHIPWICK_AGENT_TOKEN` |
-| 3. Saved by `deployctl login` | yes | yes |
+| 3. Saved by `shipwick login` | yes | yes |
 | 4. Default | `http://127.0.0.1:9000` | |
 
 There is deliberately no `--token` flag. Command-line arguments are visible to every user on the machine through `ps`, and are kept in shell history.
 
-**The saved token belongs to the saved URL.** If `--url` or `SHIPWICK_AGENT_URL` points `deployctl` at a different agent than the saved one, the saved token is not sent there. A token from `SHIPWICK_AGENT_TOKEN` is always used.
+**The saved token belongs to the saved URL.** If `--url` or `SHIPWICK_AGENT_URL` points `shipwick` at a different agent than the saved one, the saved token is not sent there. A token from `SHIPWICK_AGENT_TOKEN` is always used.
 
 The URL must be an `http://` or `https://` URL with a host. The default, `http://127.0.0.1:9000`, suits both an agent on the same machine and one reached through an SSH tunnel:
 
 ```bash
 ssh -N -L 9000:127.0.0.1:9000 user@server &
-deployctl login
+shipwick login
 ```
 
 In CI, no login is needed:
@@ -64,14 +64,14 @@ In CI, no login is needed:
 ```bash
 export SHIPWICK_AGENT_URL=https://agent.example.com
 export SHIPWICK_AGENT_TOKEN=…
-deployctl deploy --image ghcr.io/company/my-api:$GIT_SHA
+shipwick deploy --image ghcr.io/company/my-api:$GIT_SHA
 ```
 
-`deployctl` warns on standard error whenever a token is about to travel over plain HTTP to anything other than the local machine (`localhost` or a loopback address).
+`shipwick` warns on standard error whenever a token is about to travel over plain HTTP to anything other than the local machine (`localhost` or a loopback address).
 
 ### Configuration file
 
-`deployctl login` writes the file; nothing else does.
+`shipwick login` writes the file; nothing else does.
 
 | | |
 |---|---|
@@ -113,14 +113,14 @@ This makes `deploy`, `redeploy` and `rollback` usable as a CI gate.
 
 ### Timeouts
 
-Regular requests time out after 90 seconds. The limit is sized for the slowest regular call: stopping an application waits for every replica's graceful shutdown. Log streams have no timeout. While waiting for a deployment, `deployctl` polls the agent every 500 milliseconds and rides out up to 20 consecutive connection failures, such as an agent restart or a network blip, before it gives up.
+Regular requests time out after 90 seconds. The limit is sized for the slowest regular call: stopping an application waits for every replica's graceful shutdown. Log streams have no timeout. While waiting for a deployment, `shipwick` polls the agent every 500 milliseconds and rides out up to 20 consecutive connection failures, such as an agent restart or a network blip, before it gives up.
 
 ## init
 
 Create a `deploy.yaml` in the current directory.
 
 ```text
-deployctl init [flags]
+shipwick init [flags]
 ```
 
 | Flag | Default | |
@@ -139,7 +139,7 @@ The default name is derived from the current directory's name: lowercased, with 
 The answers become live settings. Everything else is written as commented-out examples:
 
 ```bash
-deployctl init --name my-api --image ghcr.io/company/my-api:1.0.0 --port 8080
+shipwick init --name my-api --image ghcr.io/company/my-api:1.0.0 --port 8080
 ```
 
 ```yaml
@@ -182,7 +182,7 @@ restart:
 Check `deploy.yaml` without deploying. Runs offline, and prints the configuration as it will be applied, defaults included.
 
 ```text
-deployctl validate [flags]
+shipwick validate [flags]
 ```
 
 | Flag | Default | |
@@ -211,7 +211,7 @@ Environment values are not printed, only their count. An invalid file prints the
 Deploy the application described by `deploy.yaml` and wait for the result.
 
 ```text
-deployctl deploy [flags]
+shipwick deploy [flags]
 ```
 
 | Flag | Default | |
@@ -243,7 +243,7 @@ Behavior:
 - The file is validated locally before anything is sent. The agent validates it again.
 - **`deploy` waits for `completed_at`**, not for the first `ACTIVE`. When it returns, the next operation on the application is guaranteed not to be rejected as busy.
 - `--image` edits the YAML document in memory. The agent still receives one plain `deploy.yaml`, and the file on disk is untouched. This is the form for CI: keep `deploy.yaml` in the repository and pass the image that was just built.
-- **Ctrl+C stops the waiting, not the deployment.** The deployment continues on the server; follow it with `deployctl status`.
+- **Ctrl+C stops the waiting, not the deployment.** The deployment continues on the server; follow it with `shipwick status`.
 - With `--no-wait`, the command prints `Deployment #N started` and exits with `0` without knowing the outcome.
 - In a terminal, a transient progress line shows what the agent is busy with: pulling the image, starting containers, checking health, switching over, retiring the previous version.
 
@@ -276,7 +276,7 @@ See [Deployments](/docs/concepts/deployments) and [Deploy from CI](/docs/tasks/d
 Deploy the running configuration again, optionally with another image.
 
 ```text
-deployctl redeploy [app] [flags]
+shipwick redeploy [app] [flags]
 ```
 
 | Flag | Default | |
@@ -294,13 +294,13 @@ The result is an ordinary deployment, followed and reported like `deploy`. The a
 Go back to an earlier successful deployment.
 
 ```text
-deployctl rollback [app] [flags]
+shipwick rollback [app] [flags]
 ```
 
 | Flag | Default | |
 |---|---|---|
 | `-f`, `--file <path>` | `deploy.yaml` | Configuration file used to find the application name when `[app]` is omitted |
-| `--to <n>` | the previous successful deployment | Deployment number to go back to, as shown by `deployctl status` |
+| `--to <n>` | the previous successful deployment | Deployment number to go back to, as shown by `shipwick status` |
 | `--no-wait` | | Start the rollback and return immediately |
 
 ```text
@@ -313,7 +313,7 @@ Rolling back my-api to 1.4.1  (deployment #3)...
 
 A rollback is an ordinary deployment of the configuration that was stored with the earlier deployment: image, environment, replicas, everything. It is rolled out replica by replica, health-checked, and recorded as a new entry in the history. Nothing is rewritten.
 
-`deployctl` resolves the target itself from the application's history (the newest 500 deployments), so that what it announces is exactly what it requests. Only deployments with the status `SUPERSEDED` qualify:
+`shipwick` resolves the target itself from the application's history (the newest 500 deployments), so that what it announces is exactly what it requests. Only deployments with the status `SUPERSEDED` qualify:
 
 | Situation | Message |
 |---|---|
@@ -329,7 +329,7 @@ See [Rollback](/docs/concepts/rollback) and [Roll back and redeploy](/docs/tasks
 Show the state of an application: its version, resource usage, replicas, recent deployments and recent supervisor events.
 
 ```text
-deployctl status [app] [flags]
+shipwick status [app] [flags]
 ```
 
 | Flag | Default | |
@@ -370,17 +370,17 @@ See [See what is running](/docs/tasks/inspect-and-logs).
 List the applications on the server.
 
 ```text
-deployctl ps
+shipwick ps
 ```
 
-Columns: `NAME`, `STATUS`, `VERSION`, `REPLICAS` (healthy/desired), `DOMAIN`, `UPDATED`. `(deploying)` is appended to the status while a deployment is in flight. With no applications, the command prints `No applications yet. Deploy one with: deployctl deploy`.
+Columns: `NAME`, `STATUS`, `VERSION`, `REPLICAS` (healthy/desired), `DOMAIN`, `UPDATED`. `(deploying)` is appended to the status while a deployment is in flight. With no applications, the command prints `No applications yet. Deploy one with: shipwick deploy`.
 
 ## logs
 
 Show the logs of an application, merged across its replicas.
 
 ```text
-deployctl logs [app] [flags]
+shipwick logs [app] [flags]
 ```
 
 | Flag | Default | |
@@ -400,7 +400,7 @@ deployctl logs [app] [flags]
 Stop an application. It stays stopped until it is started or deployed again.
 
 ```text
-deployctl stop [app] [flags]
+shipwick stop [app] [flags]
 ```
 
 | Flag | Default | |
@@ -414,7 +414,7 @@ The application is taken out of the proxy's rotation first, then every replica i
 Start a stopped application.
 
 ```text
-deployctl start [app] [flags]
+shipwick start [app] [flags]
 ```
 
 | Flag | Default | |
@@ -430,7 +430,7 @@ If a container of the application no longer exists, `start` fails and says to de
 Remove an application, its containers and its deployment history from the server.
 
 ```text
-deployctl delete <app> [flags]
+shipwick delete <app> [flags]
 ```
 
 | Flag | |
@@ -446,7 +446,7 @@ Deletion cannot be undone. The history goes with the application, and with it ev
 Show whether the agent is reachable, and what it runs on.
 
 ```text
-deployctl server status
+shipwick server status
 ```
 
 The command first calls the health endpoint, which needs no token. This separates "cannot reach the agent" from "reached it, but the token is wrong". It then prints:
@@ -454,7 +454,7 @@ The command first calls the health endpoint, which needs no token. This separate
 | Line | |
 |---|---|
 | `Agent` | The agent's version |
-| `CLI` | The version of `deployctl` |
+| `CLI` | The version of `shipwick` |
 | `Host` | The server's hostname |
 | `OS` | Operating system, architecture and kernel |
 | `Docker` | Docker version |
@@ -470,7 +470,7 @@ If the token is rejected, the agent's version is still shown before the error.
 Save the agent URL and API token for later commands.
 
 ```text
-deployctl login [flags]
+shipwick login [flags]
 ```
 
 | Flag | |
@@ -478,7 +478,7 @@ deployctl login [flags]
 | `--token-stdin` | Read the token from standard input |
 
 ```text
-$ deployctl login --url https://agent.example.com
+$ shipwick login --url https://agent.example.com
 API token:
 ✓ Logged in to https://agent.example.com (my-server, agent v0.1.0)
   saved to /home/me/.config/shipwick/config.yaml
@@ -490,24 +490,24 @@ API token:
 - Outside a terminal, `--token-stdin` is required. At most 4096 bytes are read, and surrounding whitespace is trimmed.
 
 ```bash
-printf %s "$TOKEN" | deployctl login --url https://agent.example.com --token-stdin
+printf %s "$TOKEN" | shipwick login --url https://agent.example.com --token-stdin
 ```
 
 CI jobs usually need no login at all: set `SHIPWICK_AGENT_URL` and `SHIPWICK_AGENT_TOKEN` instead.
 
 ## Error messages
 
-`deployctl` translates the agent's error codes into messages with a next step:
+`shipwick` translates the agent's error codes into messages with a next step:
 
 | Situation | Message |
 |---|---|
 | The agent cannot be reached | `cannot reach the Shipwick agent at <url>`, the cause, and a hint to open an SSH tunnel or to set `--url` / `SHIPWICK_AGENT_URL` |
-| `UNAUTHORIZED` | `The agent rejected the API token.` Set `SHIPWICK_AGENT_TOKEN`, or run `deployctl login` |
-| `DEPLOYMENT_IN_PROGRESS` | `Another operation is already in progress for this application.` Watch it with `deployctl status` |
-| `NOT_FOUND` | `The server does not know that application.` List what it runs with `deployctl ps` |
-| `NOT_DEPLOYED` | `This application has no successful deployment yet.` Deploy it with `deployctl deploy` |
+| `UNAUTHORIZED` | `The agent rejected the API token.` Set `SHIPWICK_AGENT_TOKEN`, or run `shipwick login` |
+| `DEPLOYMENT_IN_PROGRESS` | `Another operation is already in progress for this application.` Watch it with `shipwick status` |
+| `NOT_FOUND` | `The server does not know that application.` List what it runs with `shipwick ps` |
+| `NOT_DEPLOYED` | `This application has no successful deployment yet.` Deploy it with `shipwick deploy` |
 | `NO_ROLLBACK_TARGET` | `There is no earlier successful deployment to go back to.` |
-| `ENDPOINT_NOT_FOUND` | `The agent does not know this operation — it is probably older than this deployctl.` Compare versions with `deployctl server status` |
+| `ENDPOINT_NOT_FOUND` | `The agent does not know this operation — it is probably older than this shipwick.` Compare versions with `shipwick server status` |
 | `INVALID_CONFIG` | The field-by-field validation report |
 | Any other API error | `Error: <message>` |
 

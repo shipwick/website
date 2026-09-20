@@ -33,7 +33,7 @@ A rollback changes no deployment pointers. The database never stops calling the 
 
 The events of the restore are recorded with the failed deployment. The previous deployment's record is immutable and is not touched.
 
-`deployctl` reports the outcome and what is running now:
+`shipwick` reports the outcome and what is running now:
 
 ```text
 ✗ Deployment failed and was rolled back
@@ -48,8 +48,8 @@ Through the API, `ROLLED_BACK` means that part of the previous version had alrea
 ## Rollback on request
 
 ```bash
-deployctl rollback            # to the most recent earlier successful deployment
-deployctl rollback --to 3     # to deployment #3, as numbered by `deployctl status`
+shipwick rollback            # to the most recent earlier successful deployment
+shipwick rollback --to 3     # to deployment #3, as numbered by `shipwick status`
 ```
 
 A rollback is not a special mechanism. It is a deployment whose configuration comes from the history instead of from a file, and it goes through the same engine as any other deployment: rolled out replica by replica, health-checked, without downtime.
@@ -66,7 +66,7 @@ Rolling back my-api to 1.4.1  (deployment #3)...
 
 **The configuration is resolved under the application's lock.** "The active deployment" is still the active deployment when the new record is created.
 
-`deployctl redeploy` is the same idea applied to the running configuration: deploy it again, optionally with another image, without needing the `deploy.yaml` at hand. See [Roll back and redeploy](/docs/tasks/roll-back).
+`shipwick redeploy` is the same idea applied to the running configuration: deploy it again, optionally with another image, without needing the `deploy.yaml` at hand. See [Roll back and redeploy](/docs/tasks/roll-back).
 
 ## Which deployments can be targets
 
@@ -84,7 +84,7 @@ A rollback creates a new deployment record with the next sequence number. Its `k
 
 Rolling back from #5 to the configuration of #3 produces deployment #6. Deployment #5 becomes `SUPERSEDED` and is itself a valid target from then on.
 
-`deployctl status` shows the origin of each entry in the `VIA` column.
+`shipwick status` shows the origin of each entry in the `VIA` column.
 
 ## When a rollback fails
 
@@ -96,11 +96,11 @@ Rolling back from #5 to the configuration of #3 produces deployment #6. Deployme
 - removes the new replicas, including those that were still serving;
 - hands routing back to the database, which still names the previous deployment as the active one.
 
-From there the supervisor's reconciliation keeps trying to recreate the missing replicas of the previous deployment, on the same backoff schedule as restarts. The application may be `DEGRADED` or `DOWN` in the meantime. `deployctl` says what is true at that moment instead of assuming the usual outcome:
+From there the supervisor's reconciliation keeps trying to recreate the missing replicas of the previous deployment, on the same backoff schedule as restarts. The application may be `DEGRADED` or `DOWN` in the meantime. `shipwick` says what is true at that moment instead of assuming the usual outcome:
 
 ```text
 my-api is running 1.4.1, but it is DEGRADED right now (1/2 replicas healthy). Shipwick keeps trying to restore it:
-  deployctl status my-api
+  shipwick status my-api
 ```
 
 If the image of the previous version has been pruned from the server since it was deployed, recreating a replica pulls it again first.
