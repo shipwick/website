@@ -1,0 +1,15 @@
+{
+  "name": "shipwick-website",
+  "private": true,
+  "type": "module",
+  "description": "shipwick.com: the Shipwick website and documentation",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "vitepress dev src",
+    "build": "vitepress build src",
+    "preview": "vitepress preview src"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}
