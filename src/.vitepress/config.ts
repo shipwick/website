@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitepress'
 
+const site = 'https://shipwick.com'
 const repo = 'https://github.com/shipwick/shipwick'
 
 export default defineConfig({
@@ -9,15 +10,31 @@ export default defineConfig({
   description: 'Production deployments, without Kubernetes. Shipwick runs your Docker applications on your own server: health checks, zero-downtime deploys, rollbacks, resource limits and HTTPS, from one small config file.',
 
   cleanUrls: true,
-  sitemap: { hostname: 'https://shipwick.com' },
+  sitemap: { hostname: site },
 
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: 'Shipwick' }],
-    ['meta', { property: 'og:title', content: 'Shipwick: production deployments, without Kubernetes' }],
-    ['meta', { property: 'og:url', content: 'https://shipwick.com' }],
+    ['meta', { property: 'og:image', content: `${site}/og.png` }],
+    ['meta', { property: 'og:image:width', content: '1280' }],
+    ['meta', { property: 'og:image:height', content: '640' }],
+    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
   ],
+
+  // What a link preview shows is the page that was shared, not the home page:
+  // title, description and address are written per page.
+  transformHead({ pageData, title, description }) {
+    if (pageData.isNotFound) return []
+    const path = pageData.relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')
+    const url = `${site}/${path}`
+    return [
+      ['link', { rel: 'canonical', href: url }],
+      ['meta', { property: 'og:url', content: url }],
+      ['meta', { property: 'og:title', content: title }],
+      ['meta', { property: 'og:description', content: description }],
+    ]
+  },
 
   themeConfig: {
     logo: { light: '/logo-light.svg', dark: '/logo-dark.svg', alt: '' },
