@@ -14,7 +14,7 @@ You need:
 - A Linux server, and root on it.
 - Docker, installed and running, with the Compose plugin. The installer does not install Docker; that decision belongs to the server's owner. If Docker is missing, the installer stops and points you to `curl -fsSL https://get.docker.com | sh`.
 - `curl` or `wget`.
-- Ports 80 and 443 free on the server and reachable from the internet. Automatic HTTPS depends on them.
+- Ports 80 and 443 free on the server and reachable from the internet. Automatic HTTPS depends on them, so Shipwick cannot share a server with another web server, reverse proxy or deployment platform that holds them. The installer checks this first and changes nothing if a port is taken.
 - Optionally, two DNS names that point at the server: one for the API, one for the dashboard. Every application you give a `domain` later needs a DNS record too.
 
 ## Run the installer
