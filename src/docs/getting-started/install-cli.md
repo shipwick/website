@@ -9,7 +9,17 @@ description: Install the Shipwick command-line client on a laptop or in CI, and 
 
 The server installer already puts `shipwick` on the server. You only need this page for other machines.
 
-## Linux and macOS
+## Homebrew
+
+On macOS and Linux:
+
+```bash
+brew install shipwick/tap/shipwick
+```
+
+Upgrade with `brew upgrade shipwick`. Completions for bash, zsh and fish are installed along with it. The formula installs the same binaries as the installer below, verified against the same checksums; it lives in [shipwick/homebrew-tap](https://github.com/shipwick/homebrew-tap) and follows new releases within a day.
+
+## The installer
 
 ```bash
 curl -fsSL https://get.shipwick.com | sh -s -- --cli

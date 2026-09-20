@@ -154,6 +154,8 @@ This sets up the agent, Caddy and the dashboard, and prints the API token once. 
 curl -fsSL https://get.shipwick.com | sh -s -- --cli
 ```
 
+Or with Homebrew: `brew install shipwick/tap/shipwick`.
+
 Everything the installer downloads comes from one release and is verified against its checksums. The agent holds the Docker socket, so its token is as valuable as root SSH access to the server: read [Security](/docs/security) before you put it on the internet.
 
 <div class="next">
