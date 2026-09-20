@@ -43,7 +43,7 @@ export default defineConfig({
       { text: 'Documentation', link: '/docs/', activeMatch: '^/docs/(?!reference/)' },
       { text: 'Reference', link: '/docs/reference/deploy-yaml', activeMatch: '^/docs/reference/' },
       {
-        text: 'v0.1.0',
+        text: 'v0.1.1',
         items: [
           { text: 'Changelog', link: `${repo}/blob/main/CHANGELOG.md` },
           { text: 'Releases', link: `${repo}/releases` },

@@ -158,7 +158,7 @@ my-api is still running 1.4.1; the failed deployment did not affect it.
 
 **After some replicas were replaced.** Old replicas are retired before the commit, so a failure half-way leaves the previous version incomplete. The retired replicas are recreated from the previous deployment's stored configuration and verified, traffic returns to them, and the deployment ends as `ROLLED_BACK`. The new replicas that were already serving keep serving until the restored ones are ready, so capacity does not dip twice. See [Rollback](/docs/concepts/rollback).
 
-Measured on a real server stack under constant load: a rolling redeploy of 3 replicas answered 100 of 100 requests with `200`, with 3 to 4 containers throughout. A rollout sabotaged at its second replica was rolled back, and 76 of 76 requests were answered with `200`.
+Measured over loopback under constant load: a rolling redeploy of 3 replicas answered 100 of 100 requests with `200`, with 3 to 4 containers throughout. A rollout sabotaged at its second replica was rolled back, and 76 of 76 requests were answered with `200`. No request that is being served is lost. Over a real network, a connection that is being established at the instant the proxy is reloaded can be reset: see [What a deployment costs](/docs/concepts/routing-and-https#what-a-deployment-costs).
 
 ### Agent restarts during a deployment
 

@@ -29,7 +29,7 @@ Caddy keeps certificates in its data volume (`caddy-data` in the production comp
 
 ## The agent owns the configuration
 
-The agent owns Caddy's configuration entirely. On every routing change it renders the complete Caddy JSON from the desired routes and sends it to the admin API's `/load` endpoint, which Caddy applies gracefully: connections are not dropped. There is no patching of individual configuration paths, hence no half-applied state and no drift. The same routes always produce the same bytes.
+The agent owns Caddy's configuration entirely. On every routing change it renders the complete Caddy JSON from the desired routes and sends it to the admin API's `/load` endpoint, which replaces Caddy's servers without interrupting the requests they are serving (connections that are only being established at that instant are another matter: see [What a deployment costs](#what-a-deployment-costs)). There is no patching of individual configuration paths, hence no half-applied state and no drift. The same routes always produce the same bytes.
 
 ```text
 desired routes = for every application with a domain:
@@ -91,9 +91,17 @@ An explicit `503` is generated because Caddy's own answer to a route without ups
 
 `stop` follows the same order as a rollout, in reverse: routing goes to "no upstreams" first and the containers receive `SIGTERM` second, so no request is cut off mid-flight.
 
-## What a crash costs
+## What a deployment costs
 
-Planned changes are lossless. Measured under constant load: 100 of 100 requests answered `200` through a rolling redeploy, and 76 of 76 through a rollout that failed half-way and was rolled back.
+A planned change loses no request that is being served. Over loopback, under constant load: 100 of 100 requests answered `200` through a rolling redeploy, and 76 of 76 through a rollout that failed half-way and was rolled back.
+
+Over a real network that is not the whole story. Every change of routing is one reload of Caddy's configuration, and Caddy resets connections that are being *established* at that instant: a TLS handshake in progress, a first request not yet read. The client sees a connection error, never an error status.
+
+Measured from 100 ms away, with a new connection for every request, which is the worst case: through two minutes of back-to-back rolling redeploys, 5 of 233 requests were lost, every one of them at a reload. Over loopback a connection is established in a millisecond, which is why the same test loses none there.
+
+Established connections are not affected, so browsers and clients that keep connections open rarely notice. If a client of yours opens a connection per request, give it a retry on connection errors. This is Caddy's behavior on any configuration reload, in every version from 2.7 to 2.11, and its `grace_period` and `shutdown_delay` settings do not change it. A rollout costs one reload per replica replaced. Rollouts that do not reload the proxy at all are at the top of the [roadmap](https://github.com/shipwick/shipwick#14-roadmap).
+
+## What a crash costs
 
 An unplanned change is not lossless, and cannot quite be:
 
