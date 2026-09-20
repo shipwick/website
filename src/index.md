@@ -1,7 +1,7 @@
 ---
 layout: home
-title: Production deployments, without Kubernetes
-titleTemplate: Shipwick
+title: Shipwick
+titleTemplate: ':title · Production deployments, without Kubernetes'
 
 hero:
   name: Shipwick
