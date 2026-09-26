@@ -137,6 +137,8 @@ Status, the active configuration with environment values masked, the active depl
 
 Starts a deployment. The body **is** the `deploy.yaml` document. JSON is accepted as well. The maximum size is 64 KB. `name` in the document must equal `:name`. An application is created by its first deployment.
 
+The agent expects a complete document. `${NAME}` placeholders are a convention of `shipwick`, which fills them in before sending; submitted here, they are stored literally.
+
 ```bash
 curl -X POST http://localhost:9000/api/v1/applications/my-api/deploy \
   -H "Authorization: Bearer $SHIPWICK_AGENT_TOKEN" \
@@ -211,7 +213,7 @@ Redeploy and rollback answer exactly like `deploy` because both are deployments.
 
 ### POST /applications/:name/stop
 
-Stops all replicas of the active deployment. The application stays stopped (`desired_state: "stopped"`) until it is started or deployed again. Routing goes to "no upstreams" first, so the domain answers `503`, and the containers receive `SIGTERM` second, with `SIGKILL` after 10 seconds. The request returns when the replicas have stopped.
+Stops all replicas of the active deployment. The application stays stopped (`desired_state: "stopped"`) until it is started or deployed again. The route goes to a static `503` first, so the domain answers `503`, and the containers receive `SIGTERM` second, with `SIGKILL` after 10 seconds; their names on the services network go with them. The request returns when the replicas have stopped.
 
 | Status | Body |
 |---|---|

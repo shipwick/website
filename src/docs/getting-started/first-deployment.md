@@ -49,8 +49,10 @@ domain: api.example.com
 
 replicas: 1
 
+# ${NAME} is filled in from the environment or --env-file when you deploy,
+# so that secrets never have to be in this file.
 # env:
-#   DATABASE_URL: postgres://user:password@host:5432/db
+#   DATABASE_URL: postgres://app:${DATABASE_PASSWORD}@postgres:5432/app
 
 # A replica receives traffic only once this endpoint answers 2xx.
 # health:
@@ -64,11 +66,19 @@ replicas: 1
 #   cpu: 1
 #   memory: 512mb
 
+# Data that must outlive deployments (a database): named volumes, which
+# need replicas: 1 and the recreate strategy.
+# volumes:
+#   - name: data
+#     path: /var/lib/postgresql/data
+# deploy:
+#   strategy: recreate # rolling (default) | recreate
+
 restart:
   policy: always # always | on-failure | never
 ```
 
-Only `name` and `image` are required. The image's tag becomes the deployment's version, so pin a version tag rather than `latest`.
+Only `name` and `image` are required. The image's tag becomes the deployment's version, so pin a version tag rather than `latest`. A value that must not be in the file, such as a password, is written as `${NAME}` and filled in by `shipwick` from its environment or an `--env-file` when you deploy.
 
 For this walk-through, set `replicas: 2` and uncomment the `health` block. Two replicas make the rolling update visible, and a health check is what lets Shipwick tell a working version from a broken one. Without a `health` block, a deployment only verifies that replicas start and stay up for a few seconds.
 

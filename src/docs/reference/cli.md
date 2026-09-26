@@ -14,8 +14,8 @@ shipwick [command] [flags]
 | Command | |
 |---|---|
 | [`init`](#init) | Create a `deploy.yaml` in the current directory |
-| [`validate`](#validate) | Check `deploy.yaml` without deploying |
-| [`deploy`](#deploy) | Deploy the application described by `deploy.yaml` |
+| [`validate`](#validate) | Check `deploy.yaml` without deploying, placeholders filled in |
+| [`deploy`](#deploy) | Deploy the application described by `deploy.yaml`, or several applications in order |
 | [`redeploy`](#redeploy) | Deploy the running configuration again, optionally with another image |
 | [`rollback`](#rollback) | Go back to an earlier successful deployment |
 | [`status`](#status) | Show the state of an application |
@@ -94,7 +94,32 @@ A missing file is an empty configuration, not an error.
 
 ### Which application a command targets
 
-Commands that take `[app]` use the application named in `./deploy.yaml` when no argument is given. `-f` / `--file` selects another file. `delete` is the deliberate exception: it always wants the name spelled out. For `logs`, `-f` means `--follow`, and the file is selected with `--file` only.
+Commands that take `[app]` use the application named in `./deploy.yaml` when no argument is given. `-f` / `--file` selects another file. `delete` is the deliberate exception: it always wants the name spelled out. For `logs`, `-f` means `--follow`, and the file is selected with `--file` only. For `deploy` and `validate`, `-f` can be repeated to name several files.
+
+### Placeholders
+
+A `deploy.yaml` may refer to values it must not contain, such as passwords and API keys, as `${NAME}`. `deploy` and `validate` fill them in before the file is validated or sent, so that the agent receives a complete document and secrets stay out of the file and the repository.
+
+| Rule | |
+|---|---|
+| Form | Only `${NAME}` is recognized, where `NAME` is letters, digits and underscores, not starting with a digit. A bare `$NAME` is left alone. |
+| Literal | `$${NAME}` yields a literal `${NAME}`. |
+| Where | Placeholders are replaced in values only. A `${NAME}` in a comment or in a key is not a reference. |
+| Sources | The process environment first, then the files given with `--env-file`, later files overriding earlier ones. A variable set in the environment wins over the same name in a file, so a CI secret can override what a checked-in file says. |
+| Unset | A name that is set nowhere is an error, never an empty value: `deploy.yaml: refers to ${DATABASE_PASSWORD}, which is not set`, followed by `Set it in the environment, or in a file given with --env-file.` Nothing is sent. |
+| Types | The value stays the string you wrote: a number or a boolean written through a placeholder is not reinterpreted by YAML. |
+
+An `--env-file` is a `NAME=value` file:
+
+```text
+# Comments and blank lines are ignored.
+DATABASE_PASSWORD=s3cret
+export API_KEY="quoted values lose their quotes"
+```
+
+One `NAME=value` per line; a leading `export ` and surrounding single or double quotes around the value are stripped. A line that is not `NAME=value` is an error: `.env.production:3: expected NAME=value`.
+
+`deploy` and `validate` report how many placeholders were filled in, never the values: `✓ Validated deploy.yaml (2 variables substituted)`. The agent stores the filled-in document; see [Security](/docs/security).
 
 ### Output
 
@@ -156,8 +181,10 @@ port: 8080
 
 replicas: 1
 
+# ${NAME} is filled in from the environment or --env-file when you deploy,
+# so that secrets never have to be in this file.
 # env:
-#   DATABASE_URL: postgres://user:password@host:5432/db
+#   DATABASE_URL: postgres://app:${DATABASE_PASSWORD}@postgres:5432/app
 
 # A replica receives traffic only once this endpoint answers 2xx.
 # health:
@@ -171,6 +198,14 @@ replicas: 1
 #   cpu: 1
 #   memory: 512mb
 
+# Data that must outlive deployments (a database): named volumes, which
+# need replicas: 1 and the recreate strategy.
+# volumes:
+#   - name: data
+#     path: /var/lib/postgresql/data
+# deploy:
+#   strategy: recreate # rolling (default) | recreate
+
 restart:
   policy: always # always | on-failure | never
 ```
@@ -179,7 +214,7 @@ restart:
 
 ## validate
 
-Check `deploy.yaml` without deploying. Runs offline, and prints the configuration as it will be applied, defaults included.
+Check `deploy.yaml` without deploying. The file is read, its `${NAME}` placeholders are filled in from the environment and `--env-file`, and it is validated exactly as the agent would validate it. Runs offline, and prints the configuration as it will be applied, defaults included.
 
 ```text
 shipwick validate [flags]
@@ -187,10 +222,11 @@ shipwick validate [flags]
 
 | Flag | Default | |
 |---|---|---|
-| `-f`, `--file <path>` | `deploy.yaml` | Path of the deployment configuration |
+| `-f`, `--file <path>` | `deploy.yaml` | Path to a deployment config; repeat for several applications |
+| `--env-file <path>` | | `NAME=value` file for `${NAME}` placeholders; repeat for several |
 
 ```text
-✓ deploy.yaml is valid
+✓ deploy.yaml is valid (1 variable substituted)
 
 Name           my-api
 Image          ghcr.io/company/my-api:1.4.2
@@ -204,11 +240,11 @@ Restart        always
 Environment    2 variables
 ```
 
-Environment values are not printed, only their count. An invalid file prints the validation report and exits with `1`.
+The first line is `<file> is valid`, with `(N variables substituted)` when placeholders were filled in. Environment values are not printed, only their count. A `Volume` line per volume (`data at /var/lib/postgresql/data`) and a `Strategy` line appear when the file sets them; `Strategy` is omitted for the default, `rolling`. With several files, each is validated and described in turn. An invalid file, or an unset placeholder, prints the report and exits with `1`. See [Placeholders](#placeholders).
 
 ## deploy
 
-Deploy the application described by `deploy.yaml` and wait for the result.
+Deploy the application described by `deploy.yaml` and wait for the result. With several `-f`, deploy several applications in order.
 
 ```text
 shipwick deploy [flags]
@@ -216,8 +252,9 @@ shipwick deploy [flags]
 
 | Flag | Default | |
 |---|---|---|
-| `-f`, `--file <path>` | `deploy.yaml` | Path of the deployment configuration |
-| `--image <ref>` | | Deploy this image instead of the one in the configuration |
+| `-f`, `--file <path>` | `deploy.yaml` | Path to a deployment config; repeat for several applications |
+| `--env-file <path>` | | `NAME=value` file for `${NAME}` placeholders; repeat for several |
+| `--image <ref>` | | Deploy this image instead of the one in the configuration. One application only. |
 | `--no-wait` | | Start the deployment and return immediately |
 
 ```text
@@ -240,7 +277,7 @@ https://api.example.com
 
 Behavior:
 
-- The file is validated locally before anything is sent. The agent validates it again.
+- The file is read, its `${NAME}` placeholders are filled in from the environment and `--env-file`, and it is validated locally before anything is sent. The agent validates it again. See [Placeholders](#placeholders).
 - **`deploy` waits for `completed_at`**, not for the first `ACTIVE`. When it returns, the next operation on the application is guaranteed not to be rejected as busy.
 - `--image` edits the YAML document in memory. The agent still receives one plain `deploy.yaml`, and the file on disk is untouched. This is the form for CI: keep `deploy.yaml` in the repository and pass the image that was just built.
 - **Ctrl+C stops the waiting, not the deployment.** The deployment continues on the server; follow it with `shipwick status`.
@@ -268,6 +305,20 @@ The last line depends on the outcome:
 | `ROLLED_BACK` | Headline `Deployment failed and was rolled back`, then `my-api is running 1.4.1 again: the replicas that had already been replaced were restored.` |
 | The previous version is not fully healthy afterwards | `my-api is running 1.4.1, but it is DEGRADED right now (1/2 replicas healthy). Shipwick keeps trying to restore it:` |
 | Nothing was deployed before | `my-api has no running version.` |
+
+### Several applications
+
+`-f` repeated deploys several applications, in the order given, one after the other:
+
+```bash
+shipwick deploy -f api/deploy.yaml -f worker/deploy.yaml --env-file .env.production
+```
+
+- Every file is read and validated before the first deployment starts, so that a mistake in the third does not leave the first two half done.
+- Each application is deployed and waited for like a single one, with its own `Deploying <name>...` block.
+- The command stops at the first failure: what comes later usually depends on what came before. It then prints `Stopped at worker: 1 of 3 applications deployed.` and exits with `1`. The applications already deployed stay deployed.
+- When every deployment succeeds, the last line is `3 of 3 applications deployed.`
+- `--image` applies to one application. With several files it is refused: `--image applies to one application; deploy several with one deploy.yaml each and no --image`.
 
 See [Deployments](/docs/concepts/deployments) and [Deploy from CI](/docs/tasks/deploy-from-ci).
 

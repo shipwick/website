@@ -79,6 +79,8 @@ How to do one specific thing.
 - [Inspect applications and read logs](/docs/tasks/inspect-and-logs)
 - [Use the dashboard](/docs/tasks/dashboard)
 - [Pull from private registries](/docs/tasks/private-registries)
+- [Call one application from another](/docs/tasks/call-another-application)
+- [Run a database or other stateful application](/docs/tasks/stateful-applications)
 - [Upgrade Shipwick](/docs/tasks/upgrade)
 - [Reach the API without a hostname](/docs/tasks/access-without-a-hostname)
 

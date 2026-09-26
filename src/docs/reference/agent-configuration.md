@@ -14,7 +14,7 @@ The agent is configured through `SHIPWICK_*` environment variables only. It has 
 | [`SHIPWICK_AGENT_TOKEN`](#api-token) | generated | The API bearer token. At least 16 characters. |
 | `SHIPWICK_LISTEN_ADDR` | `127.0.0.1:9000` | Address the API listens on. Loopback by default, on purpose. The agent image sets it to `0.0.0.0:9000`. |
 | [`SHIPWICK_DATA_DIR`](#data-directory) | `/var/lib/shipwick` on Linux | Directory for the SQLite database and the token hash. |
-| `SHIPWICK_DOCKER_NETWORK` | `shipwick` | Docker bridge network that application containers join. Created if it does not exist. |
+| `SHIPWICK_DOCKER_NETWORK` | `shipwick` | Docker bridge network that application containers join. A second one, `<network>-services`, is derived from it: application containers join it too and carry their application's names on it while they are ready, and Caddy finds them there. Both are created if they do not exist. |
 | [`SHIPWICK_CADDY_ADMIN`](#shipwick-caddy-admin) | none | Caddy's admin endpoint. Unset: domains are recorded but not served. |
 | `SHIPWICK_AGENT_DOMAIN` | none | Serve the agent's API over HTTPS at this hostname, through Caddy. Requires `SHIPWICK_CADDY_ADMIN`. |
 | `SHIPWICK_DASHBOARD_DOMAIN` | none | Serve the dashboard over HTTPS at this hostname, through Caddy. Requires `SHIPWICK_CADDY_ADMIN`. Must differ from `SHIPWICK_AGENT_DOMAIN`. |
@@ -112,7 +112,7 @@ Any other arguments are an error. The agent has no flags.
 
 ## Startup and shutdown
 
-At startup the agent opens the database, connects to Docker, ensures the application network exists and joins it if the agent runs in a container, reconciles interrupted deployments and leftover containers, syncs the proxy, starts the supervisor, and then serves the API. Startup work is bounded by 30 seconds. If Docker is unreachable, the agent exits with an error. If Caddy is unreachable, it logs the error and keeps retrying in the background.
+At startup the agent opens the database, connects to Docker, ensures the two application networks exist and joins the first if the agent runs in a container, reconciles interrupted deployments and leftover containers, syncs the proxy, starts the supervisor, and then serves the API. Startup work is bounded by 30 seconds. If Docker is unreachable, the agent exits with an error. If Caddy is unreachable, it logs the error and keeps retrying in the background.
 
 On `SIGINT` or `SIGTERM` the agent shuts down gracefully within 30 seconds. A second signal kills it immediately. See [Architecture](/docs/concepts/overview#agent-restarts-and-crashes).
 
@@ -143,7 +143,7 @@ The file fixes the rest of the agent's configuration:
 | Dashboard's `SHIPWICK_AGENT_URL` | `http://agent:9000` |
 | Agent port | Not published. The only ways in are Caddy and the server itself. |
 | Caddy | `caddy:2-alpine`, started with a bootstrap configuration that contains only the admin socket. The agent loads the real configuration. |
-| Network | One network named `shipwick`, shared by all three services and by application containers |
+| Networks | `shipwick`, shared by all three services and by application containers, and `shipwick-services`, joined by Caddy and by application containers, where Caddy finds an application's replicas by its name |
 | Restart policy | `unless-stopped` for all three services |
 
 Volumes:

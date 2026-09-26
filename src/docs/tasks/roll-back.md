@@ -71,7 +71,7 @@ A rollback is not a special mechanism. It is an ordinary deployment whose config
 - **History is appended to, never rewritten.** A rollback is a new deployment record with a new number. It is marked `rollback` in the `VIA` column of `shipwick status` and points at the deployment it re-used.
 - **Your `deploy.yaml` is not changed.** If the file in your repository still describes the version you rolled back from, the next `shipwick deploy` deploys that version again.
 
-Because both versions serve side by side for a moment during any rollout, the old version must be able to run next to the new one — for example, against the database schema the new version left behind.
+Because both versions serve side by side for a moment during a rolling rollout, the old version must be able to run next to the new one — for example, against the database schema the new version left behind. An application with `deploy.strategy: recreate` is rolled back the way it is deployed: the running version is stopped first, then the earlier one is started, and the application is down in between. Its volumes are untouched. See [Rollback](/docs/concepts/rollback#rolling-back-a-recreate-deployment).
 
 ## Deploy the running configuration again
 

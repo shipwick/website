@@ -83,6 +83,8 @@ export default defineConfig({
             { text: 'See what is running', link: '/docs/tasks/inspect-and-logs' },
             { text: 'Use the dashboard', link: '/docs/tasks/dashboard' },
             { text: 'Pull from private registries', link: '/docs/tasks/private-registries' },
+            { text: 'Call one application from another', link: '/docs/tasks/call-another-application' },
+            { text: 'Run a stateful application', link: '/docs/tasks/stateful-applications' },
             { text: 'Upgrade Shipwick', link: '/docs/tasks/upgrade' },
             { text: 'Reach the API without a hostname', link: '/docs/tasks/access-without-a-hostname' },
           ],

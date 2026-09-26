@@ -1,6 +1,6 @@
 ---
 title: Deployments
-description: How a deployment moves through its state machine, how replicas are replaced one at a time, when a deployment is done, and what happens when it fails.
+description: How a deployment moves through its state machine, how replicas are replaced one at a time or recreated, when a deployment is done, and what happens when it fails.
 ---
 
 # Deployments
@@ -42,7 +42,7 @@ PENDING → BUILDING → STARTING → HEALTH_CHECKING → HEALTHY → ACTIVE →
 |---|---|
 | `PENDING` | The record exists and the application's lock is held. The API has answered `202 Accepted`. |
 | `BUILDING` | The image is pulled. Shipwick does not build images; this state covers obtaining one. If the pull fails but the image exists locally, the local copy is used and a warning is recorded. |
-| `STARTING` | The network is ensured. The first new replica is created, recorded and started. On a first deployment, all replicas are. |
+| `STARTING` | The networks are ensured. The first new replica is created, recorded and started. On a first deployment, and under `recreate`, all replicas are. |
 | `HEALTH_CHECKING` | Every new replica must prove it is ready before it takes traffic. With a `health` block it must answer its check once within `interval × retries`, probed every second. Without one it must stay running through a 3 second stabilization window. A replica that exits fails the deployment at once. Replicas are replaced one at a time during this state. |
 | `HEALTHY` | Every replica has been replaced and serves. |
 | `ACTIVE` | The commit point. One database transaction promotes the deployment, marks the previous one `SUPERSEDED` and repoints the application. A final sweep then removes any container of the application that does not belong to the new deployment. |
@@ -56,7 +56,7 @@ Illegal transitions are rejected by the engine, and every transition is a compar
 
 ## Rolling replacement
 
-Deployments are rolling. Replicas are replaced one at a time:
+Deployments are rolling by default (`deploy.strategy: rolling`). Replicas are replaced one at a time:
 
 ```text
 for every replica i:
@@ -80,11 +80,11 @@ v1.4.1  ├── replica 1 ──▶ v1.4.2 replica 1 starts ─▶ healthy ─
 
 A new replica joins the rotation only after it is ready. At each swap the order is fixed:
 
-1. The new replica is added to the application's route and its predecessor is removed from it.
-2. The proxy configuration is loaded.
-3. Only then is the predecessor stopped: `SIGTERM`, and `SIGKILL` after a 10 second grace period.
+1. The new replica is given the application's names on the services network. The proxy and the other applications find it at their next lookup.
+2. The rollout waits 1.5 seconds, so that the proxy's next lookup has found the newcomer.
+3. Only then is the predecessor stopped: `SIGTERM`, and `SIGKILL` after a 10 second grace period. It keeps its names until it stops; stopping is what takes it out of Docker's DNS.
 
-An old replica is therefore out of rotation before it receives its signal, and planned changes do not drop requests. If the proxy cannot be updated, the deployment fails at that swap, before the predecessor is touched.
+The proxy's configuration is not loaded at a swap. It names the application, not its replicas, and changes only when a domain or a port does. If Docker or the proxy cannot be updated, the deployment fails at that swap, before the predecessor is touched.
 
 During a rollout no single deployment record describes who serves ("new 1, old 2, old 3"), and the database still names the old deployment as active. The rollout therefore dictates the application's routing until it commits or fails. At the commit the database says the same thing the rollout did; on failure, routing follows the database back to the previous deployment. See [Routing and HTTPS](/docs/concepts/routing-and-https).
 
@@ -109,6 +109,37 @@ step   Routed https://api.example.com to 2 replicas   (only with a domain)
 state  ACTIVE
 step   Deployment successful
 ```
+
+## Recreate
+
+`deploy.strategy: recreate` is for the application that cannot run twice: anything with a volume, or that holds a lock or a port it cannot share. A database, above all. Applications with `volumes` must use it; an application without volumes may.
+
+```yaml
+deploy:
+  strategy: recreate
+```
+
+The same rollout runs it with three differences:
+
+1. **The old version is stopped first.** After the image is pulled, the running version is taken out of the proxy and stopped, one replica at a time, gracefully. The containers are kept, not removed. The events say why: `Stopped 1.4.1: 1.4.2 cannot run next to it`.
+2. **All new replicas start as one batch**, since nothing runs that they could disturb. They are verified like any new replica, against the health check or the stabilization window, and then given the application's names. The stopped containers of the old version are removed at that point.
+3. **A failure is undone by starting the old containers again.** See [Rollback](/docs/concepts/rollback#rolling-back-a-recreate-deployment).
+
+The application is down from the stop to the moment the new version is ready: its domain answers `503`, its name on the services network is carried by nobody, and `shipwick status` reads `DOWN`. The downtime is the new version's start time, plus what it takes to verify it. With a `health` block that is until the first passing probe; without one, the 3 second stabilization window.
+
+```text
+Deploying postgres...
+
+✓ Validated deploy.yaml (1 variable substituted)
+✓ Pulled image postgres:17.1
+✓ Stopped 17: 17.1 cannot run next to it
+✓ Started 1 container
+✓ Replica 1 running and stable
+✓ Replica 1/1 is serving 17.1; its 17 predecessor is retired
+✓ Deployment successful
+```
+
+Volumes without `recreate`, or with more than one replica, are refused by validation: two versions writing the same files at once is how data gets lost. See [Run a database or other stateful application](/docs/tasks/stateful-applications).
 
 ## When a deployment is done
 
@@ -158,7 +189,9 @@ my-api is still running 1.4.1; the failed deployment did not affect it.
 
 **After some replicas were replaced.** Old replicas are retired before the commit, so a failure half-way leaves the previous version incomplete. The retired replicas are recreated from the previous deployment's stored configuration and verified, traffic returns to them, and the deployment ends as `ROLLED_BACK`. The new replicas that were already serving keep serving until the restored ones are ready, so capacity does not dip twice. See [Rollback](/docs/concepts/rollback).
 
-Measured over loopback under constant load: a rolling redeploy of 3 replicas answered 100 of 100 requests with `200`, with 3 to 4 containers throughout. A rollout sabotaged at its second replica was rolled back, and 76 of 76 requests were answered with `200`. No request that is being served is lost. Over a real network, a connection that is being established at the instant the proxy is reloaded can be reset: see [What a deployment costs](/docs/concepts/routing-and-https#what-a-deployment-costs).
+Measured under constant load: a rolling redeploy of 3 replicas answered 100 of 100 requests with `200`, with 3 to 4 containers throughout. A rollout sabotaged at its second replica was rolled back, and 76 of 76 requests were answered with `200`. A rollout does not reload the proxy, so this holds over a real network too: with a new connection per request, 12 clients and 50 ms of added latency, 18 consecutive rolling redeploys answered 15,774 of 15,774 requests. See [What a deployment costs](/docs/concepts/routing-and-https#what-a-deployment-costs).
+
+**Under `recreate`.** The old version has been stopped by the time a new replica can fail, so the failure is always undone: the new containers are removed, the stopped containers are started again, and the deployment ends as `ROLLED_BACK`. See [Rollback](/docs/concepts/rollback#rolling-back-a-recreate-deployment).
 
 ### Agent restarts during a deployment
 

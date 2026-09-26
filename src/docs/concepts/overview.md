@@ -42,7 +42,9 @@ There is no control plane, no cluster and no external database. The installer se
 
 **Agent to Docker.** The agent talks to the Docker Engine API directly through the Docker socket. It never runs the `docker` command line or any shell. The standard `DOCKER_HOST` and `DOCKER_CONFIG` variables are honored.
 
-**Agent to Caddy.** The agent renders Caddy's complete JSON configuration and loads it through Caddy's admin API. In the standard installation the admin API is a unix socket in a volume that only the agent and Caddy share. See [Routing and HTTPS](/docs/concepts/routing-and-https).
+**Agent to Caddy.** The agent renders Caddy's complete JSON configuration and loads it through Caddy's admin API. In the standard installation the admin API is a unix socket in a volume that only the agent and Caddy share. The configuration says which name stands behind which domain; which replicas carry that name is decided on the services network, and Caddy asks Docker's DNS for it. See [Routing and HTTPS](/docs/concepts/routing-and-https).
+
+**Application to application.** Every application with a `port` is `http://<name>:<port>` for the other applications on the server, over the services network. No domain and no trip through the proxy. See [Call one application from another](/docs/tasks/call-another-application).
 
 **Agent to SQLite.** The agent opens the database file with a single connection, in WAL mode, with foreign keys on. The agent's write volume is small, and one connection rules out `SQLITE_BUSY` errors and lock-upgrade deadlocks by construction.
 
@@ -57,7 +59,8 @@ One parser and one validator serve both `shipwick` and the agent, so error messa
 - **The deployment lifecycle.** Every deployment is an immutable record that moves through a state machine. See [Deployments](/docs/concepts/deployments).
 - **Restarts.** Docker's own restart policy is set to `no` on every container. Restarts belong to the agent's supervisor, which adds backoff, health awareness and crash-loop detection. Two restart mechanisms would fight. See [Health checks and supervision](/docs/concepts/health-and-supervision).
 - **The replica count.** A replica whose container has disappeared is recreated from the stored configuration.
-- **Caddy's configuration, entirely.** The agent regenerates and reloads the full configuration whenever routing changes. Manual edits are overwritten.
+- **Caddy's configuration, entirely.** The agent regenerates and reloads the full configuration whenever a domain or a port changes. A rollout, a crash or a restart does not touch it. Manual edits are overwritten.
+- **The names on the services network.** A replica carries its application's names while it is ready, and the agent gives and takes them.
 - **The state.** The SQLite file is the record of what should be running.
 
 ## Containers
@@ -66,14 +69,15 @@ One parser and one validator serve both `shipwick` and the agent, so error messa
 |---|---|
 | Name | `shipwick_<app>_<deployment sequence>_<replica>`, for example `shipwick_my-api_7_1`. Names are for people reading `docker ps`. Application names cannot contain `_`, so the name parses unambiguously. |
 | Identity | Labels `com.shipwick.managed`, `com.shipwick.app`, `com.shipwick.deployment` and `com.shipwick.replica`. The agent finds its containers by label, never by name. |
-| Network | All application containers join one bridge network (`shipwick` by default), shared with the agent, for health probes, and with Caddy, for upstreams. |
+| Networks | Two bridge networks. `shipwick`: every replica, the agent, for health probes, and whatever you run beside Shipwick. `shipwick-services`: every replica and Caddy. A replica carries its application's names on the second one while it is ready: `<app>` and `<app>_<port>`. |
 | Ports | No host ports are published. There are no port conflicts between applications or replicas, and the proxy is the only way in. |
+| Volumes | `volumes` in `deploy.yaml` become named Docker volumes `shipwick_<app>_<volume>`, created with labels and mounted at the given path. They belong to the application: every deployment mounts the same ones, and nothing removes them, not a rollback, not `delete`. Never a host path. |
 | Restart policy | Docker's is `no`. The supervisor restarts replicas. |
 | Limits | `resources.cpu` becomes `NanoCPUs`. `resources.memory` becomes `Memory`, with `MemorySwap` set to the same value. See [Resource limits and metrics](/docs/concepts/resources). |
 | Hardening | Never privileged, `no-new-privileges`, no host mounts, no user-controlled command execution. |
 | Logs | The `json-file` driver, capped at 3 files of 10 MB per container, so a chatty application cannot fill the disk. |
 
-Upstreams in the proxy configuration are container names, not IP addresses. A restarted container may get a new address, and Docker's DNS on the shared network always knows the current one.
+The proxy configuration names no container and no address. It names `<app>_<port>`, and Caddy resolves that through Docker's DNS for every request. A replica takes the name when it is ready and loses it when it stops, so a replica can be replaced, crash or restart without the configuration changing. See [Routing and HTTPS](/docs/concepts/routing-and-https).
 
 ## What is stored
 
@@ -126,13 +130,11 @@ Out of scope, and likely to stay there:
 - Building images. The `BUILDING` state of a deployment covers obtaining an image, not building one.
 - Anything that requires an external database or queue.
 
-Not in 0.1.0:
+Not yet:
 
-- Encrypted secrets. Environment values are stored in plain text in the SQLite file.
-- Volumes. Containers get no host mounts, so stateful applications are not a fit yet.
-- A `recreate` deployment strategy for applications that cannot run two versions side by side. `rolling` is the only strategy.
+- Encrypted secrets. `${NAME}` keeps a secret out of `deploy.yaml`, but the value is stored in plain text in the SQLite file.
+- Host mounts. `volumes` are named Docker volumes; a path on the host cannot be mounted.
 - Registry credential helpers (`credsStore`). Only `auths` entries of the Docker configuration file are read. See [Pull from private registries](/docs/tasks/private-registries).
-- Internal service discovery between applications on the same server.
 - Custom Caddy directives per application, such as headers, redirects or basic authentication.
 - Several servers from one CLI configuration and one dashboard.
 - Users and roles. There is a single API token.

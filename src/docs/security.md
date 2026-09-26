@@ -52,6 +52,7 @@ On the server, open ports 80 and 443 and nothing else.
 
 - Tokens, `Authorization` headers, request bodies and environment values are never logged. The request log holds the method, path, status, duration and remote address.
 - Environment values are masked as `********` in every API response. Validation errors never echo a value.
+- `${NAME}` placeholders keep secrets out of `deploy.yaml` and out of your repository. `shipwick` fills them in from its environment or `--env-file` at deploy time, refuses to deploy while one is unset, and reports only how many were substituted, never the values.
 - API responses carry `Cache-Control: no-store`.
 
 ### No shell, anywhere
@@ -99,7 +100,7 @@ Everything the installer fetches comes from one release and is verified against 
 
 ## What Shipwick does not do yet
 
-- **Secrets are stored unencrypted.** Environment values are kept in plain text in the agent's SQLite file. Protect the data directory; it is created with mode `0700`. Anyone who can read it, or who has access to the Docker socket, can read every application's environment. Encrypted secrets are on the roadmap.
+- **Secrets are stored unencrypted.** `${NAME}` keeps a secret out of `deploy.yaml`, but the filled-in value is kept in plain text in the agent's SQLite file, with the rest of the environment. Protect the data directory; it is created with mode `0700`. Anyone who can read it, or who has access to the Docker socket, can read every application's environment. Encrypted secrets are on the roadmap.
 - **There is a single token**, not users and roles. Everyone who deploys shares one root-equivalent credential. Rotating it means setting a new `SHIPWICK_AGENT_TOKEN` and restarting the agent.
 - **The dashboard has no login rate limiting.** Put it in the reverse proxy if needed. The token is at least 16 characters.
 - **Registry credential helpers are not supported.** Private registry credentials are read from the `auths` entries of the Docker configuration file on the server, where they are stored base64-encoded, not encrypted.

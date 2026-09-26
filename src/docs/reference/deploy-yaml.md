@@ -1,11 +1,11 @@
 ---
 title: deploy.yaml
-description: Complete reference of the deploy.yaml file, with every field, its type, default and validation rules, the units it accepts, and the format of validation errors.
+description: Complete reference of the deploy.yaml file, with every field, its type, default and validation rules, the units it accepts, ${NAME} placeholders, and the format of validation errors.
 ---
 
 # deploy.yaml
 
-`deploy.yaml` describes one application: its image and how to run it. This page lists every field with its type, default and validation rules, the units used for sizes and durations, and the error format that `shipwick` and the API produce.
+`deploy.yaml` describes one application: its image and how to run it. This page lists every field with its type, default and validation rules, the units used for sizes and durations, how `${NAME}` placeholders are filled in, and the error format that `shipwick` and the API produce.
 
 ## The file
 
@@ -22,9 +22,20 @@ replicas: 2
 - One file describes one application. A file with several YAML documents is rejected.
 - The maximum size is 64 KB.
 - **Unknown fields are errors.** A misspelled key is reported, not ignored.
-- `shipwick` looks for `deploy.yaml` in the current directory; `-f` / `--file` selects another file. `shipwick init` writes a starter file, and `shipwick validate` checks a file offline and prints it as it will be applied, defaults included.
+- `shipwick` looks for `deploy.yaml` in the current directory; `-f` / `--file` selects another file, and can be repeated to deploy several applications. `shipwick init` writes a starter file, and `shipwick validate` checks a file offline and prints it as it will be applied, defaults included.
 
 The same parser and validator run in `shipwick` and in the agent. The agent validates every submitted document again, whatever the client did.
+
+### Placeholders
+
+A value may refer to something the file must not contain, such as a password, as `${NAME}`:
+
+```yaml
+env:
+  DATABASE_URL: postgres://app:${DATABASE_PASSWORD}@postgres:5432/app
+```
+
+`shipwick` replaces every `${NAME}` before the file is validated or sent, from its own environment or from a file given with `--env-file`. A name that is set nowhere is an error, never an empty value. The agent receives a complete document with nothing left to resolve; through the API, a placeholder is stored literally. The rules are in the [CLI reference](/docs/reference/cli#placeholders).
 
 ## Fields
 
@@ -42,24 +53,29 @@ The same parser and validator run in `shipwick` and in the agent. The agent vali
 | [`health.retries`](#health) | integer | no | `3` |
 | [`resources.cpu`](#resources) | number | no | unlimited |
 | [`resources.memory`](#resources) | size | no | unlimited |
+| [`volumes[].name`](#volumes) | string | with `volumes` | |
+| [`volumes[].path`](#volumes) | string | with `volumes` | |
 | [`restart.policy`](#restart) | string | no | `always` |
 | [`deploy.strategy`](#deploy) | string | no | `rolling` |
 
 ### name
 
-Identifies the application on the server. It appears in container names, Docker labels, API URLs and the proxy configuration, so the alphabet is deliberately strict.
+Identifies the application on the server. It appears in container names, Docker labels, API URLs and the proxy configuration, and it is the hostname under which other applications on the server reach this one, so the alphabet is deliberately strict.
 
 | | |
 |---|---|
 | Type | string |
 | Required | yes |
 | Rule | A DNS label: lowercase letters, digits and dashes; must start and end with a letter or digit; 1 to 63 characters. Pattern: `^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$` |
+| Reserved | `agent`, `caddy`, `dashboard` and `localhost` cannot be application names. They belong to Shipwick's own containers on the network the applications share. |
 
 ```yaml
 name: my-api
 ```
 
 Underscores are not allowed. Container names have the form `shipwick_<name>_<deployment>_<replica>` and rely on that.
+
+Other applications on the server reach this one at `http://<name>:<port>`, where `port` is the one in this file. See [Call one application from another](/docs/tasks/call-another-application).
 
 When deploying through the API, the name in the document must match the name in the URL.
 
@@ -91,7 +107,7 @@ Pin a version tag. Deployments are recorded, and rolled back, by it.
 
 ### port
 
-The port the application listens on inside the container. It is never published on the host; the reverse proxy and the health check reach it over the private network.
+The port the application listens on inside the container. It is never published on the host; the reverse proxy, the health check and the other applications on the server reach it over the private networks.
 
 | | |
 |---|---|
@@ -102,6 +118,8 @@ The port the application listens on inside the container. It is never published 
 ```yaml
 port: 8080
 ```
+
+An application without a `port` gets no name on the services network, so other applications cannot call it.
 
 ### domain
 
@@ -120,6 +138,8 @@ domain: api.example.com
 
 A domain can belong to one application only. A deployment that claims a domain already served by another application, by the agent's API or by the dashboard is refused with a `domain` error before anything is started.
 
+An application that is only called by other applications on the server needs no domain.
+
 ### replicas
 
 The number of identical containers to run.
@@ -128,7 +148,7 @@ The number of identical containers to run.
 |---|---|
 | Type | integer |
 | Default | `1` |
-| Rule | 1 to 50 |
+| Rule | 1 to 50. Must be `1` when `volumes` is set. |
 
 ```yaml
 replicas: 2
@@ -147,14 +167,16 @@ Environment variables passed to every replica.
 
 ```yaml
 env:
-  DATABASE_URL: postgres://user:password@db.internal:5432/app
+  DATABASE_URL: postgres://app:${DATABASE_PASSWORD}@postgres:5432/app
   LOG_LEVEL: info
 ```
 
 Values are stored on the server with the deployment. They are never logged and never echoed in validation errors. In every API response they are masked as `********`; the names are kept.
 
+A value that must not be in the file is written as a [placeholder](#placeholders), `${DATABASE_PASSWORD}` above, and filled in by `shipwick` when you deploy.
+
 ::: warning Values are not encrypted at rest
-Environment values are stored in plain text in the agent's SQLite file. Protect the agent's data directory. See [Security](/docs/security).
+Environment values are stored in plain text in the agent's SQLite file, placeholders filled in. Protect the agent's data directory. See [Security](/docs/security).
 :::
 
 ### health
@@ -203,6 +225,50 @@ resources:
 
 Memory is a hard cap: swap does not extend it, and a container exceeding it is killed.
 
+### volumes
+
+Named Docker volumes mounted into the replica, for data that must outlive deployments: a database, above all. See [Run a database or other stateful application](/docs/tasks/stateful-applications).
+
+| Field | Type | Rule |
+|---|---|---|
+| `volumes[].name` | string | Required. Same rule as `name`: lowercase letters, digits and dashes, starting and ending with a letter or digit, 1 to 63 characters. Unique within the file. |
+| `volumes[].path` | string | Required. An absolute, clean path inside the container: starts with `/`, is not `/` itself, contains no `.` or `..` segments, no doubled or trailing slashes, and no NUL, CR or LF. Leading and trailing whitespace is trimmed. Unique within the file. |
+
+At most 10 volumes per application. `volumes` requires `deploy.strategy: recreate` and `replicas: 1`.
+
+```yaml
+name: postgres
+image: postgres:17
+port: 5432
+replicas: 1
+env:
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+volumes:
+  - name: data
+    path: /var/lib/postgresql/data
+deploy:
+  strategy: recreate
+```
+
+On the server the volume is the Docker volume `shipwick_<name>_<volume>`: `shipwick_postgres_data` here. It belongs to the application, not to a deployment: every deployment mounts the same volumes, and nothing removes them — not a redeploy, not a rollback, not `shipwick delete`. `docker volume rm` on the server removes one when you mean it.
+
+Volumes are named volumes only. A path on the host cannot be mounted.
+
+Two versions writing the same files at once is how data gets lost, which is why the strategy and the replica count are checked:
+
+```text
+invalid deploy.yaml
+
+deploy.strategy:
+  must be "recreate" for an application with volumes: two versions cannot write the same files at once
+  expected: deploy:
+    strategy: recreate
+
+replicas:
+  must be 1 for an application with volumes, got 2: replicas cannot share a volume
+  expected: 1
+```
+
 ### restart
 
 What the supervisor does when a replica exits or turns unhealthy.
@@ -228,14 +294,19 @@ Restarts back off: 1s, 2s, 5s, 10s, 30s, then every 5 minutes.
 
 | Field | Type | Default | Rule |
 |---|---|---|---|
-| `deploy.strategy` | string | `rolling` | `rolling` is the only accepted value. |
+| `deploy.strategy` | string | `rolling` | One of `rolling`, `recreate`. Must be `recreate` when `volumes` is set. |
+
+| Value | Behavior |
+|---|---|
+| `rolling` | Replicas are replaced one at a time, each new one only after it proved healthy. The application keeps serving throughout, and both versions serve side by side for a moment. |
+| `recreate` | The running version is taken out of the proxy and stopped first, then the new one is started and verified. The application is down for as long as the new version takes to start. If the new version fails, the old containers, kept stopped, are started again. For applications whose two versions cannot run side by side: anything with a volume, or that holds a lock. |
 
 ```yaml
 deploy:
-  strategy: rolling
+  strategy: recreate
 ```
 
-Replicas are replaced one at a time. See [Deployments](/docs/concepts/deployments).
+See [Deployments](/docs/concepts/deployments).
 
 ## Units
 
@@ -276,24 +347,34 @@ resources.memory:
   expected: 128mb, 512mb, 1gb, ...
 ```
 
-Each entry names the field by its dotted path (`resources.memory`, `env.MY_VAR`), says what is wrong, and where possible lists what is expected.
+Each entry names the field by its dotted path (`resources.memory`, `env.MY_VAR`, `volumes[0].path`), says what is wrong, and where possible lists what is expected.
 
 Other forms the report takes:
 
 | Problem | Reported as |
 |---|---|
 | A required field is missing | `name:` / `is required` |
+| A reserved application name | `name:` / `"caddy" is reserved for Shipwick's own services` |
 | `port` missing while `domain` or `health` is set | `port:` / `is required when domain is set` |
 | An unknown field | `line 7:` / `unknown field "replica"` |
 | A value of the wrong YAML type | `line 3:` / `cannot unmarshal … into a number` |
 | A duration out of range | `health.interval:` / `invalid value "10m": out of range` |
 | An invalid environment variable name | `env.my-var:` / `invalid variable name` |
+| An unknown deployment strategy | `deploy.strategy:` / `invalid value "blue-green"`, expected `rolling, recreate` |
+| More than 10 volumes | `volumes:` / `too many (11)`, expected `at most 10` |
+| A volume name used twice | `volumes[1].name:` / `"data" is used twice` |
+| A volume path that is not absolute and clean | `volumes[0].path:` / `invalid value "data/"`, expected `an absolute path inside the container, e.g. /var/lib/postgresql/data` |
+| A volume path used twice | `volumes[1].path:` / `"/data" is mounted twice` |
+| Volumes without `recreate` | `deploy.strategy:` / `must be "recreate" for an application with volumes: two versions cannot write the same files at once` |
+| Volumes with more than one replica | `replicas:` / `must be 1 for an application with volumes, got 2: replicas cannot share a volume` |
 | An empty file | `deploy.yaml:` / `file is empty` |
 | Several YAML documents in one file | `deploy.yaml:` / `multiple YAML documents are not supported; describe one application per file` |
 | A file over 64 KB | `deploy.yaml:` / `file is too large (max 64 KB)` |
 | A domain in use | `domain:` / `already served by application "web"` |
 
 Unknown fields do not hide other mistakes: when they are the only syntax problem, the rest of the file is still validated and everything is reported together.
+
+An unset `${NAME}` is reported by `shipwick` before validation, since the document cannot be validated without it: `deploy.yaml: refers to ${DATABASE_PASSWORD}, which is not set`.
 
 The agent returns the same information in the API's error envelope, as `400 INVALID_CONFIG` with one object per problem in `details.fields`:
 
@@ -339,16 +420,18 @@ domain: api.example.com
 replicas: 2
 
 # Environment variables. Values are stored on the server, never logged, and
-# masked in API responses.
+# masked in API responses. ${NAME} is filled in by the CLI from its environment
+# or --env-file when you deploy, so that secrets never have to be in this file.
+# Other applications on the server are reached by name: postgres:5432.
 env:
-  DATABASE_URL: postgres://user:password@db.internal:5432/app
+  DATABASE_URL: postgres://app:${DATABASE_PASSWORD}@postgres:5432/app
   LOG_LEVEL: info
 
 # HTTP health check. A replica is healthy when `path` answers 2xx.
 #
 # Deploying: new replicas get interval × retries (30s here) to answer once;
 # if they never do, the deployment fails and the old version keeps running.
-# For a slow starter, raise retries.
+# Slow starter? Raise retries.
 #
 # Running: a replica that fails `retries` checks in a row is restarted.
 health:
@@ -370,4 +453,18 @@ restart:
 
 deploy:
   strategy: rolling
+
+# Data that must outlive deployments — a database. Named volumes belong to the
+# application and are kept across redeployments, rollbacks and delete. They
+# need replicas: 1 and the recreate strategy: two versions on one volume is
+# how data gets lost.
+# volumes:
+#   - name: data
+#     path: /var/lib/postgresql/data
+
+# rolling (default): replicas are replaced one at a time, the application keeps
+# serving. recreate: the running version is stopped before the new one starts;
+# required with volumes.
+# deploy:
+#   strategy: recreate
 ```

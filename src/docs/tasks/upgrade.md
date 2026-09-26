@@ -71,6 +71,10 @@ Supervision then resumes. The supervisor's state is held in memory, so every rep
 
 After a server reboot, the agent brings every application back up according to its restart policy.
 
+### Upgrading from 0.1 to 0.2
+
+0.2 changes how the proxy finds replicas: by a name on a second network instead of by container name. The upgrade recreates the Caddy container once, because it joins that network. Established connections through the proxy are cut at that moment; nothing else is, and applications keep running throughout. The replicas the new agent finds on startup are given their names before Caddy is told to look for them, and Caddy's configuration then changes once. See [Routing and HTTPS](/docs/concepts/routing-and-https).
+
 ## Upgrade the CLI elsewhere
 
 The server's copy of `shipwick` is upgraded with the server. On laptops and in CI, run the CLI installer again:

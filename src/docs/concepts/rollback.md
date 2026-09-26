@@ -45,6 +45,18 @@ my-api is running 1.4.1 again: the replicas that had already been replaced were 
 
 Through the API, `ROLLED_BACK` means that part of the previous version had already been replaced and was restored. `FAILED` means nothing of it was lost. In both cases `error` says why the deployment failed.
 
+## Rolling back a recreate deployment
+
+A [`recreate` deployment](/docs/concepts/deployments#recreate) stops the old version before the new one starts, and keeps its containers, stopped. A failure of the new version is undone in the reverse order:
+
+1. The new containers are removed first. They must be gone before the old version touches the volumes again.
+2. The stopped containers of the old version are started again, without their names, and verified against the previous deployment's own health check. They earn the names back once they are ready. The events say `Rolling back: starting 1.4.1 again`.
+3. The deployment ends as `ROLLED_BACK`: `Rolled back: my-api is running 1.4.1 again`.
+
+If the old containers had already been removed, which happens once the new version was ready and had taken over, new containers of the old version are created from the previous deployment's stored configuration instead. The volumes are still there; the old version finds its data in them.
+
+The application is down from the moment the old version was stopped until the restored one is ready. A recreate rollback that fails ends as `FAILED` with both causes in `error`, like an automatic rollback of a rolling deployment.
+
 ## Rollback on request
 
 ```bash
@@ -52,7 +64,7 @@ shipwick rollback            # to the most recent earlier successful deployment
 shipwick rollback --to 3     # to deployment #3, as numbered by `shipwick status`
 ```
 
-A rollback is not a special mechanism. It is a deployment whose configuration comes from the history instead of from a file, and it goes through the same engine as any other deployment: rolled out replica by replica, health-checked, without downtime.
+A rollback is not a special mechanism. It is a deployment whose configuration comes from the history instead of from a file, and it goes through the same engine as any other deployment: rolled out replica by replica, health-checked, without downtime. An application with `deploy.strategy: recreate` is rolled back the way it is deployed: the running version is stopped first, then the earlier one is started, and the application is down in between. Its volumes are the same ones; a rollback does not touch the data.
 
 ```text
 Rolling back my-api to 1.4.1  (deployment #3)...

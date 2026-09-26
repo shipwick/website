@@ -34,6 +34,40 @@ shipwick deploy --image ghcr.io/company/my-api:$GIT_SHA
 
 The override is applied to the YAML document in memory. The agent still receives one plain `deploy.yaml`, and the file on disk is untouched. The image's tag becomes the deployment's version, so tagging images with the commit SHA makes every entry in the history traceable to a commit.
 
+## Supply secrets with ${NAME}
+
+A value that must not be in the repository, such as a database password, is written as `${NAME}` in `deploy.yaml`:
+
+```yaml
+env:
+  DATABASE_URL: postgres://app:${DATABASE_PASSWORD}@postgres:5432/app
+```
+
+`shipwick deploy` fills it in before the file is validated or sent. In CI, the simplest source is the environment: expose the secret as a variable named like the placeholder, `DATABASE_PASSWORD` here, the same way the token is exposed. Alternatively, write a `NAME=value` file and pass it with `--env-file`:
+
+```bash
+shipwick deploy --image "ghcr.io/company/my-api:$GIT_SHA" --env-file .env.production
+```
+
+A variable set in the environment wins over the same name in an `--env-file`. A placeholder that is set nowhere fails the job before anything is sent: `deploy.yaml: refers to ${DATABASE_PASSWORD}, which is not set`. The value is never printed; the output says only `(1 variable substituted)`. The rules are in the [CLI reference](/docs/reference/cli#placeholders).
+
+## Deploy several applications
+
+`-f` repeated deploys several applications in order, one after the other, and stops at the first failure:
+
+```bash
+shipwick deploy -f api/deploy.yaml -f worker/deploy.yaml --env-file .env.production
+```
+
+Every file is validated before the first deployment starts. If one fails, the command prints `Stopped at worker: 1 of 2 applications deployed.` and exits with `1`; the applications already deployed stay deployed. On success the last line is `2 of 2 applications deployed.`
+
+`--image` applies to one application and is refused with several files. Pin the image of each application in its own `deploy.yaml` instead, or run one `deploy --image` per application:
+
+```bash
+shipwick deploy -f api/deploy.yaml --image "ghcr.io/company/api:$GIT_SHA"
+shipwick deploy -f worker/deploy.yaml --image "ghcr.io/company/worker:$GIT_SHA"
+```
+
 ## A generic pipeline step
 
 ```bash
