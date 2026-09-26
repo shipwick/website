@@ -46,7 +46,7 @@ Shipwick is not a smaller Kubernetes. It does not do multi-node scheduling, serv
 Shipwick is for one server. If you need to schedule workloads across a fleet of machines, you need Kubernetes.
 
 ::: info Status: 0.x
-The current version is 0.1.0. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) says so when it happens, and how to upgrade.
+The current version is 0.2.0. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) says so when it happens, and how to upgrade.
 :::
 
 ## How the documentation is organized

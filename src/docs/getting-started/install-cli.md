@@ -44,7 +44,7 @@ curl -fsSL https://get.shipwick.com | SHIPWICK_BIN_DIR="$HOME/.local/bin" sh -s 
 To install a specific version, set `SHIPWICK_VERSION`:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.1.0 sh -s -- --cli
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.2.0 sh -s -- --cli
 ```
 
 ## Windows

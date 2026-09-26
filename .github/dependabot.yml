@@ -1,0 +1,12 @@
+# Monthly, grouped: one pull request for the site's dependencies. VitePress
+# majors are left to a human.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: monthly }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      site: { patterns: ["*"] }

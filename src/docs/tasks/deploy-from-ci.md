@@ -75,7 +75,7 @@ shipwick deploy -f worker/deploy.yaml --image "ghcr.io/company/worker:$GIT_SHA"
 set -eu
 
 # Install shipwick. Pin the version so the pipeline does not change under you.
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.1.0 sh -s -- --cli
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.2.0 sh -s -- --cli
 
 # SHIPWICK_AGENT_URL and SHIPWICK_AGENT_TOKEN come from the CI system's
 # secret store, as environment variables.
@@ -101,7 +101,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install shipwick
-        run: curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.1.0 sh -s -- --cli
+        run: curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.2.0 sh -s -- --cli
 
       - name: Deploy
         run: shipwick deploy --image "ghcr.io/company/my-api:${{ github.sha }}"

@@ -116,7 +116,7 @@ If you skipped the API hostname, the API is not exposed at all. See [Reach the A
 Everything the installer fetches comes from one [release](https://github.com/shipwick/shipwick/releases) — never from a branch — and each file is verified against that release's checksums. By default that is the latest release. To choose one:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.1.0 sh
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.2.0 sh
 ```
 
 Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade).
