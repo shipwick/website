@@ -47,7 +47,7 @@ export default defineConfig({
         items: [
           { text: 'Changelog', link: `${repo}/blob/main/CHANGELOG.md` },
           { text: 'Releases', link: `${repo}/releases` },
-          { text: 'Roadmap', link: `${repo}#14-roadmap` },
+          { text: 'Roadmap', link: `${repo}/blob/main/ROADMAP.md` },
         ],
       },
     ],
