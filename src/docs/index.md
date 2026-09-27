@@ -7,6 +7,10 @@ description: What Shipwick is, who it is for, and how this documentation is orga
 
 Shipwick runs Docker applications on a single server: health checks, zero-downtime deployments, rollbacks, resource limits and HTTPS, from one small `deploy.yaml`. This page says what it is, what it is not, and where to find things.
 
+::: tip Start here
+New to Shipwick? Three pages take you from an empty server to a running application: [Install on a server](/docs/getting-started/install), [Install the CLI](/docs/getting-started/install-cli), [Your first deployment](/docs/getting-started/first-deployment). Everything else on this site is for when you want to know more.
+:::
+
 ## What Shipwick is
 
 Shipwick is a single agent that runs on your server and turns a `deploy.yaml` into running, supervised containers.

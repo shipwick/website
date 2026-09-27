@@ -152,3 +152,125 @@
 .home .columns > div > div[class*='language-'] {
   overflow-x: auto;
 }
+
+/* Hero image: the terminal screenshot, without the theme's glow. */
+.VPHome .VPHero .image-bg { display: none; }
+.VPHome .VPHero .image-container { transform: none; }
+.VPHome .VPHero .image-src {
+  position: static;
+  max-width: 100%;
+  max-height: none;
+  width: 100%;
+  transform: none;
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+}
+
+@media (min-width: 960px) {
+  .VPHome .VPHero .container { max-width: 1280px; }
+  .VPHome .VPHero .main { max-width: 560px; }
+  .VPHome .VPHero .image { max-width: 640px; }
+}
+
+/* Steps ------------------------------------------------------------------ */
+
+.home .steps {
+  display: grid;
+  gap: 20px;
+  margin-top: 28px;
+}
+
+@media (min-width: 860px) {
+  .home .steps { grid-template-columns: repeat(3, 1fr); }
+}
+
+.home .step {
+  position: relative;
+  min-width: 0;
+  padding: 22px 22px 8px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+}
+
+.home .step .num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 12px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.home .step .n1 { background: #0b62d6; }
+.home .step .n2 { background: #0f9f6e; }
+.home .step .n3 { background: #d97706; }
+
+.home .step h3 { margin-bottom: 6px; }
+.home .step p { font-size: 15px; margin-bottom: 14px; }
+.home .step div[class*='language-'] { margin: 0 0 14px; }
+
+/* Tiles ------------------------------------------------------------------ */
+
+.home .tiles {
+  display: grid;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+@media (min-width: 640px) {
+  .home .tiles { grid-template-columns: 1fr 1fr; }
+}
+
+@media (min-width: 960px) {
+  .home .tiles { grid-template-columns: repeat(3, 1fr); }
+}
+
+.home .tile {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+  border-top: 3px solid var(--tile);
+}
+
+.home .tile svg {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 12px;
+  fill: none;
+  stroke: var(--tile);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.home .tile p { margin: 0; font-size: 15px; }
+
+.home .t-blue   { --tile: #0b62d6; }
+.home .t-green  { --tile: #0f9f6e; }
+.home .t-amber  { --tile: #d97706; }
+.home .t-purple { --tile: #7c3aed; }
+.home .t-rose   { --tile: #db2777; }
+.home .t-teal   { --tile: #0891b2; }
+
+.dark .home .t-blue   { --tile: #5b9dff; }
+.dark .home .t-green  { --tile: #34d399; }
+.dark .home .t-amber  { --tile: #fbbf24; }
+.dark .home .t-purple { --tile: #a78bfa; }
+.dark .home .t-rose   { --tile: #f472b6; }
+.dark .home .t-teal   { --tile: #22d3ee; }
+
+/* Markdown wraps the links of a .next block in one paragraph. */
+.home .next p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin: 0;
+  max-width: none;
+}
