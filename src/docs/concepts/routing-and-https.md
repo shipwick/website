@@ -153,6 +153,20 @@ An unplanned change is not lossless, and cannot quite be:
 
 Everything after that goes to the surviving replicas.
 
+## DNS first
+
+A hostname is handed to Caddy only once it resolves to this server. Deploying before the DNS record exists is fine: the deployment succeeds, and instead of `Routed https://…` it prints a warning:
+
+```text
+! Routing https://api.example.com is waiting for DNS: does not resolve yet; it is served, and its certificate obtained, once the record points at this server
+```
+
+When the record points somewhere else, the reason reads `resolves to 104.21.5.6, not to this server (62.238.109.115)`. The agent looks the hostname up again every 10 seconds; as soon as the record is right, the hostname is served, the certificate is obtained, and the application's event feed says `api.example.com now points at this server and is being served`. Aliases and redirects are checked one by one; a domain that is not ready holds back its aliases and redirects with it, since the redirects point at the domain.
+
+The reason is Let's Encrypt's rate limit of five failed authorizations per hostname per hour. Caddy asks for a certificate the moment it hears of a hostname, and a hostname that does not resolve fails within seconds: deployed before its DNS, a domain would use up the five within minutes and stay without a certificate for the rest of the hour, however quickly the record was fixed.
+
+The agent learns the server's addresses from `SHIPWICK_AGENT_DOMAIN` and `SHIPWICK_DASHBOARD_DOMAIN` at startup. Without either, a hostname only has to resolve at all. The agent's and the dashboard's own hostnames are never held back: they are the operator's, not an application's, and holding them back could lock the operator out.
+
 ## One hostname, one application
 
 A hostname belongs to one application, in one role. A deployment that claims a hostname already in use, whether as its domain, an alias or a redirect, and whatever role the hostname has on the other side, is refused as a configuration error before anything is recorded, pulled or started. The error names the line of `deploy.yaml` to change:
