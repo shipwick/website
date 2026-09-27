@@ -15,8 +15,8 @@ Every attempt is recorded, whether it succeeds or not. A record holds:
 |---|---|
 | `id` | Identifier, unique on the server. This is what the API uses. |
 | `sequence` | Per-application counter: #1, #2, and so on. This is what `shipwick status` shows and what `shipwick rollback --to` takes. It is also part of the container names. |
-| `version` | Derived from the image reference: its tag, or a shortened digest, or `latest` when the reference has neither. |
-| `image` | The image reference. |
+| `version` | Derived from the image reference: its tag, or a shortened digest, or `latest` when the reference has neither. For an image built by `shipwick deploy`, the tag is the build's timestamp. For a static deployment, the first twelve characters of the folder's digest. |
+| `image` | The image reference. Empty for a static deployment, which has `static: {digest, size_bytes, files}` instead. |
 | `spec` | The complete configuration, as validated. Stored with the deployment and never changed afterwards. |
 | `status` | The current state of the state machine. |
 | `error` | Why the deployment failed, if it did. |
@@ -25,7 +25,7 @@ Every attempt is recorded, whether it succeeds or not. A record holds:
 | `by` | The name of the token that started it: `root` for the agent's own token, otherwise the token's name. Absent on deployments made before tokens had names. |
 | `started_at`, `completed_at` | When the record was created, and when the agent was done with it. |
 
-A deployment begins in one of three ways. `deploy` submits a `deploy.yaml`. `redeploy` takes the configuration of the active deployment, optionally with another image. `rollback` takes the configuration of an earlier successful deployment. All three resolve a configuration and hand it to the same entry point, so everything below applies to each of them. See [Rollback](/docs/concepts/rollback).
+A deployment begins in one of three ways. `deploy` submits a `deploy.yaml`. `redeploy` takes the configuration of the active deployment, optionally with another image. `rollback` takes the configuration of an earlier successful deployment. All three resolve a configuration and hand it to the same entry point, so everything below applies to each of them. See [Rollback](/docs/concepts/rollback). Where the image comes from is settled before any of this: a registry the agent pulls from, or the developer's machine, which builds it and sends it over first; see [Images built where you are](#images-built-where-you-are). A static application has no image at all; see [A folder instead of a container](#a-folder-instead-of-a-container).
 
 Before a record is created, the agent checks the application's hostnames and published ports. If another application already answers to one of its `domain`, `aliases` or `redirects`, in any role, or the agent or the dashboard is served on it, the request is refused as a configuration error whose field names the offending line (`aliases[1]`). So is a `publish` entry whose server port another application publishes, or that the agent or the proxy listens on (`publish[0].host`). Nothing is recorded, pulled or started. A redeploy and a rollback are checked the same way, since a stored configuration's hostnames and ports may have been taken since.
 
@@ -42,9 +42,9 @@ PENDING → BUILDING → STARTING → HEALTH_CHECKING → HEALTHY → ACTIVE →
 | State | What happens |
 |---|---|
 | `PENDING` | The record exists and the application's lock is held. The API has answered `202 Accepted`. |
-| `BUILDING` | The image is pulled. Shipwick does not build images; this state covers obtaining one. If the pull fails but the image exists locally, the local copy is used and a warning is recorded. With `pre_deploy`, the command then runs from the new image, before any replica of it exists; see [Before the replicas start](#before-the-replicas-start-the-pre-deploy-command). |
+| `BUILDING` | The image is pulled. The agent does not build images; this state covers obtaining one. If the pull fails but the image exists locally, the local copy is used and a warning is recorded. An image built by `shipwick deploy` and sent to the server is not pulled at all: the step reads `Using image shipwick.local/…, sent from a developer's machine`, and if it is not on the server the deployment fails here. With `pre_deploy`, the command then runs from the new image, before any replica of it exists; see [Before the replicas start](#before-the-replicas-start-the-pre-deploy-command). For a static deployment this state checks the uploaded folder. |
 | `STARTING` | The networks are ensured. The first new replica is created, recorded and started. On a first deployment, and under `recreate`, all replicas are. |
-| `HEALTH_CHECKING` | Every new replica must prove it is ready before it takes traffic. With a `health` block it must answer its check once within `interval × retries`, probed every second. Without one it must stay running through a 3 second stabilization window. A replica that exits fails the deployment at once. Replicas are replaced one at a time during this state. |
+| `HEALTH_CHECKING` | Every new replica must prove it is ready before it takes traffic. With a `health` block it must answer its check once within `start_period + interval × retries`, probed every second. Without one it must stay running through a 3 second stabilization window. A replica that exits fails the deployment at once. Replicas are replaced one at a time during this state. |
 | `HEALTHY` | Every replica has been replaced and serves. |
 | `ACTIVE` | The commit point. One database transaction promotes the deployment, marks the previous one `SUPERSEDED` and repoints the application. A final sweep then removes any container of the application that does not belong to the new deployment, and the images that only retired deployments refer to. |
 | `SUPERSEDED` | A later deployment became `ACTIVE`. Superseded deployments are the possible targets of a rollback. |
@@ -112,7 +112,7 @@ Each deployment carries a list of events. `state` events mark transitions; `step
 
 ```text
 state  BUILDING
-step   Pulled image ghcr.io/company/my-api:1.4.2
+step   Pulled image ghcr.io/company/my-api:1.4.2     (or: "Using image shipwick.local/…, sent from a developer's machine")
 step   Running pre-deploy command             (only with pre_deploy)
 step   Pre-deploy command finished (12s)
 state  STARTING
@@ -172,7 +172,42 @@ A deployment's status settles (`ACTIVE`, `FAILED`) slightly before the agent is 
 
 ### Old images are removed
 
-Part of the cleanup after a successful deployment is removing the images that only retired deployments of the application refer to, so a server that deploys daily does not fill its disk with versions nobody can return to. What stays, across all applications: the image of every active deployment, and the image of each application's most recent superseded one, which is the rollback target, so a rollback never waits for a pull. Only images that some deployment of the application named are candidates. An image any container still uses is left alone, so is anything pulled outside Shipwick, and a failure to remove one is logged, never returned. The same sweep runs after `shipwick delete`. The step reads `Removed 1 image of older versions`.
+Part of the cleanup after a successful deployment is removing the images that only retired deployments of the application refer to, so a server that deploys daily does not fill its disk with versions nobody can return to. What stays, across all applications: the image of every active deployment, and the image of each application's most recent superseded one, which is the rollback target, so a rollback never waits for a pull. Only images that some deployment of the application named are candidates. An image any container still uses is left alone, so is anything pulled outside Shipwick, and a failure to remove one is logged, never returned. The same sweep runs after `shipwick delete`. The step reads `Removed 1 image of older versions`. Images sent from a developer's machine are pruned like any other; the two that matter stay. A static application's folders are kept the same way: the one serving and the one before it.
+
+## Images built where you are
+
+With `build: .` in place of `image`, there is no registry in the picture. `shipwick deploy` runs `docker build` on your machine — the project and Docker are already there — for the server's architecture (`--platform`, asked of the agent, so a laptop of one kind builds for a server of another), tags the result `shipwick.local/<name>:<UTC stamp>-<4 hex>`, saves it and streams the archive to the agent, which loads it and deploys it like any other image. The build's output is shown as it runs.
+
+`shipwick.local` is a host that does not exist, on purpose: nothing can pull from it, so such an image is either on the server or it is not, and a deployment whose image is gone (pruned, or a rollback to a version that was never sent to this server) says so and asks for another `shipwick deploy` from the project. The whole image is sent each time. The server never builds: a Dockerfile runs whatever it likes, with the network and CPU of the machine it runs on, and that machine should be yours. `docker` must be installed where `shipwick deploy` runs. `shipwick validate` describes the build and does not run it; `--image` does not apply to an application with `build:`, and a redeploy of one keeps the image it has. See [`build`](/docs/reference/deploy-yaml#build) in the reference, and [`POST /applications/:name/images`](/docs/reference/api#post-applications-name-images) for the two requests the CLI makes.
+
+## A folder instead of a container
+
+A built frontend — the `dist/` of a Vite or Nuxt site, the `out/` of a Next export, any folder of HTML, CSS and JavaScript — needs no container of its own; Caddy serves files. `static` names the folder, relative to `deploy.yaml`:
+
+```yaml
+name: web
+static: dist/
+domain: example.com
+redirects: [www.example.com]
+```
+
+`shipwick deploy` sends the folder as it is — run the build first — and the agent puts it in front of Caddy and routes the domain to it:
+
+```text
+✓ Validated deploy.yaml
+✓ Uploaded dist/: 42 files, 3.1 MB
+✓ Received 42 files (3.1 MB)
+✓ Copied 42 files into the proxy
+✓ Found index.html
+✓ Routed https://example.com to the uploaded files
+✓ Deployment successful
+```
+
+The folder must hold an `index.html`; a request for a directory gets it, a request for a path that names no file gets a `404`: the fallback route of a single-page application is not assumed. A folder may be up to 512 MB. Nothing that describes a container applies, since there is none: no `image`, `port`, `replicas`, `env`, `health`, `resources`, `volumes`, `jobs`; `domain`, `aliases` and `redirects` work as for any application, and so do `stop` (the domain answers `503`), `start`, `rollback` and `delete`. `shipwick logs`, `metrics` and `run` have nothing to show and say so. The version of a static deployment is the first twelve characters of the folder's digest: the same files make the same version, on any machine. The agent keeps the folder that serves and the one before it — the rollback target — and removes older ones; `shipwick rollback` needs no upload. Because the proxy's root changes with every new folder, deploying a static application reloads Caddy once, the one kind of change a rollout of containers never causes; see [Routing and HTTPS](/docs/concepts/routing-and-https#a-folder-served-by-caddy-itself). Static deployments go through the same record and state machine as every other; there are just no replicas in it. See [`static`](/docs/reference/deploy-yaml#static) in the reference, and [`PUT /applications/:name/static`](/docs/reference/api#put-applications-name-static).
+
+## Several applications at once
+
+A `shipwick.yaml` holds several applications, each entry a complete `deploy.yaml`, with `after` naming the entries one must wait for. It is deployed as several ordinary deployments, one per application, each with its own record, lock, health checks and rollback; the agent never sees the file. The CLI holds the order: an application starts when every name in its `after` has completed an `ACTIVE` deployment in this run, at most four run at a time (`--parallel`), and one that waits for an application that failed, or was itself skipped, is skipped — a failure is reported, never propagated by timing. `after` is about readiness, not reachability: names on the services network resolve whatever the order, so `after: [postgres]` belongs on an application that would exit without its database, not on every consumer of another service. See [Several applications](/docs/reference/deploy-yaml#several-applications-shipwick-yaml).
 
 ### Notifications
 
@@ -197,7 +232,7 @@ While a deployment is in flight, the application's `deploying` field is `true` a
 
 ## When a deployment fails
 
-A new replica that crashes, is killed for exceeding its memory limit, or never becomes ready fails the deployment. So does an image that cannot be obtained, a `pre_deploy` command that exits non-zero or times out, a proxy that cannot be updated, and a deployment that takes longer than 15 minutes in total, image pull included (plus the `pre_deploy` timeout, when there is one).
+A new replica that crashes, is killed for exceeding its memory limit, or never becomes ready fails the deployment. So does an image that cannot be obtained — one sent from a developer's machine that is no longer on the server included — a `pre_deploy` command that exits non-zero or times out, a proxy that cannot be updated, a static folder without an `index.html`, and a deployment that takes longer than 15 minutes in total, image pull included (plus the `pre_deploy` timeout, when there is one).
 
 If a replica crashed or never became healthy, its last 20 lines of output are saved with the deployment as a `log` event. The container is about to be deleted, and with it the only clue. A failed `pre_deploy` command leaves its last 20 lines the same way.
 

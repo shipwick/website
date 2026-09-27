@@ -5,7 +5,7 @@ description: Set up the Shipwick agent, Caddy and the dashboard on a Linux serve
 
 # Install Shipwick on a server
 
-This page is for whoever administers the server. It covers the installer, what it puts on the machine, the API token, DNS and firewall, and the ways to install without it.
+This page is for whoever administers the server. It covers the installer, running it from your laptop over SSH, what it puts on the machine, the API token, DNS and firewall, and the ways to install without it.
 
 ## Before you begin
 
@@ -64,6 +64,45 @@ Shipwick is running.
   Upgrade later by running this installer again.
 ```
 
+## Run the installer from your laptop
+
+The same installation, without logging in to the server yourself. With the [CLI installed](/docs/getting-started/install-cli) on your machine:
+
+```bash
+shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com
+```
+
+It connects with your own `ssh` (a key that logs in without a password; the command runs `ssh` with `BatchMode=yes` and fails instead of asking for one), installs Docker with `get.docker.com` when it is missing, runs the installer with those hostnames, saves the token it prints as a context named after the host and makes it current, and ends with the DNS records to create:
+
+```text
+✓ Connected to root@203.0.113.10 (x86_64)
+✓ Docker 29.8.0
+Running the Shipwick installer...
+  ✓ Installed /opt/shipwick/compose.yml
+  ✓ Wrote /opt/shipwick/.env
+  ✓ Started the Shipwick services
+  ✓ The agent is healthy
+  ...
+✓ Shipwick is running on root@203.0.113.10
+✓ Saved the API token as context 203.0.113.10 (https://agent.example.com), now current
+
+Create these DNS records, DNS only (not proxied):
+  A     agent.example.com  →  203.0.113.10
+  A     dashboard.example.com  →  203.0.113.10
+
+Next: in your project, run: shipwick init
+      once the records exist, check the setup with: shipwick doctor
+```
+
+| Flag | |
+|---|---|
+| `--agent-domain <host>` | Hostname for the API. Without it the API is not exposed, and the context points at `http://127.0.0.1:9000` for the [SSH tunnel](/docs/tasks/access-without-a-hostname) |
+| `--dashboard-domain <host>` | Hostname for the dashboard |
+| `--context <name>` | Name to save the server under; default: its hostname |
+| `--version <tag>` | Release to install, such as `v0.4.0`; default: the latest |
+
+The remote commands are fixed; the hostnames and the version are validated first and reach the installer as environment assignments. Running the command again upgrades the server: the token is then unchanged and not printed again, and the context keeps the one it has.
+
 ## What the installer does
 
 1. Checks for Linux, root, a running Docker and the Compose plugin.
@@ -71,17 +110,18 @@ Shipwick is running.
 3. On the first run only, writes `/opt/shipwick/.env` with a freshly generated API token and the two hostnames. If `SHIPWICK_WEBHOOK_URL` or `SHIPWICK_WEBHOOK_SECRET` is set in the environment of that run, it is written there too, so that an upgrade does not lose it. The file has mode `0600` and the directory `0700`.
 4. Pulls the images, starts the services, and waits for the agent to report healthy.
 5. Installs `shipwick` to `/usr/local/bin`, verified the same way. A checksum mismatch installs nothing and leaves a running installation as it was.
-6. Prints the token and the next steps.
+6. On an upgrade, removes the agent and dashboard images of earlier releases: `Removed 2 image(s) of earlier Shipwick releases`.
+7. Prints the token and the next steps.
 
 Three containers run afterwards, defined in `/opt/shipwick/compose.yml`:
 
 | Service | What it is |
 |---|---|
 | `agent` | The Shipwick agent. It has the Docker socket mounted and publishes no port: the only ways in are Caddy and the server itself. |
-| `caddy` | The reverse proxy. It publishes ports 80 and 443 (TCP) and 443 (UDP), and obtains and renews certificates on its own. |
+| `caddy` | The reverse proxy. It publishes ports 80 and 443 (TCP) and 443 (UDP), obtains and renews certificates on its own, and serves the folders of [static applications](/docs/reference/deploy-yaml#static) itself. |
 | `dashboard` | The web dashboard. It is reached only through Caddy, at the dashboard hostname, and has no credentials of its own. |
 
-State lives in Docker volumes: the agent's SQLite database `shipwick.db` and its `encryption.key` in `agent-data`, certificates in `caddy-data`. The agent creates `encryption.key` on its first start and encrypts every deployment's `env` values with it before they are written to the database; without the key the database cannot be read, and the agent refuses to start against it. Back up `encryption.key` together with `shipwick.db`, back up `caddy-data`, and do not delete either volume casually.
+State lives in Docker volumes: the agent's SQLite database `shipwick.db` and its `encryption.key` in `agent-data`, certificates in `caddy-data`, the folders of static applications in `caddy-static`. The agent creates `encryption.key` on its first start and encrypts every deployment's `env` values, and every secret stored with `shipwick secret set`, with it before they are written to the database; without the key the database cannot be read, and the agent refuses to start against it. Back up `encryption.key` together with `shipwick.db`, back up `caddy-data`, and do not delete either volume casually. `caddy-static` holds nothing you cannot upload again with `shipwick deploy`.
 
 The installer accepts these environment variables:
 
@@ -111,9 +151,11 @@ The agent itself keeps only the SHA-256 of each token. Read [Security](/docs/sec
 
 ## DNS and firewall
 
-Point DNS at the server for the API hostname, the dashboard hostname, and the domain of every application you deploy. Caddy obtains a certificate for a hostname once its DNS record resolves to the server and ports 80 and 443 are reachable.
+Point DNS at the server for the API hostname, the dashboard hostname, and the domain of every application you deploy: an `A` record with the server's IPv4 address, and an `AAAA` record when it has an IPv6 address, both "DNS only", not proxied through a CDN. Caddy obtains a certificate for a hostname once its DNS record resolves to the server and ports 80 and 443 are reachable. A deployment whose hostname is not ready yet succeeds and says which record to create; see [DNS first](/docs/concepts/routing-and-https#dns-first).
 
 In your firewall, open ports 80 and 443 (and 443/udp, for HTTP/3), and nothing else. The agent's own port, 9000, speaks plain HTTP and must never be exposed to the internet.
+
+Once the records exist, `shipwick doctor` from your laptop checks the whole path in one screen: the versions, the token, Docker, the proxy, ports 80 and 443, and for every domain whether DNS points at the server and HTTPS answers. It exits non-zero when something is broken and says what to do about each line; see [Your first deployment](/docs/getting-started/first-deployment#when-the-domain-is-not-ready).
 
 If you skipped the API hostname, the API is not exposed at all. See [Reach the API without a hostname](/docs/tasks/access-without-a-hostname).
 
@@ -122,10 +164,10 @@ If you skipped the API hostname, the API is not exposed at all. See [Reach the A
 Everything the installer fetches comes from one [release](https://github.com/shipwick/shipwick/releases) — never from a branch — and each file is verified against that release's checksums. By default that is the latest release. To choose one:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.3.0 sh
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.4.0 sh
 ```
 
-Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade).
+Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade). From your laptop, `shipwick server install user@host --version v0.4.0` does the same over SSH.
 
 ## Other ways to install
 
@@ -144,7 +186,7 @@ SHIPWICK_WEBHOOK_URL=https://hooks.slack.com/services/...   # optional
 docker compose -f compose.production.yml up -d
 ```
 
-Generate the token yourself, as shown. The token must be at least 16 characters. If you let the agent generate one, it prints it to its log, and under Docker that log stays readable through `docker logs` for as long as the container exists. On its first start the agent also creates `encryption.key` in its data directory; back it up together with the database, or manage the key yourself with `SHIPWICK_ENCRYPTION_KEY` (64 hexadecimal characters).
+Generate the token yourself, as shown. The token must be at least 16 characters. If you let the agent generate one, it prints it to its log, and under Docker that log stays readable through `docker logs` for as long as the container exists. On its first start the agent also creates `encryption.key` in its data directory; back it up together with the database, or manage the key yourself with `SHIPWICK_ENCRYPTION_KEY` (64 hexadecimal characters). The compose file gives Caddy a `caddy-static` volume, mounted at `/srv/shipwick`, where the agent puts the folders of static applications.
 
 The compose file attached to a release pins both images to that release. The copy in the repository refers to `latest`.
 
@@ -168,11 +210,11 @@ The agent also runs as a plain binary on Linux, built with `make build`, next to
 SHIPWICK_CADDY_ADMIN=http://127.0.0.1:2019
 ```
 
-The agent listens on `127.0.0.1:9000` by default and keeps its data — `shipwick.db` and `encryption.key` — in `/var/lib/shipwick`. All variables are listed in [Agent configuration](/docs/reference/agent-configuration).
+The agent listens on `127.0.0.1:9000` by default and keeps its data — `shipwick.db`, `encryption.key` and the uploaded folders of static applications until they are deployed — in `/var/lib/shipwick`. All variables are listed in [Agent configuration](/docs/reference/agent-configuration).
 
 ## What's next
 
-- [Install the CLI](/docs/getting-started/install-cli) on your laptop.
+- [Install the CLI](/docs/getting-started/install-cli) on your laptop, if `shipwick server install` did not already put it there.
 - [Deploy your first application](/docs/getting-started/first-deployment).
 - [Create tokens for CI and teammates](/docs/tasks/tokens) instead of handing out the root token.
 - [Open the dashboard](/docs/tasks/dashboard).

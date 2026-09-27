@@ -13,6 +13,7 @@ Some work belongs to an application without being part of a replica: a migration
 - A run gets **none of the application's volumes**. A replica may be writing them, and two writers on one volume is how data gets lost. Work that needs the data goes through the application.
 - Nothing runs on the server itself. A command runs inside a container, as the image's own command would.
 - Listing jobs and runs needs a token with the `read` role; starting one needs `deploy`. See [Create tokens for CI and teammates](/docs/tasks/tokens).
+- A static application, a folder served by the proxy, has no image and no containers: `pre_deploy`, `jobs` and `shipwick run` do not apply to it, and the agent says so (`STATIC_APPLICATION`).
 
 ## Run a migration before the replicas start
 

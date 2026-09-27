@@ -5,7 +5,7 @@ description: Enable the Shipwick dashboard on a hostname, sign in with an API to
 
 # Use the dashboard
 
-The dashboard shows in a browser what `shipwick` shows in a terminal, and offers the everyday actions: deploy another image, roll back, stop, start, delete, run a job or a command, restore a backup, manage tokens. This page covers enabling it, signing in, what each page shows, what each role can do, and how it handles the API token.
+The dashboard shows in a browser what `shipwick` shows in a terminal, and offers the everyday actions: deploy another image, roll back, stop, start, delete, run a job or a command, restore a backup, store a secret, remove a deleted application's volume, manage tokens. This page covers enabling it, signing in, what each page shows, what each role can do, and how it handles the API token.
 
 The dashboard is a client of the agent's HTTP API and nothing more. It has no database and keeps no state of its own. Anything it does, `shipwick` and `curl` can do too.
 
@@ -39,9 +39,9 @@ What you see and may do follows the token's role, which the dashboard learns fro
 
 | Role | In the dashboard |
 |---|---|
-| `read` | Sees everything: applications, replicas, metrics and their history, deployments, events, logs, jobs and their runs, volumes. Every action is disabled, with the reason |
+| `read` | Sees everything: applications, replicas, metrics and their history, deployments, events, logs, jobs and their runs, volumes, the names of the secrets. Every action is disabled, with the reason |
 | `deploy` | Also deploys another image, rolls back, stops, starts, runs a job and runs a command |
-| `admin` | Also deletes applications, downloads and restores backups, and gets the Tokens page |
+| `admin` | Also deletes applications, downloads and restores backups, stores and removes secrets, removes the volumes of deleted applications, and gets the Tokens page |
 
 A session lasts 7 days. If the agent rejects the token at any point — it was revoked, or the agent's token changed — the session ends and the dashboard returns to the sign-in page. See [Create tokens for CI and teammates](/docs/tasks/tokens).
 
@@ -50,17 +50,20 @@ A session lasts 7 days. If the agent rejects the token at any point — it was r
 | Page | |
 |---|---|
 | Overview | All applications with their status, the ones that need attention, recent deployments, and the state of the reverse proxy |
-| Applications | Every application. An application's page shows its status, live CPU and memory against its limits with their history, each replica with its state, health, restart count and usage, the configuration as deployed, its volumes, its scheduled jobs and their runs, the deployment history, the supervisor's event feed, and its logs |
+| Applications | Every application. An application's page shows its status, live CPU and memory against its limits with their history, each replica with its state, health, restart count and usage, the configuration as deployed, its volumes, its scheduled jobs and their runs, the deployment history, the supervisor's event feed, and its logs. A static application shows what it serves instead (`42 files, 3.1 MB, served by the proxy`); an application with `build` says its image is built by `shipwick deploy` |
 | Deployments | The deployment history across applications, or of one. A deployment's page shows its progress step by step, its outcome, where it came from and which token made it |
 | Servers | The server the agent runs on, whether the agent reaches Caddy, whether a notification webhook is configured, and the token you are signed in with |
 | Logs | Followed logs of one application. Replicas are tailed together and merged by time |
+| Secrets | The secrets kept on the server for `${NAME}` in `env`: names and dates, never values. An admin stores, replaces or removes one here |
+| Volumes | Every volume on the server with its application and size, `in use` or `application deleted`. An admin removes the volume of a deleted application here |
 | Tokens | Admin only. The tokens with their roles and when each was last used; create and revoke them here |
 
 A few things to know when reading it:
 
 - **A deployment has three possible outcomes.** `ACTIVE` is the only success. `FAILED` means the previous version was never touched. `ROLLED_BACK` means the deployment failed part-way and the previous version was restored; it is shown as a handled failure, never as a success.
 - **Every history entry shows its origin**, such as "rollback to #3 1.4.0" or "redeploy of #6", linked to the deployment it came from, and the name of the token that made it. Deployments made before tokens had names show none.
-- **The configuration is shown by kind.** A health check reads `GET /health`, `TCP :5432` or `command pg_isready -U postgres`; hostnames as the domain, its aliases and `www.example.com → example.com` redirects; published ports as `5432/tcp → server port 15432 on 10.0.0.5`; `entrypoint` and `command` joined with spaces; `logging` as its driver with the options collapsed.
+- **The configuration is shown by kind.** A health check reads `GET /health`, `TCP :5432` or `command pg_isready -U postgres`, `after a 2m start period` when `start_period` is set; hostnames as the domain, its aliases and `www.example.com → example.com` redirects; published ports as `5432/tcp → server port 15432 on 10.0.0.5`; `entrypoint` and `command` joined with spaces; `logging` as its driver with the options collapsed; an image built by the CLI as `built by shipwick deploy from . (Dockerfile)`.
+- **Static applications** are folders the proxy serves itself. The list shows `static` in place of the replica count, the version is the folder's digest, and the application's page has no replicas, logs, jobs or metrics; it says what is served instead. Stop, start, rollback, redeploy and delete work; the deploy dialog offers no image field, nor for an application with `build`, whose image is built and sent by `shipwick deploy`.
 - **CPU is in percent of one core**, with the application's limit as the ceiling. An application without a CPU limit has no ceiling.
 - **Two kinds of metrics.** The sparklines next to the live numbers are built in your browser while the page is open. The History charts below them come from the agent, which records every running replica's CPU and memory every 30 seconds and keeps 7 days: one line per replica for the last hour, day or week, a dashed line at the per-replica limit, and a gap wherever nothing was sampled — while the agent was down, for instance. Nothing is interpolated. The charts refresh every 30 seconds.
 - **Jobs are in UTC.** The Jobs section lists each job's schedule, its last run with outcome and exit code, and its next run relative to now; a stopped application reads "Not while stopped". The run history covers scheduled runs, one-off commands and pre-deploy commands alike, and a run opens to show its output.
@@ -82,13 +85,13 @@ From an application's page:
 | Restore a volume from an archive | `shipwick restore` | `admin` |
 | Delete | `shipwick delete` | `admin` |
 
-And from the Tokens page, for admins: create a token, whose value is shown once, in the page, and never stored; and revoke one — `shipwick token create`, `shipwick token revoke`.
+From the Secrets page: store or replace a secret from a password field, whose value is cleared from the page as soon as the request is sent, and remove one — `shipwick secret set`, `shipwick secret rm`; both `admin`. From the Volumes page: remove the volume of a deleted application — `shipwick volumes rm`, `admin`. And from the Tokens page, for admins: create a token, whose value is shown once, in the page, and never stored; and revoke one — `shipwick token create`, `shipwick token revoke`.
 
 The rollback dialog lists exactly the deployments that are valid targets: the ones that once served successfully and were replaced. "Run command" takes the command one argument per field, because the agent takes a list and never a shell string; the run is followed until it finishes and its output shown. A restore is offered only while the application is stopped, checks that the file is a tar archive before uploading, and offers Start when the agent reports the volume restored.
 
 Controls the role does not cover are disabled with the reason. The roles are enforced by the agent, not by the page: a request the role does not cover is answered `403` whatever the browser sends, and the dashboard shows the agent's own explanation, such as "This token has the read role; deploying needs deploy or admin".
 
-The dashboard never submits a `deploy.yaml`. An application's first deployment, and any change to its configuration other than the image, goes through `shipwick deploy`.
+The dashboard never submits a `deploy.yaml`, and uploads neither images nor static folders. An application's first deployment, and any change to its configuration other than the image, goes through `shipwick deploy`.
 
 ## How the dashboard handles the token
 
@@ -105,7 +108,7 @@ browser ── same origin ──▶ dashboard server ── Bearer token ──
 - Nothing is kept in `localStorage` except the theme. A token created on the Tokens page is shown once and never stored.
 - The token is never logged, by the relay or by the session routes.
 - Every state-changing request must carry a custom header that a cross-origin page cannot add, and the server never grants the CORS preflight that would allow it.
-- The relay is not an open proxy. Its target comes only from the dashboard's configuration, and only paths under the agent's `/api/v1/` are accepted. A volume archive is streamed through it both ways — a download to the browser, an upload to the agent — never buffered; the agent's 10 GB limit on an upload applies.
+- The relay is not an open proxy. Its target comes only from the dashboard's configuration, and only paths under the agent's `/api/v1/` are accepted. A volume archive is streamed through it both ways — a download to the browser, an upload to the agent — never buffered, and so is a secret's value; the agent's own limits apply.
 - The dashboard makes no request to any third party: no CDN, no analytics, fonts bundled. In production it sends a Content-Security-Policy of `default-src 'self'`.
 
 Because the browser talks only to the dashboard, the agent needs no CORS support and can stay off the public internet. You can run the dashboard on a hostname and still [keep the API private](/docs/tasks/access-without-a-hostname).
@@ -114,7 +117,7 @@ Because the browser talks only to the dashboard, the agent needs no CORS support
 Signing in sends the API token to the dashboard server. Over plain HTTP on anything but loopback, that is a credential in clear text — with an admin token, a root credential. The installer's setup always serves the dashboard through Caddy with a certificate.
 :::
 
-Not included: rate limiting of sign-in attempts, and roles per application rather than per server.
+Failed sign-ins are slowed down by the agent: after 20 failed authentications within a minute from the dashboard server's address, which every browser shares, wrong tokens are answered `429` for a minute, and the sign-in page reads "Too many failed attempts from this address; try again in a minute". A valid token is never refused. Not included: roles per application rather than per server.
 
 ## Run the dashboard yourself
 

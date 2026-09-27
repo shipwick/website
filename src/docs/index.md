@@ -8,7 +8,7 @@ description: What Shipwick is, who it is for, and how this documentation is orga
 Shipwick runs Docker applications on a single server: health checks, zero-downtime deployments, rollbacks, resource limits and HTTPS, from one small `deploy.yaml`. This page says what it is, what it is not, and where to find things.
 
 ::: tip Start here
-New to Shipwick? Three pages take you from an empty server to a running application: [Install on a server](/docs/getting-started/install), [Install the CLI](/docs/getting-started/install-cli), [Your first deployment](/docs/getting-started/first-deployment). Everything else on this site is for when you want to know more.
+New to Shipwick? Three pages take you from an empty server to a running application: [Install on a server](/docs/getting-started/install), [Install the CLI](/docs/getting-started/install-cli), [Your first deployment](/docs/getting-started/first-deployment). You need a Dockerfile or an image of your application, nothing else; `shipwick init` writes the Dockerfile for a Node, Nuxt, Next, .NET, Go or Python project, and a folder of static files needs no container at all. Everything else on this site is for when you want to know more.
 :::
 
 ## What Shipwick is
@@ -18,7 +18,7 @@ Shipwick is a single agent that runs on your server and turns a `deploy.yaml` in
 ```yaml
 # deploy.yaml
 name: my-api
-image: ghcr.io/company/my-api:1.4.2
+build: .
 port: 8080
 domain: api.example.com
 replicas: 2
@@ -31,7 +31,7 @@ shipwick deploy
 It is for developers and small teams running 1–20 applications on a VPS — Hetzner, DigitalOcean, OVH, EC2 or similar — who want Docker in production without writing their own deploy scripts, restart logic, health checks, rollbacks and reverse-proxy configuration.
 
 - **One binary, one SQLite file.** No cluster, no control plane, no external database.
-- **Docker is the runtime.** Anything that runs with `docker run` runs on Shipwick.
+- **Docker is the runtime.** Anything that runs with `docker run` runs on Shipwick. The image is pulled from a registry, or built on your machine by `shipwick deploy` and sent to the server; no registry is needed for that.
 - **A failed deployment never takes down the version that works.**
 
 The parts:
@@ -39,18 +39,18 @@ The parts:
 | Part | Role |
 |---|---|
 | Agent | Runs on the server. Owns the deployment lifecycle, supervises containers, configures Caddy. Keeps its state in SQLite. |
-| `shipwick` | The command-line client, for your laptop and for CI. |
+| `shipwick` | The command-line client, for your laptop and for CI. Builds images with `build: .`, uploads static folders, and installs the server over SSH. |
 | Dashboard | The same information and everyday actions in a browser. |
-| Caddy | Serves application domains over HTTPS. The agent tells it what to route where. |
+| Caddy | Serves application domains over HTTPS, and static sites straight from disk. The agent tells it what to route where. |
 
 ## What Shipwick is not
 
-Shipwick is for one server, by design. It schedules nothing across machines, runs no service mesh and has no extension model. It does not build images, and it needs no external database or queue.
+Shipwick is for one server, by design. It schedules nothing across machines, runs no service mesh and has no extension model. The agent builds no images: with `build: .` the build runs on your machine, and the server only loads the result. It needs no external database or queue.
 
 When one server is no longer enough, you have outgrown Shipwick. Until then, it is the whole platform.
 
 ::: info Status: 0.x
-The current version is 0.3.0. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) says so when it happens, and how to upgrade.
+The current version is 0.4.0. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) says so when it happens, and how to upgrade.
 :::
 
 ## How the documentation is organized
@@ -98,7 +98,7 @@ How to do one specific thing.
 
 Every field, command, variable and endpoint.
 
-- [deploy.yaml](/docs/reference/deploy-yaml)
+- [deploy.yaml](/docs/reference/deploy-yaml), and `shipwick.yaml` for several applications
 - [shipwick](/docs/reference/cli)
 - [Agent configuration](/docs/reference/agent-configuration)
 - [HTTP API](/docs/reference/api)

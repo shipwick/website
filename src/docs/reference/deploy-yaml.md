@@ -5,7 +5,7 @@ description: Complete reference of the deploy.yaml file, with every field, its t
 
 # deploy.yaml
 
-`deploy.yaml` describes one application: its image and how to run it. This page lists every field with its type, default and validation rules, the units used for sizes and durations, how `${NAME}` placeholders are filled in, and the error format that `shipwick` and the API produce.
+`deploy.yaml` describes one application: its image, or the Dockerfile to build one from, or the folder to serve, and how to run it. This page lists every field with its type, default and validation rules, the units used for sizes and durations, how `${NAME}` placeholders are filled in, the error format that `shipwick` and the API produce, and `shipwick.yaml`, which describes several applications in one file.
 
 ## The file
 
@@ -17,12 +17,12 @@ domain: api.example.com
 replicas: 2
 ```
 
-- Only `name` and `image` are required.
+- Only `name` and `image` are required, or [`build`](#build) in place of `image`. A folder the proxy serves itself needs `name`, [`static`](#static) and `domain`, and nothing else applies.
 - The file is YAML. JSON is accepted too, since it is a subset of YAML.
-- One file describes one application. A file with several YAML documents is rejected.
+- One file describes one application. A file with several YAML documents is rejected. Several applications go in one [`shipwick.yaml`](#several-applications-shipwick-yaml) instead.
 - The maximum size is 64 KB.
 - **Unknown fields are errors.** A misspelled key is reported, not ignored.
-- `shipwick` looks for `deploy.yaml` in the current directory; `-f` / `--file` selects another file, and can be repeated to deploy several applications. `shipwick init` writes a starter file, and `shipwick validate` checks a file offline and prints it as it will be applied, defaults included.
+- `shipwick` looks for `deploy.yaml` in the current directory, then for `shipwick.yaml`; `-f` / `--file` selects another file, and can be repeated to deploy several applications in order. `shipwick init` writes a starter file, with a Dockerfile for a project it recognises, and `shipwick validate` checks a file offline and prints it as it will be applied, defaults included.
 
 The same parser and validator run in `shipwick` and in the agent. The agent validates every submitted document again, whatever the client did.
 
@@ -35,14 +35,18 @@ env:
   DATABASE_URL: postgres://app:${DATABASE_PASSWORD}@postgres:5432/app
 ```
 
-`shipwick` replaces every `${NAME}` before the file is validated or sent, from its own environment or from a file given with `--env-file`. A name that is set nowhere is an error, never an empty value. The agent receives a complete document with nothing left to resolve; through the API, a placeholder is stored literally. The rules are in the [CLI reference](/docs/reference/cli#placeholders).
+Two places can fill it in. `shipwick` replaces every `${NAME}` it has a value for before the file is validated or sent, from its own environment or from a file given with `--env-file`. An `env` value whose name is set nowhere there is left to the agent, which fills it in from the secrets stored on the server with `shipwick secret set NAME`, before the deployment is recorded; the record holds the values, so a later change of a secret applies from the next deployment on and a rollback restores the value that deployment used. A name that neither side has is an error, never an empty value, and the deployment is refused before anything is recorded, with the command to run. Only `env` values are filled in by the server: a `${TAG}` in `image` must be set where `shipwick` runs. `$${NAME}` is a literal `${NAME}`. The rules are in the [CLI reference](/docs/reference/cli#placeholders).
 
 ## Fields
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | [`name`](#name) | string | yes | |
-| [`image`](#image) | string | yes | |
+| [`image`](#image) | string | unless `build` or `static` is set | |
+| [`build`](#build) | `.`, a folder, or `{context, dockerfile}` | in place of `image` | |
+| [`build.context`](#build) | string | with `build` as a map | |
+| [`build.dockerfile`](#build) | string | no | `Dockerfile` |
+| [`static`](#static) | string | in place of `image`; requires `domain` | |
 | [`entrypoint`](#entrypoint) | list of strings, or one string | no | the image's `ENTRYPOINT` |
 | [`command`](#command) | list of strings, or one string | no | the image's `CMD` |
 | [`user`](#user) | string | no | the image's `USER` |
@@ -58,6 +62,7 @@ env:
 | [`health.interval`](#health) | duration | no | `10s` |
 | [`health.timeout`](#health) | duration | no | `3s` |
 | [`health.retries`](#health) | integer | no | `3` |
+| [`health.start_period`](#health) | duration | no | `0s` |
 | [`resources.cpu`](#resources) | number | no | unlimited |
 | [`resources.memory`](#resources) | size | no | unlimited |
 | [`volumes[].name`](#volumes) | string | with `volumes` | |
@@ -76,6 +81,9 @@ env:
 | [`jobs[].timeout`](#jobs) | duration | no | `1h` |
 | [`restart.policy`](#restart) | string | no | `always` |
 | [`deploy.strategy`](#deploy) | string | no | `rolling` |
+| [`after`](#several-applications-shipwick-yaml) | list of strings | no; `shipwick.yaml` only | |
+
+With `static`, only `name`, `static`, `domain`, `aliases` and `redirects` apply; every other field is an error next to it.
 
 ### name
 
@@ -100,12 +108,12 @@ When deploying through the API, the name in the document must match the name in 
 
 ### image
 
-The image to run. Any image reference Docker understands.
+The image to run. Any image reference Docker understands. Instead of naming an image, [`build`](#build) builds one on your machine, and [`static`](#static) serves a folder with no image at all.
 
 | | |
 |---|---|
 | Type | string |
-| Required | yes |
+| Required | yes, unless `build` or `static` is set. Next to `build`, an `image` is an error: `is built here; remove image or build`. |
 | Rule | A well-formed image reference without whitespace. Leading and trailing whitespace is trimmed. |
 
 ```yaml
@@ -123,6 +131,50 @@ The deployment's **version** is derived from the reference:
 Pin a version tag. Deployments are recorded, and rolled back, by it.
 
 `shipwick deploy --image <ref>` replaces this field for one deployment without changing the file. For private registries, see [Pull from private registries](/docs/tasks/private-registries).
+
+### build
+
+Build the image on your machine instead of naming one. `shipwick deploy` runs `docker build` where it runs, for the server's architecture, tags the result `shipwick.local/<name>:<UTC timestamp>-<4 hex>`, sends the archive to the agent and deploys it like any other image. No registry is involved, and the server never builds; Docker must be installed where `shipwick deploy` runs. See [Images built where you are](/docs/concepts/deployments#images-built-where-you-are).
+
+| | |
+|---|---|
+| Type | A string, the build context; or a map with `context` and `dockerfile` |
+| Required | no. Replaces `image`; cannot be combined with `static`. |
+| `build.context` | Required as a map. The directory handed to `docker build`, relative to `deploy.yaml`: `.` for its own directory, or a folder in it such as `api`. |
+| `build.dockerfile` | Default `Dockerfile`. Relative to the context. |
+| Rule | Both paths are relative, contain no control characters, and stay inside the directory of `deploy.yaml`: `must be relative to deploy.yaml`, `must stay inside the directory of deploy.yaml`. Backslashes are read as slashes; paths are cleaned. |
+
+```yaml
+build: .
+```
+
+```yaml
+build:
+  context: .
+  dockerfile: docker/Dockerfile.prod
+```
+
+The deployment's version is the image tag, `20260927-153000-a1b2`; every deployment is a new build. `shipwick validate` describes the build and does not run it; `shipwick deploy --image` does not apply to an application with `build`. `shipwick.local` is a host that does not exist, so such an image is either on the server or it is not: a rollback to a version whose image was pruned, or that this server was never sent, fails and asks for another `shipwick deploy` from the project. `shipwick init` writes `build: .` together with a Dockerfile for a project it recognises.
+
+### static
+
+A folder served by the proxy as it is: a built frontend. There is no container, so nothing that describes one applies. `shipwick deploy` uploads the folder, up to 512 MB, and the agent copies it into the proxy and routes the domain to it. See [A folder instead of a container](/docs/concepts/deployments#a-folder-instead-of-a-container).
+
+| | |
+|---|---|
+| Type | string |
+| Required | no. Replaces `image`. Requires `domain`: `is required for a static application: the proxy serves the files at it`. |
+| Rule | A folder relative to `deploy.yaml`, inside its directory: `dist/`, `build`, `out/public`. Read on the machine where `shipwick deploy` runs, at deploy time. Trailing slashes are dropped. |
+| Excludes | `image`, `build`, `port`, `replicas`, `env`, `health`, `resources`, `volumes`, `publish`, `entrypoint`, `command`, `user`, `logging`, `pre_deploy` and `jobs`. Each is refused with `does not apply to a static application: the proxy serves the files, there is no container`. |
+
+```yaml
+name: web
+static: dist/
+domain: example.com
+redirects: [www.example.com]
+```
+
+Run the build first: the folder is sent as it is. It must hold an `index.html`, which `shipwick deploy` checks before anything is sent and the agent checks again; a request for a path that names no file is a `404`, since the fallback route of a single-page application is not assumed. Files and directories only; a symbolic link that leads out of the folder is skipped with a warning. The version of a static deployment is the first twelve characters of the folder's digest, so the same files make the same version on any machine. `aliases`, `redirects`, `stop` (the domain answers `503`), `start`, `rollback` and `delete` work as for any application; `shipwick logs`, `run`, `jobs` and the metrics have nothing to show and say so. `shipwick init` writes `static: <dir>` for a folder of static files, and for a Vite or Astro project that builds one.
 
 ### entrypoint
 
@@ -314,6 +366,7 @@ The health check run against every replica. A check is one of three kinds, and e
 | `health.interval` | duration | `10s` | `1s` to `5m` |
 | `health.timeout` | duration | `3s` | `100ms` to `1m` |
 | `health.retries` | integer | `3` | 1 to 100 |
+| `health.start_period` | duration | `0s` | Up to `30m`. Extra time a replica gets to come up before failed checks count, on top of `interval × retries`; during a deployment, and after a restart by the supervisor. |
 
 ```yaml
 port: 8080
@@ -338,8 +391,8 @@ health:
 
 The fields are used twice:
 
-- **Deploying.** A new replica has `interval × retries` (30 seconds with the defaults) to pass once, and is probed every second meanwhile. If it never does, the deployment fails and says why: `GET /health on port 8080: connection refused`, or for a command, its exit code and the last line it printed: `command exited 2: pg_isready: no response`. For a slow starter, raise `retries`.
-- **Running.** Every replica is probed every `interval`. A replica that fails `retries` probes in a row is marked unhealthy, taken out of rotation and restarted, unless `restart.policy` is `never`.
+- **Deploying.** A new replica has `start_period + interval × retries` (30 seconds with the defaults) to pass once, and is probed every second meanwhile. If it never does, the deployment fails and says why: `GET /health on port 8080: connection refused`, or for a command, its exit code and the last line it printed: `command exited 2: pg_isready: no response`. For a slow starter, a JVM or an application that migrates its database on boot, set `start_period: 1m` rather than raising `retries`, which would also make a running replica's failures take longer to notice.
+- **Running.** Every replica is probed every `interval`. A replica that fails `retries` probes in a row is marked unhealthy, taken out of rotation and restarted, unless `restart.policy` is `never`. A restarted replica gets `start_period + interval × retries` to come up again.
 
 Without a `health` block, a deployment only verifies that new replicas are still running after 3 seconds.
 
@@ -387,7 +440,7 @@ deploy:
   strategy: recreate
 ```
 
-On the server the volume is the Docker volume `shipwick_<name>_<volume>`: `shipwick_postgres_data` here. It belongs to the application, not to a deployment: every deployment mounts the same volumes, and nothing removes them — not a redeploy, not a rollback, not `shipwick delete`. `docker volume rm` on the server removes one when you mean it. `shipwick backup` and `shipwick restore` copy a volume's contents out and back in; see [Back up and restore volumes](/docs/tasks/backups).
+On the server the volume is the Docker volume `shipwick_<name>_<volume>`: `shipwick_postgres_data` here. It belongs to the application, not to a deployment: every deployment mounts the same volumes, and nothing removes them — not a redeploy, not a rollback, not `shipwick delete`. `shipwick volumes` lists every volume on the server with the application it belongs to and whether that application still exists; `shipwick volumes rm shipwick_postgres_data` removes one whose application was deleted, and refuses one whose application still exists. `shipwick backup` and `shipwick restore` copy a volume's contents out and back in; see [Back up and restore volumes](/docs/tasks/backups).
 
 Volumes are named volumes only. A path on the host cannot be mounted. The `pre_deploy` command and job containers get no volumes: a replica may be writing them.
 
@@ -588,7 +641,7 @@ Units are binary, matching Docker's convention: `1gb` is 1024 `mb`. Units are ca
 
 ### Durations
 
-Used by `health.interval`, `health.timeout`, `pre_deploy.timeout` and `jobs[].timeout`. A number with a unit, in Go's duration syntax: `500ms`, `3s`, `1m`, `1m30s`. Valid units are `ns`, `us`, `ms`, `s`, `m` and `h`. A number without a unit is not valid. Each field has its own range, listed with the field.
+Used by `health.interval`, `health.timeout`, `health.start_period`, `pre_deploy.timeout` and `jobs[].timeout`. A number with a unit, in Go's duration syntax: `500ms`, `3s`, `1m`, `1m30s`. Valid units are `ns`, `us`, `ms`, `s`, `m` and `h`. A number without a unit is not valid. Each field has its own range, listed with the field.
 
 ### CPU
 
@@ -617,6 +670,12 @@ Other forms the report takes:
 | Problem | Reported as |
 |---|---|
 | A required field is missing | `name:` / `is required` |
+| An `image` next to `build` | `image:` / `is built here; remove image or build`, expected `build: . alone, or image: alone` |
+| A build path that is absolute or leaves the project | `build.context:` / `invalid value "/srv/app": must be relative to deploy.yaml`; `build.dockerfile:` / `invalid value "../Dockerfile": must stay inside the directory of deploy.yaml` |
+| `build` and `static` together | `build:` / `cannot be combined with static: a static application has no image to build` |
+| A static application without a domain | `domain:` / `is required for a static application: the proxy serves the files at it` |
+| A container field next to `static` | `port:` / `does not apply to a static application: the proxy serves the files, there is no container` |
+| A `start_period` out of range | `health.start_period:` / `invalid value "2h": out of range`, expected `30s, 1m, 5m, ... (up to 30m)` |
 | A reserved application name | `name:` / `"caddy" is reserved for Shipwick's own services` |
 | `port` missing while `domain` is set | `port:` / `is required when domain is set` |
 | `port` missing while `health.path` is set | `port:` / `is required when health is set` |
@@ -687,7 +746,7 @@ Other forms the report takes:
 
 Unknown fields do not hide other mistakes: when they are the only syntax problem, the rest of the file is still validated and everything is reported together.
 
-An unset `${NAME}` is reported by `shipwick` before validation, since the document cannot be validated without it: `deploy.yaml: refers to ${DATABASE_PASSWORD}, which is not set`.
+An unset `${NAME}` outside `env` is reported by `shipwick` before validation, since the document cannot be validated without it: `deploy.yaml: refers to ${DATABASE_PASSWORD}, which is not set`. An `env` value whose `${NAME}` is set neither where `shipwick` runs nor among the server's secrets is refused by the agent in the same shape: `env.DATABASE_URL:` / `refers to ${DATABASE_PASSWORD}, which is not set where shipwick runs and not stored on the server`, expected `shipwick secret set DATABASE_PASSWORD`.
 
 The agent returns the same information in the API's error envelope, as `400 INVALID_CONFIG` with one object per problem in `details.fields`:
 
@@ -711,7 +770,14 @@ The two checks only the agent can make, a hostname or a server port already in u
 
 ```yaml
 # deploy.yaml — everything Shipwick needs to run your application.
-# Only `name` and `image` are required.
+# Only `name` and `image` (or `build` in its place) are required.
+#
+# A built frontend needs no container: name the folder instead of an image and
+# Caddy serves it as it is. Only `name`, `static` and `domain` then apply, with
+# `aliases` and `redirects`; run the build before `shipwick deploy`.
+#   name: web
+#   static: dist/
+#   domain: example.com
 
 # Lowercase letters, digits and dashes. Identifies the application on the server.
 name: my-api
@@ -720,6 +786,14 @@ name: my-api
 # `docker login <registry>` once on the server; Shipwick uses those credentials.
 # Pin a version tag: deployments are recorded by it (1.4.2 here).
 image: ghcr.io/company/my-api:1.4.2
+
+# No registry? Build the image on your machine instead: `shipwick deploy` runs
+# docker build here, for the server's architecture, and sends the image to the
+# server. Paths are relative to this file. Replaces `image`.
+# build: .
+# build:
+#   context: .
+#   dockerfile: Dockerfile   # default
 
 # Run something other than the image's default: these replace its ENTRYPOINT,
 # CMD and USER. A string is one argument; use a list for several. Nothing is
@@ -745,8 +819,10 @@ domain: api.example.com
 replicas: 2
 
 # Environment variables. Values are stored on the server, never logged, and
-# masked in API responses. ${NAME} is filled in by the CLI from its environment
-# or --env-file when you deploy, so that secrets never have to be in this file.
+# masked in API responses. ${NAME} is filled in when you deploy, so that secrets
+# never have to be in this file: by the CLI from its environment or --env-file,
+# else by the agent from the secrets stored with `shipwick secret set NAME`.
+# $${NAME} is a literal ${NAME}.
 # Other applications on the server are reached by name: postgres:5432.
 env:
   DATABASE_URL: postgres://app:${DATABASE_PASSWORD}@postgres:5432/app
@@ -754,11 +830,12 @@ env:
 
 # HTTP health check. A replica is healthy when `path` answers 2xx.
 #
-# Deploying: new replicas get interval × retries (30s here) to answer once;
-# if they never do, the deployment fails and the old version keeps running.
-# Slow starter? Raise retries.
+# Deploying: new replicas get start_period + interval × retries (30s here) to
+# answer once; if they never do, the deployment fails and the old version
+# keeps running. Slow starter — a JVM, a migration on boot? Set start_period.
 #
-# Running: a replica that fails `retries` checks in a row is restarted.
+# Running: a replica that fails `retries` checks in a row is restarted, and
+# gets the same time to come up again.
 #
 # Not HTTP? Use exactly one of path, tcp or command:
 #   tcp: 5432                                  # the port accepts a connection
@@ -768,6 +845,7 @@ health:
   interval: 10s # default 10s
   timeout: 3s   # default 3s
   retries: 3    # default 3
+  # start_period: 1m   # extra time to come up before failed checks count (up to 30m)
 
 # Per-replica limits. Omit for unlimited.
 resources:
@@ -837,3 +915,57 @@ deploy:
 #     schedule: "*/15 * * * *"
 #     command: ["sh", "-c", "find /tmp/cache -mmin +60 -delete"]
 ```
+
+## Several applications: shipwick.yaml
+
+A project with more than one service — a database, an API, a front end — describes them all in one `shipwick.yaml`: an `apps` list in which every entry is a complete `deploy.yaml` plus `after`, the names of the entries it must wait for.
+
+```yaml
+# shipwick.yaml — several applications in one file.
+apps:
+  # Nothing to wait for: starts at once, together with `web`.
+  - name: postgres
+    image: postgres:17
+    port: 5432
+    env:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - name: data
+        path: /var/lib/postgresql/data
+    health:
+      tcp: 5432
+    deploy:
+      strategy: recreate
+
+  # Starts when `postgres` has deployed. If postgres fails, api is skipped and
+  # the command exits non-zero; web is not affected.
+  - name: api
+    image: ghcr.io/company/api:2.3.0
+    port: 8080
+    domain: api.example.com
+    env:
+      DATABASE_URL: postgres://app:${POSTGRES_PASSWORD}@postgres:5432/app
+    health:
+      path: /health
+    pre_deploy:
+      command: ["./migrate", "up"]
+    after: [postgres]
+
+  # Independent of the others: reaches the API at http://api:8080 whenever it
+  # is there, so it need not wait for it.
+  - name: web
+    image: ghcr.io/company/web:2.3.0
+    port: 3000
+    domain: example.com
+    redirects: [www.example.com]
+```
+
+| | |
+|---|---|
+| `apps` | Required, and the only top-level key: any other is `cannot be set at the top of shipwick.yaml; move it into an entry under apps`. A list of 1 to 50 entries. |
+| An entry | A complete `deploy.yaml`, validated by the same rules; problems are reported with the entry's index in front, `apps[1].port`. Names must be unique within the file. `build` and `static` paths are relative to `shipwick.yaml`. |
+| `after` | A list of names of other entries in the file. An unknown name, an entry that waits for itself, or a cycle through several entries is an error on `apps[i].after`. |
+
+`shipwick deploy` uses the file when there is no `deploy.yaml` in the directory; `-f shipwick.yaml` names it explicitly, and it cannot be combined with other `-f` files. Applications whose dependencies are done start at once, up to four at a time (`--parallel N`): `postgres` and `web` above start together, `api` when `postgres` has deployed. Every line of output carries the name of the application it belongs to. An application whose dependency did not deploy is skipped, the others finish, and the command exits non-zero if any failed or was skipped. `${NAME}` placeholders work in every entry, `--image` does not apply, and `shipwick validate` checks the file and prints the order.
+
+The agent never sees the file. Each entry is an ordinary deployment with its own record, lock, health checks and rollback; the CLI holds the order. `after` is about readiness, not reachability: names on the services network resolve whatever the order, so `after: [postgres]` belongs on an application that would exit without its database, not on every consumer of another service. Several `deploy.yaml` files — `shipwick deploy -f api/deploy.yaml -f web/deploy.yaml` — still deploy one after the other, in the order given, stopping at the first failure.

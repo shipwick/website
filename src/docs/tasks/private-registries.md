@@ -7,6 +7,8 @@ description: Give the Shipwick agent credentials for a private image registry wi
 
 Shipwick pulls images with the credentials that `docker login` stores on the server. This page covers where the agent looks for them, what it does not support, and the extra step needed when the agent runs in a container, as it does in the installer's setup.
 
+If the image is built from a Dockerfile in your project, no registry is needed at all: with `build: .` in `deploy.yaml`, `shipwick deploy` builds the image on your machine and sends it to the server, and nothing below applies. See [`build`](/docs/reference/deploy-yaml#build). A registry stays the right tool when CI builds the image, or when the image is somebody else's.
+
 ## How it works
 
 The agent pulls images through the Docker Engine API. Before each pull it reads the Docker CLI's configuration file, and if that file has an entry for the image's registry, it sends those credentials with the pull.

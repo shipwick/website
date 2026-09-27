@@ -25,12 +25,12 @@ Shipwick is one long-running process per server, the agent, plus clients that ta
 
 | Component | Role |
 |---|---|
-| Agent (`shipwick-agent`) | The only stateful part of Shipwick. Runs deployments, supervises replicas, keeps the proxy configuration in line with what is running, runs scheduled jobs, samples metrics, posts notifications, and serves the REST API. |
-| `shipwick` | Command-line client. Validates `deploy.yaml` locally, submits it, waits for the result. Keeps several servers as contexts. |
+| Agent (`shipwick-agent`) | The only stateful part of Shipwick. Runs deployments, supervises replicas, keeps the proxy configuration in line with what is running, runs scheduled jobs, samples metrics, posts notifications, keeps the secrets, and serves the REST API. |
+| `shipwick` | Command-line client. Validates `deploy.yaml` locally, builds the image on your machine with `build:` or uploads a static folder, submits the document, waits for the result. Installs the server over SSH, checks the setup with `doctor`. Keeps several servers as contexts. |
 | Dashboard | Web client. Its own server holds the session and relays requests to the agent. It has no database and no state of its own. |
-| Caddy | Reverse proxy in front of the applications. Terminates TLS, obtains and renews certificates, balances across replicas, answers redirects. |
-| Docker | The container runtime. The agent uses the Docker daemon that is already on the server. |
-| SQLite | One file in the agent's data directory. Holds applications, deployments, replicas, events, tokens, job runs and metric samples. |
+| Caddy | Reverse proxy in front of the applications. Terminates TLS, obtains and renews certificates, balances across replicas, compresses responses, answers redirects, and serves static applications from disk. |
+| Docker | The container runtime. The agent uses the Docker daemon that is already on the server; images are pulled from a registry, or loaded from an archive the CLI built and sent. |
+| SQLite | One file in the agent's data directory. Holds applications, deployments, replicas, events, tokens, secrets, job runs and metric samples. |
 
 There is no control plane, no cluster and no external database. The installer sets up three containers on the server: the agent, Caddy and the dashboard. See [Install on a server](/docs/getting-started/install).
 
@@ -40,7 +40,9 @@ There is no control plane, no cluster and no external database. The installer se
 
 **Browser to dashboard to agent.** The browser talks only to the dashboard's own server. That server keeps the token in an `httpOnly` cookie and relays requests to the agent with the `Authorization` header added. The browser never holds the token and never contacts the agent, so the agent needs no CORS support. Anything the dashboard does, `shipwick` and `curl` can do too.
 
-**Agent to Docker.** The agent talks to the Docker Engine API directly through the Docker socket. It never runs the `docker` command line or any shell. The standard `DOCKER_HOST` and `DOCKER_CONFIG` variables are honored.
+**Agent to Docker.** The agent talks to the Docker Engine API directly through the Docker socket. It never runs the `docker` command line or any shell. The standard `DOCKER_HOST` and `DOCKER_CONFIG` variables are honored. It pulls images and loads the archives the CLI sends; it builds nothing.
+
+**CLI to Docker, on your machine.** With `build:` in `deploy.yaml`, `shipwick deploy` runs `docker build` where it runs, for the server's architecture, and sends the image to the agent as an archive. The build happens on the developer's machine, never on the server. See [Deployments](/docs/concepts/deployments#images-built-where-you-are).
 
 **Agent to Caddy.** The agent renders Caddy's complete JSON configuration and loads it through Caddy's admin API. In the standard installation the admin API is a unix socket in a volume that only the agent and Caddy share. The configuration says which name stands behind which domain; which replicas carry that name is decided on the services network, and Caddy asks Docker's DNS for it. See [Routing and HTTPS](/docs/concepts/routing-and-https).
 
@@ -61,7 +63,9 @@ One parser and one validator serve both `shipwick` and the agent, so error messa
 - **The deployment lifecycle.** Every deployment is an immutable record that moves through a state machine. See [Deployments](/docs/concepts/deployments).
 - **Restarts.** Docker's own restart policy is set to `no` on every container. Restarts belong to the agent's supervisor, which adds backoff, health awareness and crash-loop detection. Two restart mechanisms would fight. See [Health checks and supervision](/docs/concepts/health-and-supervision).
 - **The replica count.** A replica whose container has disappeared is recreated from the stored configuration.
-- **Caddy's configuration, entirely.** The agent regenerates and reloads the full configuration whenever a hostname or a port changes. A rollout, a crash or a restart does not touch it. Manual edits are overwritten.
+- **Caddy's configuration, entirely.** The agent regenerates and reloads the full configuration whenever a hostname or a port changes, or a static application's folder does. A rollout, a crash or a restart does not touch it. Manual edits are overwritten.
+- **The folders of static applications.** The agent copies an uploaded folder into Caddy's container and keeps the one serving and the one before it. See [Deployments](/docs/concepts/deployments#a-folder-instead-of-a-container).
+- **The secrets.** Values stored with `shipwick secret set`, encrypted like environment values, filled into `${NAME}` in `env` values when a deployment is recorded.
 - **The names on the services network.** A replica carries its application's names while it is ready, and the agent gives and takes them.
 - **One-off containers.** The `pre_deploy` command, scheduled `jobs` and `shipwick run` are one thing at three moments: a container from the application's image, with its environment, limits and networks, that runs one command and is removed. One code path creates, starts, waits for, reads out and removes it. See [Run scheduled jobs and one-off commands](/docs/tasks/jobs).
 - **Old images.** After a successful deployment, and after `delete`, the images that only retired deployments of the application refer to are removed. The running version's image and the rollback target's are always kept. See [Deployments](/docs/concepts/deployments#when-a-deployment-is-done).
@@ -88,10 +92,11 @@ The proxy configuration names no container and no address. It names `<app>_<port
 
 ## What is stored
 
-The database has seven tables: `applications`, `deployments`, `deployment_replicas`, `events`, `tokens`, `metric_samples` and `job_runs`. Migrations are an append-only list tracked in `PRAGMA user_version`. Timestamps are fixed-width UTC text, so they sort lexicographically.
+The database has eight tables: `applications`, `deployments`, `deployment_replicas`, `events`, `tokens`, `metric_samples`, `job_runs` and `secrets`. Migrations are an append-only list tracked in `PRAGMA user_version`. Timestamps are fixed-width UTC text, so they sort lexicographically.
 
 - **The full configuration of every deployment** is stored with it, as JSON. This is what makes a rollback "deploy the configuration of an older record again" rather than a separate code path.
-- **Environment values are encrypted in that JSON**, and nothing else is. Names, images, domains and the variable names stay readable, so the file remains debuggable; only the values are ciphertext (AES-256-GCM). The key is `encryption.key` in the data directory, or `SHIPWICK_ENCRYPTION_KEY`. It lives next to the database rather than in it, so a copy of the database alone reveals no secrets, and it must be backed up with the database. The API masks the values in every response regardless. See [Security](/docs/security#secrets-at-rest).
+- **Environment values are encrypted in that JSON**, and so are the stored secrets; nothing else is. Names, images, domains and the variable names stay readable, so the file remains debuggable; only the values are ciphertext (AES-256-GCM). The key is `encryption.key` in the data directory, or `SHIPWICK_ENCRYPTION_KEY`. It lives next to the database rather than in it, so a copy of the database alone reveals no secrets, and it must be backed up with the database. The API masks the values in every response regardless. See [Security](/docs/security#secrets-at-rest).
+- **A static deployment** records the digest, file count and size of the folder it serves instead of an image.
 - **Deployment events** narrate one deployment and never change afterwards. Each deployment also records `by`, the name of the token that started it.
 - **Application events**, the supervisor's running commentary, are capped at the newest 500 per application. A crash loop would otherwise grow the table without bound.
 - **Tokens** are stored as name, role and the SHA-256 of the value. The root token is the exception: it is not in the database at all. Only its hash is kept, in memory and in `agent-token.sha256` next to the database, so a lost or corrupt database can never lock the operator out. See [Agent configuration](/docs/reference/agent-configuration).
@@ -130,7 +135,7 @@ Anything that runs with `docker run` runs on Shipwick. It schedules nothing acro
 Out of scope, and likely to stay there:
 
 - Multi-node scheduling, service meshes, custom resources.
-- Building images. The `BUILDING` state of a deployment covers obtaining an image, not building one.
+- Building images on the server. The `BUILDING` state of a deployment covers obtaining an image, not building one. `build: .` does not cross this line: the build runs on the developer's machine, and the agent only loads the result.
 - Anything that requires an external database or queue.
 
 Not yet:

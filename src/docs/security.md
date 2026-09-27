@@ -13,7 +13,7 @@ The agent holds the Docker socket, which makes it root on the server it runs on.
 
 - **An `admin` token is equivalent to root SSH access to the server.** Treat it so. The token the installer prints is one.
 - **Shipwick is not a multi-tenant sandbox.** Whoever can submit a `deploy.yaml` to the agent, which any `deploy` token can, can run arbitrary images on the server, with any command, as any user inside the container.
-- **Roles limit what a token may ask the API for, not what the server trusts.** `read` sees everything, environment values masked; `deploy` changes what runs; `admin` also deletes applications, manages tokens and downloads or restores volumes. A role applies to the whole server, not to one application.
+- **Roles limit what a token may ask the API for, not what the server trusts.** `read` sees everything, environment values masked and secrets by name only; `deploy` changes what runs, and sends images and static folders; `admin` also deletes applications, manages tokens and secrets, and downloads, restores or removes volumes. A role applies to the whole server, not to one application.
 - The same holds for anyone with access to the Docker socket, the agent's data directory or Caddy's admin socket.
 
 The agent container runs as root because it needs the Docker socket, which already is root-equivalent access to the host.
@@ -49,6 +49,7 @@ Every request carries a bearer token, every token has a role, and every endpoint
 - **Token values** are 32 random bytes in unpadded base64url behind the prefix `swk_`. The prefix carries no entropy; it is there so that a token is recognisable in the places it must never be, a log line or a commit, and so that a leak scanner can grep for it.
 - **Comparison is constant-time.** The presented token is hashed once; the root hash is compared in constant time, and a stored token is looked up by its hash, one indexed query, and then compared in constant time as well, so the database's own comparison cannot be turned into a timing oracle.
 - **Who did what is recorded.** Each deployment stores the token that started it (`by`), and a stop or start by a token other than root names it in the application's events. `last_used_at` on a token is written at most once a minute: it says whether a token is still in use, not what it did last.
+- **Guessing is answered.** After 20 failed authentications within a minute from one client address, the agent answers wrong tokens from that address with `429 RATE_LIMITED` and a `Retry-After` header for the next minute. A valid token is never refused: behind Caddy every client shares the proxy's address, and behind the dashboard every browser shares the dashboard server's, so a guesser must not be able to lock anyone else out. Only failures count, so a mistyped token does not reach the limit, and `GET /health` is not limited.
 - A configured root token must be at least 16 characters. The agent refuses to start with a shorter one.
 - If the agent generates its token, it prints it once, directly to standard output and not through the logger, and it cannot be recovered afterwards. Under Docker, "printed" means it is in the container's log (`docker logs`) for as long as that container exists. The installer avoids this by generating the token itself and passing it in. Do the same when setting things up by hand.
 - The installer writes the token to `/opt/shipwick/.env` with mode `0600`, in a directory with mode `0700`, and never rewrites an existing `.env`.
@@ -57,7 +58,7 @@ Give CI a `deploy` token and people `admin` ones. See [Create tokens for CI and 
 
 ### Secrets at rest
 
-The `env` values of every deployment are encrypted before they are written to the database, and nothing else is. Names, images, hostnames and the variable names stay in clear, so the file remains debuggable; only the values are ciphertext.
+The `env` values of every deployment, and the secrets stored with `shipwick secret set`, are encrypted before they are written to the database, and nothing else is. Names, images, hostnames and the variable names stay in clear, so the file remains debuggable; only the values are ciphertext.
 
 - **The scheme** is AES-256-GCM with a fresh 12-byte random nonce per value and the variable name as additional authenticated data. Binding the name means a ciphertext cut from `DB_PASSWORD` and pasted into `DEBUG_ECHO` does not decrypt: a tampered database cannot make the agent hand a secret to a different variable. The stored form is `enc1:` followed by base64 of nonce and ciphertext; the prefix versions the scheme and marks the value as encrypted.
 - **The key** is 32 bytes, from `SHIPWICK_ENCRYPTION_KEY` (64 hex characters) or, by default, `encryption.key` in the data directory, created with mode `0600` on the agent's first start. It lives next to the database rather than in it, so a copy of the database alone is useless. Opening the database proves the key against every stored value, so a key that does not match is caught at start, not at the first deployment, and the agent refuses to start with a message that says so.
@@ -70,11 +71,20 @@ The `env` values of every deployment are encrypted before they are written to th
 Without the key the database cannot be read, and the agent refuses to start against it. The agent says so in its log when it creates the key. A backup of the data directory that leaves the key out is a backup of nothing.
 :::
 
+### Secrets kept on the server
+
+A value for `${NAME}` in `env` can be stored on the server once, with `shipwick secret set NAME`, so that no laptop and no pipeline has to hold it. What the agent does with it:
+
+- The value is never an argument: `shipwick secret set` asks for it without echo, reads it from standard input, or from a file with `--from-file`. Arguments leak through `ps` and shell history.
+- It is written encrypted, like an `env` value, with its name as additional authenticated data, and is read by nobody afterwards: `GET /secrets` lists names and dates only, and the value is never returned, logged or repeated in an error. It goes into containers and nowhere else.
+- The agent fills it into the `env` values of a deployment when the deployment is recorded, so the record holds the value and a rollback restores what that deployment ran with. A `${NAME}` that is set neither where `shipwick` runs nor on the server refuses the deployment before anything is recorded.
+- Storing and removing a secret needs the `admin` role; listing the names needs `read`. In the dashboard, the value is cleared from the page the moment the request is sent.
+
 ### Nothing secret in logs or responses
 
 - Tokens, `Authorization` headers, request bodies and environment values are never logged. The request log holds the method, path, status, duration and remote address.
 - Environment values are masked as `********` in every API response. Validation errors never echo a value.
-- `${NAME}` placeholders keep secrets out of `deploy.yaml` and out of your repository. `shipwick` fills them in from its environment or `--env-file` at deploy time, refuses to deploy while one is unset, and reports only how many were substituted, never the values.
+- `${NAME}` placeholders keep secrets out of `deploy.yaml` and out of your repository. `shipwick` fills them in from its environment or `--env-file` at deploy time and reports only how many were substituted, never the values; the agent fills the remaining `env` values in from the secrets stored on the server, and a name neither has stops the deployment.
 - The webhook URL is a credential: Slack's and Discord's carry the token in the path. It is validated without being echoed, and only its host ever appears in a log line. Plain `http` is refused unless the host is loopback or a private address.
 - API responses carry `Cache-Control: no-store`.
 
@@ -84,9 +94,13 @@ The agent talks to the Docker Engine API directly. It never runs the `docker` co
 
 Commands do exist in `deploy.yaml` now: `entrypoint`, `command`, `health.command`, `pre_deploy.command`, `jobs[].command`, and the body of `shipwick run`. Every one of them is an argv, a list of arguments handed to Docker exactly as written; a string is one argument, spaces included, and nothing is split, joined or passed through a shell. Every one of them runs inside a container of the application's own image, as the image's own command would: a replica's process, a one-off container for the hook, a job or a `run`, or, for a command health check, an exec inside the running replica through the Engine API, without a TTY. They change what runs inside the container, which the image always decided anyway. The container's boundaries are the same, and nothing runs on the server itself.
 
+**The server never builds.** With `build: .`, `docker build` runs on the developer's machine, as an argv, with paths that were validated as relative and inside the project; the agent only loads the resulting archive, and refuses one that does not carry exactly one image tagged for that application. A Dockerfile runs whatever it likes, with the network and CPU of the machine it runs on, and that machine is yours, not the server. The same goes for the CLI's other programs: `ssh` in `shipwick server install` and the browser opener in `shipwick open` are run as programs with arguments, never through a shell, with fixed remote commands and validated hostnames.
+
+**A static folder is files and directories only.** The upload of a static application is a tar archive of files and directories with paths inside the folder; a symbolic link is refused, since the proxy's file server would follow it, and the CLI skips one that leads out of the folder before anything is sent. The proxy serves the folder from its own container, `/srv/shipwick/<app>/<digest>`, and nothing else.
+
 ### Validation
 
-Names, images, hostnames, health paths, published ports and logging options are strictly validated. These are the inputs that end up in container names, URLs, the proxy configuration and the daemon's configuration. Unknown fields in `deploy.yaml` are errors, and request bodies are size-limited. The agent re-validates everything the CLI sends: client-side validation is a convenience, not a trust boundary.
+Names, images, hostnames, health paths, published ports, logging options, build paths, static folders and secret names are strictly validated. These are the inputs that end up in container names, URLs, the proxy configuration, the daemon's configuration and file paths. Unknown fields in `deploy.yaml` are errors, and request bodies are size-limited: 64 KB for a `deploy.yaml`, 4 GB for an image archive, 512 MB for a static folder, 10 GB for a volume archive. The agent re-validates everything the CLI sends: client-side validation is a convenience, not a trust boundary.
 
 ### Proxy configuration as data
 
@@ -128,7 +142,8 @@ Everything the installer fetches comes from one release and is verified against 
 - **The role follows the token.** Whoever signs in brings a token, and what the dashboard offers follows that token's role: controls the role does not cover are disabled with the reason, and the Tokens page appears for `admin` tokens only. That is a courtesy; roles are enforced by the agent, which answers `403` to a request the role does not cover whatever the page does.
 - **The browser never talks to the agent.** The dashboard server relays requests and adds the `Authorization` header. The agent therefore needs no CORS support and can stay off the public internet.
 - **CSRF.** Every state-changing request must carry the header `X-Shipwick-Request: 1`. A cross-origin page cannot add a custom header without a CORS preflight, and the server never grants one. `Sec-Fetch-Site`, where the browser sends it, must be `same-origin`. `SameSite=Strict` is the second layer.
-- **The relay is not an open proxy.** The target host comes only from the dashboard's `SHIPWICK_AGENT_URL`. Only `GET`, `HEAD`, `POST`, `PUT` and `DELETE` are accepted, the path must stay under `/api/v1/` with each segment limited to `[A-Za-z0-9._~-]`, and only `Accept`, `Content-Type` and, for an upload, `Content-Length` are forwarded. The browser's cookies never are. `POST` bodies over 128 KB are refused; a `PUT` body, which is only ever a volume archive, is streamed through and bounded by the agent's own 10 GB limit.
+- **The relay is not an open proxy.** The target host comes only from the dashboard's `SHIPWICK_AGENT_URL`. Only `GET`, `HEAD`, `POST`, `PUT` and `DELETE` are accepted, the path must stay under `/api/v1/` with each segment limited to `[A-Za-z0-9._~-]`, and only `Accept`, `Content-Type` and, for an upload, `Content-Length` are forwarded. The browser's cookies never are. `POST` bodies over 128 KB are refused; a `PUT` body, a volume archive or a secret's value, is streamed through and bounded by the agent's own limits. The dashboard uploads neither static folders nor images: `shipwick deploy` does that.
+- **Failed sign-ins are slowed down by the agent.** Every browser reaches the agent from the dashboard server's address, so 20 failed sign-ins within a minute, from anyone, make the agent answer wrong tokens with `429` for a minute; the dashboard shows `Too many failed attempts from this address; try again in a minute` and never presents it as a rejected token. A valid token is never refused.
 - **A `401` from the agent ends the session.** The cookie is cleared and the application returns to the sign-in page.
 - The token is never logged by the dashboard. Post-login redirects only accept same-site paths.
 - In production the dashboard sends a Content-Security-Policy of `default-src 'self'` (with inline script and style allowed), `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. It loads nothing from third parties.
@@ -138,8 +153,8 @@ Everything the installer fetches comes from one release and is verified against 
 
 - **Roles are per server, not per application.** A `deploy` token can deploy every application on the server; there is no way to limit a token to one of them.
 - **The encryption key cannot be rotated.** The key that was used to write the database is the key that reads it.
-- **The dashboard has no login rate limiting.** Put it in the reverse proxy if needed. Tokens the agent issues are 32 random bytes; a configured root token is at least 16 characters.
-- **Registry credential helpers are not supported.** Private registry credentials are read from the `auths` entries of the Docker configuration file on the server, where they are stored base64-encoded, not encrypted.
+- **Rate limiting is per client address, and the dashboard is one client.** The agent slows down failed authentications by address, which behind the dashboard is the dashboard server's; there is no limit per token or per browser. Tokens the agent issues are 32 random bytes; a configured root token is at least 16 characters.
+- **Registry credential helpers are not supported.** Private registry credentials are read from the `auths` entries of the Docker configuration file on the server, where they are stored base64-encoded, not encrypted. With `build: .` no registry and no credentials are involved.
 
 Protect the data directory regardless of all the above; it is created with mode `0700`. Anyone who can read it has the database and the key, and anyone with the Docker socket can read every application's environment from its containers.
 

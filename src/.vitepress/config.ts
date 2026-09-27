@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 const site = 'https://shipwick.com'
 const repo = 'https://github.com/shipwick/shipwick'
-const version = '0.3.1'
+const version = '0.4.0'
 
 export default defineConfig({
   lang: 'en-US',

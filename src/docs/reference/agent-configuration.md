@@ -13,8 +13,8 @@ The agent is configured through `SHIPWICK_*` environment variables only. It has 
 |---|---|---|
 | [`SHIPWICK_AGENT_TOKEN`](#api-token) | generated | The root API token, `admin`. At least 16 characters. |
 | `SHIPWICK_LISTEN_ADDR` | `127.0.0.1:9000` | Address the API listens on. Loopback by default, on purpose. The agent image sets it to `0.0.0.0:9000`. |
-| [`SHIPWICK_DATA_DIR`](#data-directory) | `/var/lib/shipwick` on Linux | Directory for the SQLite database, the token hash and the encryption key. |
-| [`SHIPWICK_ENCRYPTION_KEY`](#shipwick-encryption-key) | generated | The key that encrypts `env` values in the database: 64 hexadecimal characters. Unset: `encryption.key` in the data directory, created on the first start. |
+| [`SHIPWICK_DATA_DIR`](#data-directory) | `/var/lib/shipwick` on Linux | Directory for the SQLite database, the token hash, the encryption key, and the uploaded folders of static applications until they are deployed. |
+| [`SHIPWICK_ENCRYPTION_KEY`](#shipwick-encryption-key) | generated | The key that encrypts `env` values and the stored secrets in the database: 64 hexadecimal characters. Unset: `encryption.key` in the data directory, created on the first start. |
 | `SHIPWICK_DOCKER_NETWORK` | `shipwick` | Docker bridge network that application containers join. A second one, `<network>-services`, is derived from it: application containers join it too and carry their application's names on it while they are ready, and Caddy finds them there. Both are created if they do not exist. |
 | [`SHIPWICK_CADDY_ADMIN`](#shipwick-caddy-admin) | none | Caddy's admin endpoint. Unset: domains are recorded but not served. |
 | `SHIPWICK_AGENT_DOMAIN` | none | Serve the agent's API over HTTPS at this hostname, through Caddy. Requires `SHIPWICK_CADDY_ADMIN`. |
@@ -65,7 +65,7 @@ An application that claims either hostname, as its `domain`, an alias or a redir
 
 ### SHIPWICK_ENCRYPTION_KEY
 
-The key the agent encrypts environment values with before it writes them to the database. Every `env` value of every deployment is stored as AES-256-GCM ciphertext; the variable names, and everything else in the record, stay readable. A copy of `shipwick.db` without the key reveals no secrets.
+The key the agent encrypts environment values with before it writes them to the database. Every `env` value of every deployment, and every secret stored with `shipwick secret set`, is stored as AES-256-GCM ciphertext; the variable names, and everything else in the record, stay readable. A copy of `shipwick.db` without the key reveals no secrets.
 
 | | |
 |---|---|
@@ -167,9 +167,10 @@ The directory is created with mode `0700` if it does not exist. It contains:
 
 | File | Content |
 |---|---|
-| `shipwick.db` | The SQLite database: applications, deployments with their full configuration, replicas, events, job runs, metrics samples and the hashes of the tokens created with `shipwick token create`. Environment values are encrypted. It runs in WAL mode, so SQLite keeps its `-wal` and `-shm` files next to it. |
-| `encryption.key` | The key the environment values are encrypted with: 64 hexadecimal characters. Mode `0600`. Created on the first start, unless `SHIPWICK_ENCRYPTION_KEY` is set. See [`SHIPWICK_ENCRYPTION_KEY`](#shipwick-encryption-key). |
+| `shipwick.db` | The SQLite database: applications, deployments with their full configuration, replicas, events, job runs, metrics samples, the secrets stored with `shipwick secret set`, and the hashes of the tokens created with `shipwick token create`. Environment values and secrets are encrypted. It runs in WAL mode, so SQLite keeps its `-wal` and `-shm` files next to it. |
+| `encryption.key` | The key the environment values and secrets are encrypted with: 64 hexadecimal characters. Mode `0600`. Created on the first start, unless `SHIPWICK_ENCRYPTION_KEY` is set. See [`SHIPWICK_ENCRYPTION_KEY`](#shipwick-encryption-key). |
 | `agent-token.sha256` | The hex-encoded SHA-256 hash of a token the agent generated itself. Mode `0600`. Present only if the agent ever generated its token. |
+| `uploads/` | The folders of static applications uploaded with `shipwick deploy`, kept until they are deployed. Nothing here needs a backup: the next `shipwick deploy` uploads the folder again. |
 
 ::: warning Protect this directory, and back it up as a whole
 `shipwick.db` and `encryption.key` belong together: the database is only readable with the key, and the key is only useful with the database. Anyone who can read both can read every application's secrets, so the directory stays `0700`. A backup of one without the other is worthless.
@@ -183,13 +184,13 @@ The agent authenticates every API request, except `GET /api/v1/health`, against 
 
 | Role | May |
 |---|---|
-| `read` | See everything: the server, the applications, deployments, logs, events, metrics. |
-| `deploy` | And change what runs: deploy, redeploy, roll back, stop, start, run commands. |
-| `admin` | And everything else: delete applications, manage tokens. |
+| `read` | See everything: the server, the applications, deployments, logs, events, metrics, the names of the secrets, the volumes. |
+| `deploy` | And change what runs: deploy, redeploy, roll back, stop, start, run commands, upload images and static folders. |
+| `admin` | And everything else: delete applications, manage tokens and secrets, back up, restore and remove volumes. |
 
 There are two kinds of token. The **root token** is the one this section is about: the token the agent is configured with, through `SHIPWICK_AGENT_TOKEN` or generated on the first start. It has the `admin` role and the name `root`, it is not stored in the database, and it cannot be revoked through the API. It is the one the installer prints, and the one to keep for yourself.
 
-Every other token is created with `shipwick token create <name> --role read|deploy|admin`, is shown exactly once, and is stored as a hash in `shipwick.db` with its name and role. `shipwick token ls` shows when each was last used; `shipwick token revoke <name>` ends it. Give CI a `deploy` token and people `admin` ones. A wrong or revoked token is `401 UNAUTHORIZED`; a valid token whose role does not cover the request is `403 FORBIDDEN`, and the answer says which role it has and which it needs. Deployments record which token made them. See [Create tokens for CI and teammates](/docs/tasks/tokens).
+Every other token is created with `shipwick token create <name> --role read|deploy|admin`, is shown exactly once, and is stored as a hash in `shipwick.db` with its name and role. `shipwick token ls` shows when each was last used; `shipwick token revoke <name>` ends it. Give CI a `deploy` token and people `admin` ones. A wrong or revoked token is `401 UNAUTHORIZED`; a valid token whose role does not cover the request is `403 FORBIDDEN`, and the answer says which role it has and which it needs. After 20 failed authentications within a minute from one client address, the agent answers wrong tokens from that address with `429 RATE_LIMITED` and a `Retry-After` header for the next minute; a valid token is never refused, and `GET /api/v1/health` is not limited. Deployments record which token made them. See [Create tokens for CI and teammates](/docs/tasks/tokens).
 
 The root token's hash is determined at startup, in this order:
 
@@ -255,7 +256,7 @@ The file fixes the rest of the agent's configuration:
 | `SHIPWICK_LOG_FORMAT` | `json` |
 | Dashboard's `SHIPWICK_AGENT_URL` | `http://agent:9000` |
 | Agent port | Not published. The only ways in are Caddy and the server itself. |
-| Caddy | `caddy:2-alpine`, started with a bootstrap configuration that contains only the admin socket. The agent loads the real configuration. |
+| Caddy | `caddy:2-alpine`, started with a bootstrap configuration that contains only the admin socket. The agent loads the real configuration, which also compresses responses with zstd or gzip when the client asks for it. |
 | Networks | `shipwick`, shared by all three services and by application containers, and `shipwick-services`, joined by Caddy and by application containers, where Caddy finds an application's replicas by its name |
 | Logs | Each of the three containers keeps at most 3 files of 10 MB, like application replicas |
 | Restart policy | `unless-stopped` for all three services |
@@ -267,11 +268,12 @@ Volumes:
 | `agent-data` | agent, at `/var/lib/shipwick` | The data directory: the database and the encryption key. Back this volume up. |
 | `caddy-data` | Caddy, at `/data` | Certificates. Back this volume up, and do not delete it casually. |
 | `caddy-config` | Caddy, at `/config` | Caddy's own configuration directory. Caddy is started with `--resume`. |
+| `caddy-static` | Caddy, at `/srv/shipwick` | The folders of static applications: the agent puts them there and Caddy serves them itself, with no container in between. Nothing here needs a backup. |
 | `caddy-admin` | agent and Caddy, at `/run/caddy` | The admin socket |
 
 The agent also mounts `/var/run/docker.sock`, which is root-equivalent access to the server.
 
-The installer replaces `/opt/shipwick/compose.yml` on every upgrade. Your own changes belong in `/opt/shipwick/compose.override.yml`, which Compose merges with it and the installer never touches. The two most common ones:
+The installer replaces `/opt/shipwick/compose.yml` on every upgrade, and removes the agent and dashboard images of earlier releases afterwards. Your own changes belong in `/opt/shipwick/compose.override.yml`, which Compose merges with it and the installer never touches. The two most common ones:
 
 - **Private images.** Mount the server's `docker login` credentials into the agent: `/root/.docker/config.json:/root/.docker/config.json:ro`. See [Pull from private registries](/docs/tasks/private-registries).
 - **No hostname for the API.** Leave `SHIPWICK_AGENT_DOMAIN` empty and publish the API on the server's loopback only, with `ports: ["127.0.0.1:9000:9000"]` on the agent, then reach it through an SSH tunnel. See [Reach the API without a hostname](/docs/tasks/access-without-a-hostname).

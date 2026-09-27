@@ -5,7 +5,7 @@ description: Download the volumes of an application as tar archives with shipwic
 
 # Back up and restore volumes
 
-An application with `volumes` keeps data that no redeploy, rollback or `delete` touches, and that nothing copies anywhere either. This page shows how to download those volumes with `shipwick backup`, what the archives are, how to put one back with `shipwick restore`, what a consistent copy of a database takes, and how a script or the dashboard does the same.
+An application with `volumes` keeps data that no redeploy, rollback or `delete` touches, and that nothing copies anywhere either. This page shows how to download those volumes with `shipwick backup`, what the archives are, how to put one back with `shipwick restore`, what a consistent copy of a database takes, how to see every volume on the server and remove what a deleted application left behind, and how a script or the dashboard does the same.
 
 ## Before you begin
 
@@ -88,6 +88,32 @@ Stop it first with: shipwick stop
 
 In a terminal the upload shows its progress. A restore is not undone by a rollback: a rollback is a new deployment of an earlier configuration, and the volume belongs to the application, not to a deployment. Keep the archive you replaced, if you may want it back.
 
+## Volumes of deleted applications
+
+`shipwick delete` removes an application, its containers and its history, and leaves its volumes where they are, on purpose. `shipwick volumes` lists every volume Shipwick created on the server, by its Docker name, with the application it was created for, how much it holds, and whether that application still exists:
+
+```bash
+shipwick volumes
+```
+
+```text
+NAME                    APPLICATION   SIZE      STATUS
+shipwick_postgres_data  postgres      2.5 GB    in use
+shipwick_pgtest_data    pgtest        13.0 MB   application deleted
+```
+
+A volume whose application was deleted is removed, with everything in it, with `shipwick volumes rm`:
+
+```bash
+shipwick volumes rm shipwick_pgtest_data
+```
+
+```text
+✓ Removed volume shipwick_pgtest_data (13.0 MB)
+```
+
+It asks first; `--yes` skips the question. A volume whose application still exists is refused: its data belongs to the application, and a restore is the way to replace it. Listing needs the `read` role, removing `admin`. Nothing else removes a volume; `docker volume rm` on the server does the same by hand.
+
 ## From a script
 
 The two archive endpoints carry the tar file itself as the body, both ways, and need the `admin` role.
@@ -108,15 +134,17 @@ curl -X PUT -H "Authorization: Bearer $SHIPWICK_AGENT_TOKEN" -H "Content-Type: a
 | `GET` | `/applications/:name/volumes` | read | The volumes of the active deployment: `[{name, path}]` |
 | `GET` | `/applications/:name/volumes/:volume/archive` | admin | The archive, `Content-Type: application/x-tar`, streamed as it is read |
 | `PUT` | `/applications/:name/volumes/:volume/archive` | admin | Replace the volume with the archive in the body → `204` |
+| `GET` | `/volumes` | read | Every volume on the server: `[{name, application, volume, size_bytes, orphan}]` |
+| `DELETE` | `/volumes/:name` | admin | Remove a volume of a deleted application → `204`; `409 VOLUME_IN_USE` while the application exists |
 
-A restore of an application that is not stopped is `409 APPLICATION_RUNNING`; a body that does not start with a tar header is `400 INVALID_REQUEST`, and nothing has been touched; a body over 10 GB is `413`. A download that fails after the first byte can only cut the connection, so check the exit code of `curl` and the size of the file. See [Volume backups](/docs/reference/api#volume-backups) in the API reference.
+A restore of an application that is not stopped is `409 APPLICATION_RUNNING`; a body that does not start with a tar header is `400 INVALID_REQUEST`, and nothing has been touched; a body over 10 GB is `413`. A download that fails after the first byte can only cut the connection, so check the exit code of `curl` and the size of the file. See [the API reference](/docs/reference/api#get-applications-name-volumes-volume-archive).
 
 ## The dashboard
 
-An application with volumes has a Volumes card. **Download** saves the archive under the agent's file name. **Restore** is offered only while the application is stopped: it checks that the file starts with a tar header, uploads it with a progress bar, shows the agent's own event when it is done, and offers **Start**. Both need the `admin` role. See [Use the dashboard](/docs/tasks/dashboard).
+An application with volumes has a Volumes card. **Download** saves the archive under the agent's file name. **Restore** is offered only while the application is stopped: it checks that the file starts with a tar header, uploads it with a progress bar, shows the agent's own event when it is done, and offers **Start**. Both need the `admin` role. The Volumes page lists every volume on the server with its application and size, and lets an admin remove the volume of a deleted application. See [Use the dashboard](/docs/tasks/dashboard).
 
 ## What's next
 
 - [Run a database or other stateful application](/docs/tasks/stateful-applications): where the volume lives and what survives which operation.
-- [`shipwick backup`](/docs/reference/cli#backup) and [`shipwick restore`](/docs/reference/cli#restore) in the CLI reference.
+- [`shipwick backup`](/docs/reference/cli#backup), [`shipwick restore`](/docs/reference/cli#restore) and [`shipwick volumes`](/docs/reference/cli#volumes) in the CLI reference.
 - The [`volumes`](/docs/reference/deploy-yaml#volumes) field in the deploy.yaml reference.

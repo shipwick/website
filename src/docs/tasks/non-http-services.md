@@ -66,7 +66,7 @@ Strategy       recreate
 Environment    1 variables
 ```
 
-Without `address`, the line reads `5432/tcp → server port 15432` and the port is bound on every address of the server. The dashboard shows the same line on the application's page.
+Without `address`, the line reads `5432/tcp → server port 15432` and the port is bound on every address of the server. The dashboard shows the same line on the application's page. Instead of an `--env-file`, the password can be stored on the server once with `shipwick secret set POSTGRES_PASSWORD`; the agent then fills it in, and both commands run without the flag.
 
 Deploy, and connect from a machine that reaches `10.0.0.5`:
 

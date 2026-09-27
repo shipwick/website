@@ -6,7 +6,7 @@ titleTemplate: ':title · Production deployments on your own server'
 hero:
   name: Shipwick
   text: Production deployments on your own server.
-  tagline: One small file describes your application. One command ships it, with health checks, automatic rollback and HTTPS. Jobs, backups, secrets and a dashboard are included. All of it on the Linux server you already have.
+  tagline: One small file describes your application. One command builds it, ships it and routes it, with health checks, automatic rollback and HTTPS. Jobs, backups, secrets and a dashboard are included. All of it on the Linux server you already have, and no registry in between.
   image:
     src: /deploy.png
     alt: A terminal showing shipwick deploy pulling an image, passing health checks, routing a domain and finishing in 6.1 seconds
@@ -28,7 +28,7 @@ hero:
 
 ## Three steps, five minutes
 
-<p class="lead">A Linux server with Docker, a domain that points at it, and an image of your application. That is all Shipwick asks for.</p>
+<p class="lead">A Linux server with Docker, a domain that points at it, and a Dockerfile or an image of your application. That is all Shipwick asks for.</p>
 
 <div class="steps">
 <div class="step">
@@ -36,7 +36,7 @@ hero:
 
 ### Set up the server
 
-Run one command on the server. It installs the agent, the reverse proxy and the dashboard, and prints your API token.
+Run one command on the server. It installs the agent, the reverse proxy and the dashboard, and prints your API token. Or run it from your laptop over SSH: `shipwick server install root@203.0.113.10`.
 
 ```bash
 curl -fsSL https://get.shipwick.com | sh
@@ -61,7 +61,7 @@ shipwick login --url https://agent.example.com
 
 ### Deploy
 
-Describe the application in `deploy.yaml`, then ship it. Replicas are replaced one at a time, each only after it proved healthy.
+`init` recognises your project and writes a Dockerfile and a `deploy.yaml`. `deploy` builds the image on your machine, sends it to the server and replaces replicas one at a time, each only after it proved healthy. No registry needed.
 
 ```bash
 shipwick init
@@ -75,9 +75,13 @@ shipwick deploy
 <div>
 
 ```yaml
-# deploy.yaml
+# deploy.yaml, written by shipwick init
 name: my-api
-image: ghcr.io/company/my-api:1.4.2
+
+# Built on your machine by shipwick deploy, from the
+# Dockerfile next to this file. No registry needed.
+build: .
+
 port: 8080
 domain: api.example.com
 replicas: 2
@@ -94,21 +98,26 @@ $ shipwick deploy
 Deploying my-api...
 
 ✓ Validated deploy.yaml
-✓ Pulled image ghcr.io/company/my-api:1.4.2
+✓ Built shipwick.local/my-api:20260927-153000-a1b2 for linux/amd64
+✓ Sent image to the server (68.8 MB)
+✓ Using image shipwick.local/my-api:20260927-153000-a1b2, sent from a developer's machine
 ✓ Started 1 container
 ✓ Replica 1 passed health checks
-✓ Replica 1/2 is serving 1.4.2
+✓ Replica 1/2 is serving 20260927-153000-a1b2
 ✓ Replica 2 passed health checks
-✓ Replica 2/2 is serving 1.4.2
+✓ Replica 2/2 is serving 20260927-153000-a1b2
 ✓ Routed https://api.example.com to 2 replicas
 ✓ Deployment successful
 
-my-api 1.4.2  deployed in 6.1s
+my-api 20260927-153000-a1b2  deployed in 8.2s
+2/2 replicas healthy
 https://api.example.com
 ```
 
 </div>
 </div>
+
+Have an image in a registry already? Write `image: ghcr.io/company/my-api:1.4.2` instead of `build: .`, and the server pulls it. A built frontend needs no container at all: `static: dist/` and the proxy serves the folder.
 
 <div class="next">
 
@@ -130,7 +139,7 @@ https://api.example.com
 
 ### Rolling deployments
 
-One replica at a time, each only after it passed its health check. A version that does not come up is rolled back on its own; the one that works keeps serving.
+One replica at a time, each only after it passed its health check. A version that does not come up is rolled back on its own; the one that works keeps serving. The image is built on your machine or pulled from a registry, as you prefer.
 
 </div>
 <div class="tile t-green">
@@ -138,7 +147,7 @@ One replica at a time, each only after it passed its health check. A version tha
 
 ### HTTPS, done
 
-Every domain gets a certificate and is load-balanced across healthy replicas. Aliases and `www` redirects are one line each. There is no proxy configuration to write.
+Every domain gets a certificate and is load-balanced across healthy replicas. Aliases and `www` redirects are one line each, responses are compressed, and a static site is served by the proxy itself, without a container. There is no proxy configuration to write.
 
 </div>
 <div class="tile t-amber">
@@ -154,7 +163,7 @@ A command that runs from the new image before any replica starts. Cron jobs from
 
 ### Databases, volumes, backups
 
-Persistent volumes for the things that keep data. `shipwick backup` downloads them as plain tar files; `shipwick restore` puts one back.
+Persistent volumes for the things that keep data. `shipwick backup` downloads them as plain tar files; `shipwick restore` puts one back; `shipwick volumes` lists what is on the server and removes what a deleted application left behind.
 
 </div>
 <div class="tile t-rose">
@@ -162,7 +171,7 @@ Persistent volumes for the things that keep data. `shipwick backup` downloads th
 
 ### Secrets and tokens
 
-`${PASSWORD}` keeps secrets out of files; the server stores them encrypted. Tokens with roles: `deploy` for CI, `read` for a teammate, `admin` for you.
+`shipwick secret set` stores a value on the server, encrypted; `${PASSWORD}` in `deploy.yaml` is filled in there, on every deploy from every machine. Tokens with roles: `deploy` for CI, `read` for a teammate, `admin` for you.
 
 </div>
 <div class="tile t-teal">
@@ -170,7 +179,7 @@ Persistent volumes for the things that keep data. `shipwick backup` downloads th
 
 ### A dashboard that knows everything
 
-Replicas, health, a week of CPU and memory, deployment history, live logs, jobs, backups and tokens. Whatever the dashboard does, the CLI and the API can do too.
+Replicas, health, a week of CPU and memory, deployment history, live logs, jobs, backups, secrets, volumes and tokens. Whatever the dashboard does, the CLI and the API can do too.
 
 </div>
 </div>
@@ -181,64 +190,48 @@ Replicas, health, a week of CPU and memory, deployment history, live logs, jobs,
 
 ## Two applications and a database
 
-<p class="lead">Applications reach each other by name on the server. No domain is needed for that, and nothing outside can reach those names.</p>
-
-<div class="columns three">
-<div>
+<p class="lead">Applications reach each other by name on the server. No domain is needed for that, and nothing outside can reach those names. Several applications live in one <code>shipwick.yaml</code>.</p>
 
 ```yaml
-# postgres/deploy.yaml
-name: postgres
-image: postgres:17
-port: 5432
-env:
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-volumes:
-  - name: data
-    path: /var/lib/postgresql/data
-health:
-  tcp: 5432
-deploy:
-  strategy: recreate
+# shipwick.yaml
+apps:
+  - name: postgres
+    image: postgres:17
+    port: 5432
+    env:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}   # filled in when you deploy, never in the file
+    volumes:
+      - name: data
+        path: /var/lib/postgresql/data
+    health:
+      tcp: 5432
+    deploy:
+      strategy: recreate                        # a database cannot run twice
+
+  - name: api
+    build: api                                  # built on your machine, sent to the server
+    port: 8080
+    domain: api.example.com
+    env:
+      DATABASE_URL: postgres://app:${POSTGRES_PASSWORD}@postgres:5432/app
+    health:
+      path: /health
+    pre_deploy:
+      command: ["./migrate", "up"]              # runs from the new image before any replica starts
+    after: [postgres]                           # not before the database is up
+
+  - name: web
+    static: web/dist                            # served by the proxy, no container
+    domain: example.com
+    redirects: [www.example.com]
 ```
-
-</div>
-<div>
-
-```yaml
-# api/deploy.yaml
-name: api
-image: ghcr.io/company/api:2.3.0
-port: 8080
-domain: api.example.com
-env:
-  DATABASE_URL: postgres://app:${POSTGRES_PASSWORD}@postgres:5432/app
-health:
-  path: /health
-pre_deploy:
-  command: ["./migrate", "up"]
-```
-
-</div>
-<div>
-
-```yaml
-# web/deploy.yaml
-name: web
-image: ghcr.io/company/web:2.3.0
-port: 3000
-domain: example.com
-redirects: [www.example.com]
-```
-
-</div>
-</div>
 
 ```bash
-shipwick deploy -f postgres/deploy.yaml -f api/deploy.yaml -f web/deploy.yaml --env-file .env.production
+shipwick secret set POSTGRES_PASSWORD     # once; asked without echo, kept encrypted on the server
+shipwick deploy
 ```
 
-They deploy in that order. If one fails, the ones after it are not touched, and the one that failed keeps running its previous version.
+`postgres` and `web` deploy at the same time, `api` once `postgres` is done. If one fails, what depends on it is skipped and the rest finishes; the one that failed keeps running its previous version.
 
 <div class="next">
 
@@ -284,7 +277,7 @@ On your laptop or in CI, only the CLI:
 curl -fsSL https://get.shipwick.com | sh -s -- --cli
 ```
 
-Or with Homebrew: `brew install shipwick/tap/shipwick`. Everything the installer downloads comes from one release and is verified against its checksums. The agent holds the Docker socket, so an admin token is as valuable as root SSH access to the server: read [Security](/docs/security) before you put it on the internet.
+Or with Homebrew: `brew install shipwick/tap/shipwick`. With the CLI installed, `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` runs the server installer over SSH, saves the token for you and prints the DNS records to create; `shipwick doctor` checks the whole setup afterwards. Everything the installer downloads comes from one release and is verified against its checksums. The agent holds the Docker socket, so an admin token is as valuable as root SSH access to the server: read [Security](/docs/security) before you put it on the internet.
 
 <div class="next">
 

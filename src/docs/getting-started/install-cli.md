@@ -7,7 +7,7 @@ description: Install the Shipwick command-line client on a laptop or in CI, and 
 
 `shipwick` is the Shipwick command-line client. This page covers installing it on your laptop or in CI, keeping it current with `shipwick upgrade`, saving the agent's URL and token with `shipwick login`, working with several servers, and how the CLI decides which agent to talk to.
 
-The server installer already puts `shipwick` on the server. You only need this page for other machines.
+The server installer already puts `shipwick` on the server. You only need this page for other machines. With the CLI on your laptop, the server itself can be installed from there: `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` runs the installer over SSH and logs you in; see [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
 
 ## Homebrew
 
@@ -44,7 +44,7 @@ curl -fsSL https://get.shipwick.com | SHIPWICK_BIN_DIR="$HOME/.local/bin" sh -s 
 To install a specific version, set `SHIPWICK_VERSION`:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.3.0 sh -s -- --cli
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.4.0 sh -s -- --cli
 ```
 
 ## Windows
@@ -74,21 +74,21 @@ shipwick upgrade
 ```
 
 ```text
-✓ Upgraded shipwick v0.2.0 → v0.3.0
+✓ Upgraded shipwick v0.3.1 → v0.4.0
   /usr/local/bin/shipwick
 
-The server runs v0.2.0; v0.3.0 is available. On the server run:
+The server runs v0.3.1; v0.4.0 is available. On the server run:
   curl -fsSL https://get.shipwick.com | sh
 ```
 
 The release is downloaded from GitHub and verified against the release's `checksums.txt` before anything changes; the new binary is written next to the old one and renamed over it only once its SHA-256 matches. Pre-releases are never picked. On Windows the replaced binary is left behind as `shipwick.old.exe` and removed the next time `shipwick` runs. If the directory is not writable, the command says so and suggests `sudo shipwick upgrade`, or running the installer again.
 
-The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there; `shipwick upgrade` tells you when the server is behind, and says `The server runs v0.3.0, the latest release.` when it is not. A server that cannot be reached is one line, not an error.
+The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there, or with `shipwick server install user@host` from your machine; `shipwick upgrade` tells you when the server is behind, and says `The server runs v0.4.0, the latest release.` when it is not. A server that cannot be reached is one line, not an error.
 
 A `shipwick` installed with Homebrew is left to Homebrew:
 
 ```text
-shipwick v0.2.0 was installed with Homebrew; v0.3.0 is available.
+shipwick v0.3.1 was installed with Homebrew; v0.4.0 is available.
 
 Upgrade with: brew upgrade shipwick
 ```
@@ -100,12 +100,12 @@ shipwick upgrade --check
 ```
 
 ```text
-shipwick v0.2.0 is installed; v0.3.0 is available.
+shipwick v0.3.1 is installed; v0.4.0 is available.
 
 Upgrade with: shipwick upgrade
 ```
 
-When there is nothing to do, the first line reads `shipwick v0.3.0 is up to date.`
+When there is nothing to do, the first line reads `shipwick v0.4.0 is up to date.`
 
 ## Log in
 
@@ -117,7 +117,7 @@ shipwick login --url https://agent.example.com
 
 ```text
 API token:
-✓ Logged in to https://agent.example.com (vps-1, agent v0.3.0)
+✓ Logged in to https://agent.example.com (vps-1, agent v0.4.0)
   saved as context default in /home/you/.config/shipwick/config.yaml
 ```
 
@@ -139,11 +139,19 @@ To confirm that the CLI reaches the agent:
 shipwick server status
 ```
 
+To check the whole setup, from the versions to whether each domain's DNS points at the server and answers over HTTPS:
+
+```bash
+shipwick doctor
+```
+
+It prints one line per check with what to do about it, and exits non-zero when something is broken; see [Your first deployment](/docs/getting-started/first-deployment#when-the-domain-is-not-ready).
+
 CI jobs usually need no login at all: they set two environment variables instead. See [Deploy from CI](/docs/tasks/deploy-from-ci).
 
 ## Several servers
 
-Each `shipwick login` saves a server under a name, a *context*. Without `--context`, the name is `default`. A second server gets a name of its own and becomes the current one:
+Each `shipwick login` saves a server under a name, a *context*. Without `--context`, the name is `default`; `shipwick server install` saves the server it installed under its hostname. A second server gets a name of its own and becomes the current one:
 
 ```bash
 shipwick login --context staging --url https://staging.example.com

@@ -35,7 +35,7 @@ deploy:
 |---|---|
 | `port: 5432` | Gives the application its name on the server, `postgres:5432`, which is how other applications reach it. |
 | `replicas: 1` | Required with `volumes`. Replicas cannot share a volume. |
-| `${POSTGRES_PASSWORD}` | Filled in by `shipwick` when you deploy, from its environment or an `--env-file`, so that the password is not in the file. See [Placeholders](/docs/reference/cli#placeholders). |
+| `${POSTGRES_PASSWORD}` | Filled in when you deploy, so that the password is not in the file: by the server, from a secret stored once with `shipwick secret set`, or by `shipwick` from its environment or an `--env-file`. See [Placeholders](/docs/reference/cli#placeholders). |
 | `health.tcp: 5432` | A replica is healthy when this container port accepts a connection. PostgreSQL does not speak HTTP, so `health.path` is not an option. |
 | `volumes` | A named Docker volume, mounted at the path where PostgreSQL keeps its data. Up to 10 per application. |
 | `deploy.strategy: recreate` | Required with `volumes`. Two versions writing the same files at once is how data gets lost. |
@@ -53,19 +53,24 @@ Validation refuses volumes without `recreate` and with more than one replica; th
 
 ## Deploy
 
-Put the password in a `NAME=value` file that stays out of the repository, and pass it with `--env-file`:
-
-```text
-# .env.production
-POSTGRES_PASSWORD=s3cret
-```
+Store the password on the server once. It is asked for without echo, kept encrypted, and filled into `${POSTGRES_PASSWORD}` by the agent on every deploy from every machine:
 
 ```bash
-shipwick validate --env-file .env.production
+shipwick secret set POSTGRES_PASSWORD
 ```
 
 ```text
-✓ deploy.yaml is valid (1 variable substituted)
+✓ Stored secret POSTGRES_PASSWORD
+```
+
+The other way is to keep the value where you deploy from: put it in a `NAME=value` file that stays out of the repository and pass it with `--env-file .env.production`, or set it in the environment; `shipwick` then fills it in before the file is sent, and reports `(1 variable substituted)`. Either way:
+
+```bash
+shipwick validate
+```
+
+```text
+✓ deploy.yaml is valid
 
 Name           postgres
 Image          postgres:17
@@ -80,8 +85,10 @@ Strategy       recreate
 Environment    1 variables
 ```
 
+`validate` names `POSTGRES_PASSWORD` as a value left to the server. Then:
+
 ```bash
-shipwick deploy --env-file .env.production
+shipwick deploy
 ```
 
 On the first deployment there is nothing to stop. The volume is created and the replica starts:
@@ -89,14 +96,14 @@ On the first deployment there is nothing to stop. The volume is created and the 
 ```text
 Deploying postgres...
 
-✓ Validated deploy.yaml (1 variable substituted)
+✓ Validated deploy.yaml
 ✓ Pulled image postgres:17
 ✓ Started 1 container
 ✓ Replica 1 passed health checks
 ✓ Deployment successful
 ```
 
-The password is never printed. `deploy` says only how many placeholders it filled in. On the server, the value is stored encrypted with the deployment; see [Security](/docs/security).
+The password is never printed. A `${NAME}` that is set neither on the server nor where `shipwick` runs is refused before anything is recorded, with the `shipwick secret set` line to run. On the server, the value is stored encrypted with the deployment; see [Security](/docs/security).
 
 ## Where the data lives
 
@@ -155,8 +162,8 @@ A restore of a running application is refused: `The application is running, and 
 | `shipwick stop`, `shipwick start` | Kept. |
 | `shipwick backup` | Kept. It is read, not changed. |
 | `shipwick restore` | **Replaced.** Everything in the volume is removed and the archive's contents put in its place. The one Shipwick operation that changes a volume's contents. |
-| `shipwick delete postgres` | Kept. The containers and the history go; the volume stays. |
-| `docker volume rm shipwick_postgres_data` on the server | Removed. This is the only way, and it is yours to run. |
+| `shipwick delete postgres` | Kept. The containers and the history go; the volume stays, and `shipwick volumes` lists it as `application deleted`. |
+| `shipwick volumes rm shipwick_postgres_data` | Removed, after `delete`. Refused while the application exists: its data belongs to it, and a restore is the way to replace it. `docker volume rm` on the server does the same by hand. |
 
 ## Deploying a new version
 
@@ -165,7 +172,7 @@ A restore of a running application is refused: `The application is running, and 
 ```text
 Deploying postgres...
 
-✓ Validated deploy.yaml (1 variable substituted)
+✓ Validated deploy.yaml
 ✓ Pulled image postgres:17.1
 ✓ Stopped 17: 17.1 cannot run next to it
 ✓ Started 1 container
@@ -207,11 +214,37 @@ env:
 
 The name is carried by the replica while it is ready, which with `health.tcp` means while port 5432 accepts connections. During a recreate deployment nobody carries it, and lookups fail until the new version is up. See [Call one application from another](/docs/tasks/call-another-application).
 
-Deploy the database before the applications that need it; several files deploy in order:
+Deploy the database before the applications that need it. In one `shipwick.yaml`, `after: [postgres]` on the API makes it wait, and the two share the stored `POSTGRES_PASSWORD`:
+
+```yaml
+# shipwick.yaml
+apps:
+  - name: postgres
+    image: postgres:17
+    port: 5432
+    env:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - name: data
+        path: /var/lib/postgresql/data
+    health:
+      tcp: 5432
+    deploy:
+      strategy: recreate
+  - name: api
+    image: ghcr.io/company/api:1.4.2
+    port: 8080
+    domain: api.example.com
+    env:
+      DATABASE_URL: postgres://app:${POSTGRES_PASSWORD}@postgres:5432/app
+    after: [postgres]
+```
 
 ```bash
-shipwick deploy -f postgres/deploy.yaml -f api/deploy.yaml --env-file .env.production
+shipwick deploy
 ```
+
+If `postgres` fails, `api` is skipped and the command exits non-zero. Several `deploy.yaml` files deploy in the order given as well: `shipwick deploy -f postgres/deploy.yaml -f api/deploy.yaml`. See [Several applications](/docs/reference/deploy-yaml#several-applications-shipwick-yaml).
 
 ## Reach it from outside the server
 

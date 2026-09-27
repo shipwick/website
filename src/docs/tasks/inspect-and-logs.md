@@ -23,8 +23,8 @@ my-api   HEALTHY   1.4.2     2/2        api.example.com   2h ago
 | Column | |
 |---|---|
 | `STATUS` | The application's status, see below. `(deploying)` is appended while a deployment is in flight |
-| `VERSION` | The tag of the active deployment's image |
-| `REPLICAS` | Healthy replicas / desired replicas |
+| `VERSION` | The tag of the active deployment's image; the build's timestamp for an image built by `shipwick deploy`; the folder's digest for a static application |
+| `REPLICAS` | Healthy replicas / desired replicas; `static` for a folder the proxy serves itself |
 | `DOMAIN` | The public hostname, or `-` if the application has none |
 
 ## Application status
@@ -62,7 +62,7 @@ CPU        42% / 400%
 Memory     412 MB / 2 GB
 ```
 
-CPU is in percent of one core, as in `docker stats`: two replicas limited to `cpu: 2` each may use up to 400%. Memory is the working set, which is what the limit is enforced against. Without limits, only the usage is shown. The numbers are read from Docker when you ask; nothing is sampled in the background. See [Resources](/docs/concepts/resources).
+CPU is in percent of one core, as in `docker stats`: two replicas limited to `cpu: 2` each may use up to 400%. Memory is the working set, which is what the limit is enforced against. Without limits, only the usage is shown. See [Resources](/docs/concepts/resources). A static application has no containers: its summary reads `Files  42 files, 3.1 MB, served by the proxy` instead, and the parts below are left out.
 
 **Replicas.** One row per container.
 
@@ -124,7 +124,7 @@ Logs are merged across replicas. When an application has more than one replica, 
 ! log stream ended: the containers were stopped or replaced. Run the command again to follow the new ones.
 ```
 
-Container logs are size-capped on the server, at 3 × 10 MB per container, so very old output is not kept.
+Container logs are size-capped on the server, at 3 × 10 MB per container, so very old output is not kept. A static application has no logs: `This application is a folder served by the proxy: it has no containers, so there are no logs, metrics or commands to run.`
 
 An application whose `deploy.yaml` ships its logs elsewhere with `logging` — `gelf`, `syslog`, `fluentd`, `awslogs`, `splunk` — is read the same way: Docker keeps a local copy next to what it ships (its dual logging, on by default since Docker 20.10), and `shipwick logs` shows that copy. If dual logging was turned off daemon-wide, `shipwick logs` shows nothing for that application, and your collector is the only place to read it. With `journald` or `local` the logs stay on the server and are read from there. The output of jobs and one-off commands is separate: `shipwick jobs logs`, see [Run scheduled jobs and one-off commands](/docs/tasks/jobs).
 
@@ -152,6 +152,16 @@ Token           ci (deploy)
 
 If a command fails with "The agent does not know this operation", the agent is probably older than your `shipwick`. Compare the two versions here, or run `shipwick upgrade --check`, which compares them for you.
 
+`shipwick doctor` goes further: the versions against the latest release, the token, Docker on the server, the proxy, ports 80 and 443, and for every application's domain whether DNS points at the server and `https://` answers, one line each with what to do about it. See [Your first deployment](/docs/getting-started/first-deployment#when-the-domain-is-not-ready).
+
+## Open it in the browser
+
+```bash
+shipwick open my-api
+```
+
+Prints `Opening https://api.example.com` and hands the address to your default browser. An application without a domain is told where it can be reached instead: by name, from the other applications on the server.
+
 ## Stop and start an application
 
 ```bash
@@ -174,7 +184,7 @@ Both need the `deploy` role. When the token is not the root token, the applicati
 shipwick delete my-api
 ```
 
-`delete` removes the application, its containers and its deployment history from the server. There is nothing to roll back to afterwards. Its volumes stay; see [Run a database or other stateful application](/docs/tasks/stateful-applications). Deleting needs the `admin` role.
+`delete` removes the application, its containers and its deployment history from the server. There is nothing to roll back to afterwards. Its volumes stay; `shipwick volumes` lists them and `shipwick volumes rm` removes one, see [Back up and restore volumes](/docs/tasks/backups#volumes-of-deleted-applications). Deleting needs the `admin` role.
 
 It always wants the name spelled out and never reads it from `deploy.yaml`, so that running it from the wrong directory cannot delete the wrong application. In a terminal it asks you to type the application name to confirm. In a script, pass `--yes` (`-y`); without it, `delete` refuses to run when there is no terminal.
 

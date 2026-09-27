@@ -115,7 +115,7 @@ Limits in the metrics come from the deployment's stored configuration, not from 
 
 Application-level numbers are sums over the replicas, for usage and for limits.
 
-A replica that is not running reports zeros for usage and never fails the request. An application with no active deployment answers `409 NOT_DEPLOYED`.
+A replica that is not running reports zeros for usage and never fails the request. An application with no active deployment answers `409 NOT_DEPLOYED`; a static application, served by the proxy from a folder, has no containers to measure and answers `409 STATIC_APPLICATION`.
 
 ### Point-in-time sampling
 

@@ -46,7 +46,7 @@ Deploy both, the dependency first:
 shipwick deploy -f payments/deploy.yaml -f orders/deploy.yaml
 ```
 
-Several files deploy in the order given and stop at the first failure, so `orders` is not deployed if `payments` fails. See [Deploy several applications](/docs/reference/cli#several-applications).
+Several files deploy in the order given and stop at the first failure, so `orders` is not deployed if `payments` fails. Or describe both in one `shipwick.yaml`, where they deploy at the same time unless one names the other in `after`; `after` is about readiness, not reachability, so `orders` needs `after: [payments]` only if it would exit without `payments` at startup, since the name resolves whatever the order. See [Several applications](/docs/reference/deploy-yaml#several-applications-shipwick-yaml).
 
 `orders` now connects to `http://payments:8080` and gets a healthy replica of whatever version of `payments` is current. Plain HTTP, no domain, no certificate, no trip through the proxy. A database run by Shipwick is reached the same way, `postgres:5432`; see [Run a database or other stateful application](/docs/tasks/stateful-applications).
 

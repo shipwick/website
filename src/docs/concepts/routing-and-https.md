@@ -5,7 +5,7 @@ description: How Caddy serves application domains, aliases and redirects over HT
 
 # Routing and HTTPS
 
-Caddy stands in front of every application with a `domain`. It terminates TLS and proxies to the replicas; the agent tells it which name stands behind which hostname, and Docker's DNS tells it which replicas carry that name. This page describes how the proxy configuration is produced and kept in place, how replicas come and go without Caddy being reconfigured, how more hostnames are served or redirected, how traffic is balanced, what clients receive when nothing can serve, how a service that is not HTTP is published, and what is not supported.
+Caddy stands in front of every application with a `domain`. It terminates TLS and proxies to the replicas; the agent tells it which name stands behind which hostname, and Docker's DNS tells it which replicas carry that name. This page describes how the proxy configuration is produced and kept in place, how replicas come and go without Caddy being reconfigured, how more hostnames are served or redirected, how traffic is balanced and responses compressed, what clients receive when nothing can serve, how a hostname waits for its DNS record, how a static site is served from a folder, how a service that is not HTTP is published, and what is not supported.
 
 ## A domain is the whole configuration
 
@@ -74,6 +74,7 @@ The agent owns Caddy's configuration entirely. Whenever the routes change it ren
 ```text
 routes = for every application with a domain:
            domain + aliases → <app>_<port>, or a static 503 while no running replica carries the name
+                              (for a static application: the folder the agent copied into Caddy)
            redirects        → 308 to https://<domain>, no backend
        + the agent's own route      (SHIPWICK_AGENT_DOMAIN)
        + the dashboard's route      (SHIPWICK_DASHBOARD_DOMAIN)
@@ -121,6 +122,10 @@ Each application route is generated with these settings:
 | `dial_timeout` | `500ms` | Notice a dead replica in time. Replicas are one bridge hop away; a connection that takes half a second is not going to happen. |
 | Passive health check | `max_fails: 1`, `fail_duration: 5s` | Having failed once, a dead replica is skipped by the requests behind it instead of costing each one a timeout. |
 
+## Compression
+
+Responses are compressed with zstd or gzip when the client asks for it, zstd preferred, for text, JSON, JavaScript, SVG and the other content types that shrink, from a kilobyte up. What the application already compressed, or does not ask to have compressed, leaves as it came: the encoder holds back the first bytes of a response until it knows the type and the size, so a 42 KB page a browser accepts compressed leaves smaller, and an image leaves untouched. Every application route gets it, static folders included, with nothing to configure. The agent's own API route and the dashboard's stream logs and are left uncompressed, so lines still arrive one by one.
+
 ## When nothing can serve
 
 | Situation | What the client gets |
@@ -155,13 +160,13 @@ Everything after that goes to the surviving replicas.
 
 ## DNS first
 
-A hostname is handed to Caddy only once it resolves to this server. Deploying before the DNS record exists is fine: the deployment succeeds, and instead of `Routed https://…` it prints a warning:
+A hostname is handed to Caddy only once it resolves to this server. Deploying before the DNS record exists is fine: the deployment succeeds, and instead of `Routed https://…` it prints a warning that names the record to create:
 
 ```text
-! Routing https://api.example.com is waiting for DNS: does not resolve yet; it is served, and its certificate obtained, once the record points at this server
+! Routing https://api.example.com is waiting for DNS: does not resolve yet; add an A record: api.example.com → 62.238.109.115 (DNS only, not proxied). It is served, and its certificate obtained, once the record points at this server
 ```
 
-When the record points somewhere else, the reason reads `resolves to 104.21.5.6, not to this server (62.238.109.115)`. The agent looks the hostname up again every 10 seconds; as soon as the record is right, the hostname is served, the certificate is obtained, and the application's event feed says `api.example.com now points at this server and is being served`. Aliases and redirects are checked one by one; a domain that is not ready holds back its aliases and redirects with it, since the redirects point at the domain.
+The agent knows the server's addresses, so the message spells the record out: an `A` record with the IPv4 address, and an `AAAA` record as well when the server has an IPv6 address. A record that points at another server is told to change: `resolves to 104.21.5.6, not to this server (62.238.109.115)`. One that points at Cloudflare's proxy is recognised, because the record itself is right and the orange cloud is what breaks the certificate: `resolves to Cloudflare's proxy (104.21.5.6), not to this server: turn the proxy off for this record (DNS only), or wait for Cloudflare support in a later release`. The agent looks the hostname up again every 10 seconds; as soon as the record is right, the hostname is served, the certificate is obtained, and the application's event feed says `api.example.com now points at this server and is being served`. Aliases and redirects are checked one by one; a domain that is not ready holds back its aliases and redirects with it, since the redirects point at the domain. `shipwick doctor` makes the same checks from your machine, for every domain at once, and adds the ports.
 
 The reason is Let's Encrypt's rate limit of five failed authorizations per hostname per hour. Caddy asks for a certificate the moment it hears of a hostname, and a hostname that does not resolve fails within seconds: deployed before its DNS, a domain would use up the five within minutes and stay without a certificate for the rest of the hour, however quickly the record was fixed.
 
@@ -183,6 +188,12 @@ The check covers the domain, aliases and redirects of every other application's 
 Domains, aliases and redirects are validated hostnames: lowercase letters, digits and dashes in dot-separated labels, at most 253 characters. No scheme, port, path or wildcard is accepted. See the [deploy.yaml reference](/docs/reference/deploy-yaml#domain).
 
 The names on the services network are as exclusive as the domains: `agent`, `caddy`, `dashboard` and `localhost` belong to Shipwick's own containers there and are refused as application names.
+
+## A folder served by Caddy itself
+
+A static application (`static: dist/` in `deploy.yaml`; see [A folder instead of a container](/docs/concepts/deployments#a-folder-instead-of-a-container)) has no replica and no name on the network. Its route is a Caddy `file_server` whose root is the folder the agent copied into Caddy's own container, `/srv/shipwick/<app>/<digest>`, on the `caddy-static` volume of the compose setup. The folder must hold an `index.html`; a request for a path that names no file is a `404`, and the fallback route of a single-page application is not assumed. Aliases and redirects work as above, and so do `stop`, which turns the route into the static `503`, and `start`. Responses are compressed like any other.
+
+Because the root changes with every new folder, deploying a static application reloads Caddy once, the one kind of change a rollout of containers never causes; a rollback or redeploy re-uses a kept folder and reloads once as well. The agent keeps the folder that serves and the one before it, and removes older ones.
 
 ## Ports that are not HTTP
 

@@ -10,8 +10,9 @@ An application has one `domain`, and often more than one name: `www.example.com`
 ## Before you begin
 
 - Both fields need a `domain`. An alias is served like it; a redirect is sent to it.
-- Every hostname, alias or redirect, needs its DNS pointed at the server: Caddy obtains a certificate for each one, and a hostname that does not resolve to the server gets no certificate.
+- Every hostname, alias or redirect, needs its DNS pointed at the server: Caddy obtains a certificate for each one, and a hostname that does not resolve to the server gets no certificate. A deployment whose hostname is not ready says which record to create; see [DNS first](/docs/concepts/routing-and-https#dns-first).
 - Up to 20 aliases and 20 redirects per application.
+- A static application, a folder served by the proxy, takes `aliases` and `redirects` like any other.
 
 ## deploy.yaml
 

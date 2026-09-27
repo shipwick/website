@@ -18,9 +18,9 @@ Every endpoint of the API requires a role, and a role includes the ones below it
 
 | Role | May |
 |---|---|
-| `read` | See everything: applications, deployments and their history, logs, events, metrics, jobs and runs, volumes, the server |
-| `deploy` | And change what runs: deploy, redeploy, roll back, stop, start, run a job or a command |
-| `admin` | And everything else: delete applications, download and restore volume backups, create, list and revoke tokens |
+| `read` | See everything: applications, deployments and their history, logs, events, metrics, jobs and runs, volumes, the names of the secrets, the server |
+| `deploy` | And change what runs: deploy, redeploy, roll back, stop, start, run a job or a command, send an image or a static folder |
+| `admin` | And everything else: delete applications, download and restore volume backups, remove the volume of a deleted application, store and remove secrets, create, list and revoke tokens |
 
 Give CI a `deploy` token: a pipeline deploys and rolls back, and never needs to delete an application. Give people `admin` tokens, and someone who only watches a `read` one.
 
@@ -76,7 +76,7 @@ shipwick login --url https://agent.example.com
 
 ```text
 API token:
-✓ Logged in to https://agent.example.com (vps-1, agent v0.3.0)
+✓ Logged in to https://agent.example.com (vps-1, agent v0.4.0)
   saved as context default in /home/me/.config/shipwick/config.yaml
 ```
 
@@ -106,11 +106,11 @@ From the API, `403 FORBIDDEN`:
              "details": { "role": "read", "required": "deploy" } } }
 ```
 
-A wrong or revoked token is `401 UNAUTHORIZED` instead, `The agent rejected the API token.` from `shipwick`.
+A wrong or revoked token is `401 UNAUTHORIZED` instead, `The agent rejected the API token.` from `shipwick`. Guessing is slowed down: after 20 failed authentications within a minute from one address, the agent answers wrong tokens from it with `429 RATE_LIMITED` for the next minute (`Too many failed attempts from this address; try again in a minute.` from `shipwick`). A valid token is never refused, so nobody with the right token is locked out, and only failures count.
 
 ## In the dashboard
 
-Anyone signs in to the dashboard with a token, and the dashboard becomes that token. The sidebar shows its name and role. Controls the role does not cover are disabled with the reason: a `read` token cannot deploy, redeploy, roll back, stop or start; only `admin` can delete an application, download or restore a backup, or open the Tokens page, where tokens are created, listed and revoked, the new token's value shown once in the page. Whatever the page shows, the agent enforces the roles: a request the role does not cover is answered `403` however it was made. See [Use the dashboard](/docs/tasks/dashboard).
+Anyone signs in to the dashboard with a token, and the dashboard becomes that token. The sidebar shows its name and role. Controls the role does not cover are disabled with the reason: a `read` token cannot deploy, redeploy, roll back, stop or start; only `admin` can delete an application, download or restore a backup, store or remove a secret, remove the volume of a deleted application, or open the Tokens page, where tokens are created, listed and revoked, the new token's value shown once in the page. Whatever the page shows, the agent enforces the roles: a request the role does not cover is answered `403` however it was made. See [Use the dashboard](/docs/tasks/dashboard).
 
 ## See which tokens are in use
 

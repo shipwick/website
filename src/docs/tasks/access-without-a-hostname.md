@@ -27,6 +27,8 @@ When the installer asks for the API hostname, press Enter. `SHIPWICK_AGENT_DOMAI
 
 To take an existing API hostname away, set `SHIPWICK_AGENT_DOMAIN=` to empty in `/opt/shipwick/.env` and run `docker compose up -d` in `/opt/shipwick`.
 
+`shipwick server install user@host` without `--agent-domain` does the same from your laptop: the API is not exposed, and the context it saves points at `http://127.0.0.1:9000`, ready for the tunnel below. Through the tunnel, `shipwick doctor` cannot check the ports and the records' targets, since it learns the server's address from the agent's hostname.
+
 Applications and the dashboard are not affected. The dashboard reaches the agent over the internal Docker network, so you can keep the dashboard on a hostname while the API stays private.
 
 ## Publish the API on the server's loopback

@@ -61,9 +61,15 @@ The same probe is used in two places with different patience.
 
 ### During a deployment: the startup budget
 
-Every new replica must answer its check once before it may take traffic. It has `interval × retries` to do so, 30 seconds with the defaults. This is the replica's startup budget.
+Every new replica must answer its check once before it may take traffic. It has `start_period + interval × retries` to do so, 30 seconds with the defaults. This is the replica's startup budget.
 
-During that time the replica is probed every second, not every `interval`. A connection refused by an application that is still booting is "not yet", not a strike, and a fast application is confirmed in about a second instead of waiting ten to be told it was ready after one. A slow starter gets its time: raise `retries` for a JVM, or for an application that migrates its database on boot.
+During that time the replica is probed every second, not every `interval`. A connection refused by an application that is still booting is "not yet", not a strike, and a fast application is confirmed in about a second instead of waiting ten to be told it was ready after one. A slow starter gets its time: set `health.start_period`, up to 30 minutes, for a JVM or for an application that migrates its database on boot. Raising `retries` would also work, but would make a running replica's failures take longer to notice; `start_period` only stretches the budget.
+
+```yaml
+health:
+  path: /health
+  start_period: 1m
+```
 
 A replica that never answers within the budget fails the deployment, and the error says why, naming the check that was tried:
 
@@ -93,7 +99,7 @@ After deployment, such a replica is healthy for as long as it runs. The supervis
 
 The supervisor probes every running replica every `interval`. A single failed probe changes nothing. After `retries` consecutive failures the replica is marked `unhealthy`, leaves the proxy's rotation, and is restarted. This is the classic cure for a deadlocked process. One passing probe resets the failure count.
 
-A replica that the supervisor has just restarted, or that was started with `shipwick start`, is `starting`. It gets its startup budget again before failures count, is probed every second meanwhile, and receives no traffic until its first passing check. If the budget runs out, it becomes `unhealthy`.
+A replica that the supervisor has just restarted, or that was started with `shipwick start`, is `starting`. It gets its startup budget again, `start_period` included, before failures count, is probed every second meanwhile, and receives no traffic until its first passing check; a passed check counts at once. If the budget runs out, it becomes `unhealthy`.
 
 Each replica has one of these health values, shown by `shipwick status` and in the API's container list:
 
@@ -113,7 +119,7 @@ HTTP and TCP probes go to container IP addresses. An agent running in a containe
 
 ## The supervisor
 
-The supervisor is one loop in the agent, ticking every second. For each application that has an active deployment and is meant to be running, it compares the replicas of the active deployment with what Docker reports. It acts on an application only while holding that application's lock, so it never interleaves with a deployment, a stop or a delete. If the lock is taken, the application is looked at again on the next tick. The same ticker starts scheduled jobs once a minute; see [Run scheduled jobs and one-off commands](/docs/tasks/jobs).
+The supervisor is one loop in the agent, ticking every second. For each application that has an active deployment and is meant to be running, it compares the replicas of the active deployment with what Docker reports. A static application, served by the proxy from a folder, has no replicas and nothing for the supervisor to do. It acts on an application only while holding that application's lock, so it never interleaves with a deployment, a stop or a delete. If the lock is taken, the application is looked at again on the next tick. The same ticker starts scheduled jobs once a minute; see [Run scheduled jobs and one-off commands](/docs/tasks/jobs).
 
 ```text
 exited  ──policy allows?──no──▶ leave stopped, say so once
