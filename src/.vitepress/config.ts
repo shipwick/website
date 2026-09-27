@@ -62,7 +62,7 @@ export default defineConfig({
   },
 
   themeConfig: {
-    logo: { light: '/logo-light.svg', dark: '/logo-dark.svg', alt: '' },
+    logo: { src: '/img/wick.svg', alt: '' },
 
     nav: [
       { text: 'Documentation', link: '/docs/', activeMatch: '^/docs/(?!reference/)' },
