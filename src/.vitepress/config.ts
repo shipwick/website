@@ -2,12 +2,13 @@ import { defineConfig } from 'vitepress'
 
 const site = 'https://shipwick.com'
 const repo = 'https://github.com/shipwick/shipwick'
+const version = '0.3.1'
 
 export default defineConfig({
   lang: 'en-US',
   title: 'Shipwick',
   titleTemplate: ':title · Shipwick',
-  description: 'Production deployments on your own server. Shipwick runs your Docker applications on one Linux server: rolling deployments with health checks and rollback, HTTPS, scheduled jobs, backups, encrypted secrets, tokens with roles and a dashboard, from one small config file.',
+  description: 'Deploy Docker applications to your own Linux server: rolling deployments with health checks and rollback, HTTPS, jobs, backups, secrets and a dashboard, from one small file.',
 
   cleanUrls: true,
   sitemap: { hostname: site },
@@ -28,12 +29,31 @@ export default defineConfig({
     if (pageData.isNotFound) return []
     const path = pageData.relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')
     const url = `${site}/${path}`
-    return [
+    const head = [
       ['link', { rel: 'canonical', href: url }],
       ['meta', { property: 'og:url', content: url }],
       ['meta', { property: 'og:title', content: title }],
       ['meta', { property: 'og:description', content: description }],
     ]
+    // The home page says what Shipwick is in the vocabulary search engines
+    // index: a piece of software, its site, where the code is.
+    if (pageData.relativePath === 'index.md') {
+      head.push(['script', { type: 'application/ld+json' }, JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'SoftwareApplication',
+        name: 'Shipwick',
+        applicationCategory: 'DeveloperApplication',
+        operatingSystem: 'Linux',
+        description,
+        url: site,
+        downloadUrl: `/releases`,
+        softwareVersion: version,
+        license: 'https://www.apache.org/licenses/LICENSE-2.0',
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+        sameAs: [repo],
+      })])
+    }
+    return head
   },
 
   themeConfig: {
@@ -43,7 +63,7 @@ export default defineConfig({
       { text: 'Documentation', link: '/docs/', activeMatch: '^/docs/(?!reference/)' },
       { text: 'Reference', link: '/docs/reference/deploy-yaml', activeMatch: '^/docs/reference/' },
       {
-        text: 'v0.3.0',
+        text: `v${version}`,
         items: [
           { text: 'Changelog', link: `${repo}/blob/main/CHANGELOG.md` },
           { text: 'Releases', link: `${repo}/releases` },

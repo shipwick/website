@@ -1,0 +1,2 @@
+# www is not a second site: one address per page, for people and for search engines.
+https://www.shipwick.com/* https://shipwick.com/:splat 301
