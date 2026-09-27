@@ -7,9 +7,32 @@ description: What Shipwick is, who it is for, and how this documentation is orga
 
 Shipwick runs Docker applications on a single server: health checks, zero-downtime deployments, rollbacks, resource limits and HTTPS, from one small `deploy.yaml`. This page says what it is, what it is not, and where to find things.
 
-::: tip Start here
-New to Shipwick? Three pages take you from an empty server to a running application: [Install on a server](/docs/getting-started/install), [Install the CLI](/docs/getting-started/install-cli), [Your first deployment](/docs/getting-started/first-deployment). You need a Dockerfile or an image of your application, nothing else; `shipwick init` writes the Dockerfile for a Node, Nuxt, Next, .NET, Go or Python project, and a folder of static files needs no container at all. Everything else on this site is for when you want to know more.
-:::
+<div class="paths">
+<div class="path">
+<header>
+<h3>I just want to deploy</h3>
+<img src="/img/wick-check.svg" alt="" width="56" height="56">
+</header>
+<ol>
+<li><a href="/docs/getting-started/how-it-fits">How it fits together</a>: the picture in one page</li>
+<li><a href="/docs/getting-started/install">Install on a server</a>, one command</li>
+<li><a href="/docs/getting-started/first-deployment">Your first deployment</a>, from <code>init</code> to a URL</li>
+</ol>
+<p>You need a Dockerfile or an image of your application, nothing else; <code>shipwick init</code> writes the Dockerfile for a Node, Nuxt, Next, .NET, Go or Python project, and a folder of static files needs no container at all.</p>
+</div>
+<div class="path">
+<header>
+<h3>I run servers for a living</h3>
+<img src="/img/wick-watch.svg" alt="" width="56" height="56">
+</header>
+<ol>
+<li><a href="/docs/concepts/overview">Architecture</a>: what runs where, what is stored, how the parts talk</li>
+<li><a href="/docs/security">Security</a>: the trust model, and how to expose the API</li>
+<li>Reference: <a href="/docs/reference/deploy-yaml">deploy.yaml</a>, <a href="/docs/reference/cli">CLI</a>, <a href="/docs/reference/api">API</a>, <a href="/docs/reference/agent-configuration">Agent configuration</a></li>
+</ol>
+<p>Every field, command, variable and endpoint is documented; every number in the reference was measured.</p>
+</div>
+</div>
 
 ## What Shipwick is
 
@@ -59,6 +82,7 @@ The current version is 0.4.0. Before 1.0, a minor version may change the API, `d
 
 Install the server and the CLI, then deploy an application.
 
+- [How it fits together](/docs/getting-started/how-it-fits) — what runs where, which parts you need, the order to set up a fresh server in, and the problems people meet on the way
 - [Install Shipwick on a server](/docs/getting-started/install)
 - [Install the CLI](/docs/getting-started/install-cli)
 - [Your first deployment](/docs/getting-started/first-deployment)

@@ -13,6 +13,11 @@ export default defineConfig({
   cleanUrls: true,
   sitemap: { hostname: site },
 
+  // Illustrations are plain files in public/img, referenced by their address.
+  // Without this the production build treats every absolute <img src> as a
+  // module import and fails when a file is not there yet.
+  vue: { template: { transformAssetUrls: { includeAbsolute: false } } },
+
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     ['meta', { property: 'og:type', content: 'website' }],
@@ -78,6 +83,7 @@ export default defineConfig({
           text: 'Getting started',
           items: [
             { text: 'What is Shipwick?', link: '/docs/' },
+            { text: 'How it fits together', link: '/docs/getting-started/how-it-fits' },
             { text: 'Install on a server', link: '/docs/getting-started/install' },
             { text: 'Install the CLI', link: '/docs/getting-started/install-cli' },
             { text: 'Your first deployment', link: '/docs/getting-started/first-deployment' },

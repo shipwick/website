@@ -6,49 +6,64 @@ titleTemplate: ':title · Production deployments on your own server'
 hero:
   name: Shipwick
   text: Production deployments on your own server.
-  tagline: One small file describes your application. One command builds it, ships it and routes it, with health checks, automatic rollback and HTTPS. Jobs, backups, secrets and a dashboard are included. All of it on the Linux server you already have, and no registry in between.
+  tagline: One small file describes your application. One command builds it, ships it to your Linux server and routes it over HTTPS, with health checks and automatic rollback.
   image:
-    src: /deploy.png
-    alt: A terminal showing shipwick deploy pulling an image, passing health checks, routing a domain and finishing in 6.1 seconds
+    src: /img/hero.svg
+    alt: A laptop sends a container to one server, where Wick, the Shipwick flame, keeps watch
   actions:
     - theme: brand
-      text: Deploy your first app
-      link: /docs/getting-started/install
+      text: Get started
+      link: /docs/getting-started/how-it-fits
     - theme: alt
-      text: Documentation
+      text: Read the docs
       link: /docs/
-    - theme: alt
-      text: GitHub
-      link: https://github.com/shipwick/shipwick
 ---
 
 <div class="home">
 
 <section>
 
-## Three steps, five minutes
+<figure class="flow">
+<img src="/img/flow.svg" alt="Four stations from left to right: shipwick init writes the files, shipwick deploy builds and sends the image, the health checks pass, and the application answers at its address" width="1200" height="220">
+<figcaption>
+<ol>
+<li><code>shipwick init</code></li>
+<li><code>shipwick deploy</code></li>
+<li>Health checks pass</li>
+<li><code>https://your-app</code></li>
+</ol>
+</figcaption>
+</figure>
 
-<p class="lead">A Linux server with Docker, a domain that points at it, and a Dockerfile or an image of your application. That is all Shipwick asks for.</p>
+</section>
+
+<section class="band">
+
+## Five minutes
+
+<p class="lead">A Linux server with Docker, a domain that points at it, and a Dockerfile or an image of your application. That is all it takes.</p>
 
 <div class="steps">
-<div class="step">
+<div class="step card">
 <span class="num n1">1</span>
+<img class="wick" src="/img/wick-tools.svg" alt="" width="56" height="56">
 
 ### Set up the server
 
-Run one command on the server. It installs the agent, the reverse proxy and the dashboard, and prints your API token. Or run it from your laptop over SSH: `shipwick server install root@203.0.113.10`.
+One command installs the agent, the reverse proxy and the dashboard, and prints your API token. Or run it from your laptop over SSH: `shipwick server install root@203.0.113.10`.
 
 ```bash
 curl -fsSL https://get.shipwick.com | sh
 ```
 
 </div>
-<div class="step">
+<div class="step card">
 <span class="num n2">2</span>
+<img class="wick" src="/img/wick.svg" alt="" width="56" height="56">
 
 ### Connect your laptop
 
-Install the CLI and sign in once. From now on `shipwick` talks to your server, from anywhere.
+Install the CLI and sign in once. From then on `shipwick` talks to your server, from anywhere.
 
 ```bash
 brew install shipwick/tap/shipwick
@@ -56,12 +71,13 @@ shipwick login --url https://agent.example.com
 ```
 
 </div>
-<div class="step">
+<div class="step card">
 <span class="num n3">3</span>
+<img class="wick" src="/img/wick-check.svg" alt="" width="56" height="56">
 
 ### Deploy
 
-`init` recognises your project and writes a Dockerfile and a `deploy.yaml`. `deploy` builds the image on your machine, sends it to the server and replaces replicas one at a time, each only after it proved healthy. No registry needed.
+`init` writes a Dockerfile and a `deploy.yaml` for your project. `deploy` builds the image on your machine, sends it over and replaces replicas one at a time, each after it proved healthy. No registry needed.
 
 ```bash
 shipwick init
@@ -70,54 +86,6 @@ shipwick deploy
 
 </div>
 </div>
-
-<div class="columns">
-<div>
-
-```yaml
-# deploy.yaml, written by shipwick init
-name: my-api
-
-# Built on your machine by shipwick deploy, from the
-# Dockerfile next to this file. No registry needed.
-build: .
-
-port: 8080
-domain: api.example.com
-replicas: 2
-
-health:
-  path: /health
-```
-
-</div>
-<div>
-
-```text
-$ shipwick deploy
-Deploying my-api...
-
-✓ Validated deploy.yaml
-✓ Built shipwick.local/my-api:20260927-153000-a1b2 for linux/amd64
-✓ Sent image to the server (68.8 MB)
-✓ Using image shipwick.local/my-api:20260927-153000-a1b2, sent from a developer's machine
-✓ Started 1 container
-✓ Replica 1 passed health checks
-✓ Replica 1/2 is serving 20260927-153000-a1b2
-✓ Replica 2 passed health checks
-✓ Replica 2/2 is serving 20260927-153000-a1b2
-✓ Routed https://api.example.com to 2 replicas
-✓ Deployment successful
-
-my-api 20260927-153000-a1b2  deployed in 8.2s
-2/2 replicas healthy
-https://api.example.com
-```
-
-</div>
-</div>
-
-Have an image in a registry already? Write `image: ghcr.io/company/my-api:1.4.2` instead of `build: .`, and the server pulls it. A built frontend needs no container at all: `static: dist/` and the proxy serves the folder.
 
 <div class="next">
 
@@ -131,55 +99,33 @@ Have an image in a registry already? Write `image: ghcr.io/company/my-api:1.4.2`
 
 <section>
 
-## Everything a small production needs
+## What a deployment looks like
 
-<div class="tiles">
-<div class="tile t-blue">
-<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4"/></svg>
+<figure class="shot">
+<img src="/deploy.png" alt="A terminal showing shipwick deploy pulling an image, starting a container, passing health checks, routing https://api.example.com and finishing in 6.1 seconds" width="2200" height="1120">
+<figcaption>The version that works keeps serving until the new one has proved itself.</figcaption>
+</figure>
 
-### Rolling deployments
+<div class="columns">
+<div>
 
-One replica at a time, each only after it passed its health check. A version that does not come up is rolled back on its own; the one that works keeps serving. The image is built on your machine or pulled from a registry, as you prefer.
-
-</div>
-<div class="tile t-green">
-<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/></svg>
-
-### HTTPS, done
-
-Every domain gets a certificate and is load-balanced across healthy replicas. Aliases and `www` redirects are one line each, responses are compressed, and a static site is served by the proxy itself, without a container. There is no proxy configuration to write.
-
-</div>
-<div class="tile t-amber">
-<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>
-
-### Jobs and migrations
-
-A command that runs from the new image before any replica starts. Cron jobs from the same image. `shipwick run my-api -- rails db:migrate` for the one you do by hand.
+```yaml
+# deploy.yaml
+name: my-api
+image: ghcr.io/company/my-api:1.4.2
+port: 8080
+domain: api.example.com
+replicas: 2
+health:
+  path: /health
+```
 
 </div>
-<div class="tile t-purple">
-<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>
+<div>
 
-### Databases, volumes, backups
+The file above is the whole configuration: the image, the port it listens on, the domain, how many replicas, and how to tell that one is healthy. The certificate is obtained on the first request.
 
-Persistent volumes for the things that keep data. `shipwick backup` downloads them as plain tar files; `shipwick restore` puts one back; `shipwick volumes` lists what is on the server and removes what a deleted application left behind.
-
-</div>
-<div class="tile t-rose">
-<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
-
-### Secrets and tokens
-
-`shipwick secret set` stores a value on the server, encrypted; `${PASSWORD}` in `deploy.yaml` is filled in there, on every deploy from every machine. Tokens with roles: `deploy` for CI, `read` for a teammate, `admin` for you.
-
-</div>
-<div class="tile t-teal">
-<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7 12l3-3 2 2 4-4"/></svg>
-
-### A dashboard that knows everything
-
-Replicas, health, a week of CPU and memory, deployment history, live logs, jobs, backups, secrets, volumes and tokens. Whatever the dashboard does, the CLI and the API can do too.
+Building instead of pulling? Write `build: .` in place of `image:` and `shipwick deploy` builds the image on your machine and sends it to the server; no registry in between. A built frontend needs no container at all: `static: dist/`, and the proxy serves the folder.
 
 </div>
 </div>
@@ -188,9 +134,71 @@ Replicas, health, a week of CPU and memory, deployment history, live logs, jobs,
 
 <section>
 
+## Everything a small production needs
+
+<div class="tiles">
+<div class="tile card t-blue">
+<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4"/></svg>
+
+### Deployments that undo themselves
+
+One replica at a time, each after its health check. A version that does not come up never takes traffic; the one that works keeps serving.
+
+</div>
+<div class="tile card t-green">
+<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/></svg>
+
+### HTTPS with nothing to configure
+
+A certificate for every domain, load balancing across healthy replicas, aliases, `www` redirects and compression. Static sites are served by the proxy itself.
+
+</div>
+<div class="tile card t-amber">
+<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>
+
+### Migrations, cron jobs, one-off commands
+
+A command from the new image before any replica starts, scheduled jobs from the same image, and `shipwick run my-api -- rails db:migrate` for the one you do by hand.
+
+</div>
+<div class="tile card t-purple">
+<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>
+
+### Databases, with backups as plain files
+
+Volumes for the things that keep data. `shipwick backup` downloads one as a tar file, `shipwick restore` puts it back, `shipwick volumes` shows what a deleted application left.
+
+</div>
+<div class="tile card t-rose">
+<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+
+### Secrets on the server, tokens with roles
+
+`shipwick secret set` keeps a value encrypted on the server and `${NAME}` fills it in on every deploy. A `deploy` token for CI, `read` for a teammate, `admin` for you.
+
+</div>
+<div class="tile card t-teal">
+<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7 12l3-3 2 2 4-4"/></svg>
+
+### A dashboard, a CLI and an API
+
+Replicas, health, a week of CPU and memory, history, live logs, jobs, backups, secrets and tokens. Whatever one of the three does, the others can.
+
+</div>
+</div>
+
+<figure class="shot">
+<img src="/img/dashboard.png" alt="The Shipwick dashboard in a browser" width="2880" height="1800">
+<figcaption>The dashboard: the same information as the terminal, live, with the everyday actions.</figcaption>
+</figure>
+
+</section>
+
+<section>
+
 ## Two applications and a database
 
-<p class="lead">Applications reach each other by name on the server. No domain is needed for that, and nothing outside can reach those names. Several applications live in one <code>shipwick.yaml</code>.</p>
+<p class="lead">Applications reach each other by name on the server, <code>postgres:5432</code>, and nothing outside the server can reach those names. Several applications live in one <code>shipwick.yaml</code>.</p>
 
 ```yaml
 # shipwick.yaml
@@ -231,7 +239,7 @@ shipwick secret set POSTGRES_PASSWORD     # once; asked without echo, kept encry
 shipwick deploy
 ```
 
-`postgres` and `web` deploy at the same time, `api` once `postgres` is done. If one fails, what depends on it is skipped and the rest finishes; the one that failed keeps running its previous version.
+`postgres` and `web` deploy at the same time, `api` once `postgres` is done. If one fails, what depends on it is skipped, the rest finishes, and the one that failed keeps running its previous version.
 
 <div class="next">
 
@@ -245,18 +253,86 @@ shipwick deploy
 
 <section>
 
-## Why one server
+## One server, on purpose
 
-<p>A single server is a lot of computer. A few cores, a few gigabytes of memory and a good network run a company's whole product for the price of a lunch a month, and most products never need more than that. What such a server lacks is not power but the platform around it: deploying without downtime, restarting what crashes, rolling back a bad release, serving HTTPS, keeping secrets out of files, running the nightly job, taking the backup.</p>
+<div class="side">
+<div>
 
-<p>Shipwick is that platform, built for one server on purpose. One process, one SQLite file, one YAML file per application. Nothing to keep alive besides the server itself. When one server is no longer enough, you have outgrown Shipwick, and the <code>deploy.yaml</code> you wrote says everything about the application that the next platform will ask.</p>
+A single server is a lot of computer. A few cores and a few gigabytes of memory run the 1 to 20 applications of most products with room to spare. What such a server lacks is not power but the platform around it: deploying without downtime, restarting what crashes, rolling back a bad release, serving HTTPS, keeping secrets out of files, running the nightly job, taking the backup.
+
+Shipwick is that platform, built for one server on purpose. One process, one SQLite file, one YAML file per application, and nothing to keep alive besides the server itself. It schedules nothing across machines. When one server is no longer enough, you have outgrown Shipwick, and the `deploy.yaml` you wrote says everything about the application that the next platform will ask.
 
 <div class="next">
 
 [Architecture](/docs/concepts/overview)
 [Deployments](/docs/concepts/deployments)
-[Security](/docs/security)
+[Rollback](/docs/concepts/rollback)
 
+</div>
+
+</div>
+<div>
+<img src="/img/one-server.svg" alt="One server with several applications inside it, a shield in front, and Wick keeping watch" width="600" height="420">
+</div>
+</div>
+
+</section>
+
+<section class="band">
+
+<div class="heading">
+<img src="/img/wick-watch.svg" alt="" width="56" height="56">
+
+## For the people who run it
+
+</div>
+
+<p class="lead">Everything above, with the details an operator asks for first.</p>
+
+<div class="pro">
+<div class="card">
+
+### What is on the server
+
+Three containers from `/opt/shipwick/compose.yml`: the agent, Caddy and the dashboard. The agent's state is one SQLite file, `shipwick.db`, with its `encryption.key` beside it in the `agent-data` volume; certificates live in `caddy-data`, the folders of static sites in `caddy-static`. No external database, no queue, no second server.
+
+<div class="next">
+
+[Agent configuration](/docs/reference/agent-configuration)
+[What the installer does](/docs/getting-started/install#what-the-installer-does)
+
+</div>
+
+</div>
+<div class="card">
+
+### Security
+
+The agent holds the Docker socket, so an `admin` token is root on the server: treat it so, and give CI a `deploy` token. The API speaks plain HTTP on `127.0.0.1:9000` and is reached over HTTPS through Caddy, an SSH tunnel or a private network. Only the SHA-256 of each token is kept, `env` values and secrets are encrypted at rest, no shell runs anywhere, and containers are never privileged.
+
+<div class="next">
+
+[Security](/docs/security)
+[Tokens and roles](/docs/tasks/tokens)
+
+</div>
+
+</div>
+<div class="card">
+
+### One API, three clients
+
+The dashboard, `shipwick` and `curl` use the same REST API under `/api/v1`, and every endpoint is registered with the role it needs: `read`, `deploy` or `admin`. A deployment's request body is the `deploy.yaml` itself, and the agent validates it again whatever the client checked.
+
+<div class="next">
+
+[REST API](/docs/reference/api)
+[shipwick CLI](/docs/reference/cli)
+[deploy.yaml](/docs/reference/deploy-yaml)
+
+</div>
+
+</div>
 </div>
 
 </section>
@@ -265,25 +341,31 @@ shipwick deploy
 
 ## Install
 
-On a Linux server with Docker, as root:
+<div class="columns">
+<div>
+<p class="caption">On a Linux server with Docker, as root:</p>
 
 ```bash
 curl -fsSL https://get.shipwick.com | sh
 ```
 
-On your laptop or in CI, only the CLI:
+</div>
+<div>
+<p class="caption">On your laptop or in CI, only the CLI:</p>
 
 ```bash
 curl -fsSL https://get.shipwick.com | sh -s -- --cli
 ```
 
-Or with Homebrew: `brew install shipwick/tap/shipwick`. With the CLI installed, `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` runs the server installer over SSH, saves the token for you and prints the DNS records to create; `shipwick doctor` checks the whole setup afterwards. Everything the installer downloads comes from one release and is verified against its checksums. The agent holds the Docker socket, so an admin token is as valuable as root SSH access to the server: read [Security](/docs/security) before you put it on the internet.
+</div>
+</div>
 
-<div class="next">
+Or with Homebrew: `brew install shipwick/tap/shipwick`. With the CLI installed, `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` sets up the server over SSH, saves the token for you and prints the DNS records to create; `shipwick doctor` checks the whole setup afterwards. Everything the installer downloads comes from one release and is verified against its checksums.
 
-[Install on a server](/docs/getting-started/install)
-[Your first deployment](/docs/getting-started/first-deployment)
-[deploy.yaml reference](/docs/reference/deploy-yaml)
+<div class="closing">
+<img src="/img/wick-wave.svg" alt="Wick, the Shipwick flame, waving" width="80" height="80">
+
+<p>One file, one command, and the version that works keeps serving. <a href="/docs/getting-started/first-deployment">Your first deployment</a> is one page away.</p>
 
 </div>
 

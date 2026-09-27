@@ -9,6 +9,11 @@
   --vp-button-brand-bg: #0b62d6;
   --vp-button-brand-hover-bg: #0a56bd;
   --vp-button-brand-active-bg: #094aa3;
+
+  /* The tinted band behind one or two home sections, and the card on it. */
+  --sw-band: #eef4fe;
+  --sw-card: #ffffff;
+  --sw-shadow: 0 18px 48px rgba(11, 98, 214, 0.14);
 }
 
 .dark {
@@ -20,9 +25,13 @@
   --vp-button-brand-bg: #2f6fd6;
   --vp-button-brand-hover-bg: #3a7be3;
   --vp-button-brand-active-bg: #2a63c0;
+
+  --sw-band: rgba(91, 157, 255, 0.08);
+  --sw-card: var(--vp-c-bg);
+  --sw-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
 }
 
-/* Home ------------------------------------------------------------------- */
+/* Hero ------------------------------------------------------------------- */
 
 .VPHome .VPHero .name {
   letter-spacing: -0.02em;
@@ -36,16 +45,67 @@
   max-width: 640px;
 }
 
+.VPHome .VPHero .tagline {
+  max-width: 520px;
+}
+
 @media (min-width: 960px) {
   .VPHome .VPHero .text {
     font-size: 34px;
   }
+  .VPHome .VPHero.has-image .main {
+    max-width: 520px;
+  }
 }
 
+/* The hero illustration is wide, not a square logo: no glow, no fixed box,
+   and on a phone it follows the text instead of preceding it. */
+.VPHome .VPHero .image-bg { display: none; }
+
+.VPHome .VPHero .image {
+  order: 3;
+  margin: 24px 0 0;
+}
+
+.VPHome .VPHero .image-container {
+  width: 100%;
+  max-width: 560px;
+  height: auto;
+  transform: none;
+}
+
+.VPHome .VPHero .image-src {
+  position: static;
+  max-width: 100%;
+  max-height: none;
+  width: 100%;
+  height: auto;
+  transform: none;
+}
+
+@media (min-width: 960px) {
+  /* The theme gives the image a third of the row; the illustration deserves
+     what the text leaves free. */
+  .VPHome .VPHero .image {
+    order: 2;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    flex: 1 1 0;
+    width: auto;
+  }
+  .VPHome .VPHero .image-container {
+    max-width: 640px;
+    margin-left: auto;
+  }
+}
+
+/* Home sections ---------------------------------------------------------- */
+
 /* The theme's container already provides the horizontal padding and max width;
-   adding more would push this content out of line with the hero. */
+   the sections keep to it, and a band reaches out by exactly that padding. */
 .home {
-  padding-bottom: 96px;
+  padding-bottom: 48px;
 }
 
 .home section {
@@ -54,22 +114,25 @@
 }
 
 .home section:first-child {
-  margin-top: 24px;
+  margin-top: 8px;
+  border-top: 0;
+  padding-top: 24px;
 }
 
 .home h2 {
   margin: 0 0 12px;
   padding: 0;
   border: 0;
-  font-size: 24px;
-  line-height: 1.3;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: 26px;
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 
 .home h3 {
   margin: 0 0 6px;
   font-size: 16px;
+  line-height: 1.4;
   font-weight: 600;
 }
 
@@ -84,10 +147,69 @@
   font-size: 17px;
 }
 
+/* A heading with a small Wick beside it. */
+.home .heading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.home .heading h2 {
+  margin: 0;
+}
+
+.home .heading img {
+  flex: none;
+  width: 56px;
+  height: 56px;
+}
+
+/* The band: a soft tint behind a section. Below 1280px it spans the viewport,
+   above it the 1280px container, always with the text where it is. */
+.home .band {
+  border-top: 0;
+  background: var(--sw-band);
+  margin-left: -24px;
+  margin-right: -24px;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.home .band + section {
+  border-top: 0;
+}
+
+@media (min-width: 640px) {
+  .home .band {
+    margin-left: -48px;
+    margin-right: -48px;
+    padding-left: 48px;
+    padding-right: 48px;
+  }
+}
+
+@media (min-width: 960px) {
+  .home .band {
+    margin-left: -64px;
+    margin-right: -64px;
+    padding-left: 64px;
+    padding-right: 64px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .home .band {
+    border-radius: 16px;
+  }
+}
+
+/* Columns and cards */
+
 .home .columns {
   display: grid;
   gap: 24px;
-  margin-top: 28px;
+  margin-top: 24px;
 }
 
 @media (min-width: 860px) {
@@ -95,81 +217,98 @@
   .home .columns.three { grid-template-columns: repeat(3, 1fr); }
 }
 
+/* Grid items default to min-width: auto, which lets a wide code block push the
+   page sideways on a phone. */
+.home .columns > div,
+.home .steps > div,
+.home .tiles > div,
+.home .pro > div {
+  min-width: 0;
+}
+
 .home .columns > div > div[class*='language-'] {
   margin: 0;
-  height: 100%;
+  overflow-x: auto;
 }
 
-.home .points {
-  display: grid;
-  gap: 32px 40px;
-  margin-top: 32px;
+.home .columns .caption {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--vp-c-text-1);
 }
 
-@media (min-width: 640px) {
-  .home .points { grid-template-columns: 1fr 1fr; }
+.home .card {
+  padding: 22px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
 }
 
-@media (min-width: 960px) {
-  .home .points { grid-template-columns: repeat(3, 1fr); }
+.home .band .card {
+  background: var(--sw-card);
 }
 
-.home .points p {
-  margin: 0;
-  font-size: 15px;
-}
-
-.home table {
-  display: table;
-  width: 100%;
-  margin: 24px 0 24px;
-  font-size: 15px;
-}
-
-.home .next {
+/* Link rows: markdown wraps the links of a .next block in one paragraph. */
+.home .next,
+.home .next p {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 28px;
-  margin-top: 8px;
+  margin: 8px 0 0;
+  max-width: none;
   font-weight: 500;
 }
 
 .home .next a {
   text-decoration: none;
+  color: var(--vp-c-brand-1);
 }
 
 .home .next a:hover {
   text-decoration: underline;
 }
 
-/* Grid items default to min-width: auto, which lets a wide code block push the
-   page sideways on a phone. */
-.home .columns > div,
-.home .points > div {
-  min-width: 0;
+/* Flow strip ------------------------------------------------------------- */
+
+.home .flow {
+  margin: 0;
 }
 
-.home .columns > div > div[class*='language-'] {
-  overflow-x: auto;
-}
-
-/* Hero image: the terminal screenshot, without the theme's glow. */
-.VPHome .VPHero .image-bg { display: none; }
-.VPHome .VPHero .image-container { transform: none; }
-.VPHome .VPHero .image-src {
-  position: static;
-  max-width: 100%;
-  max-height: none;
+.home .flow img {
+  display: block;
   width: 100%;
-  transform: none;
-  border-radius: 12px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+  height: auto;
 }
 
-@media (min-width: 960px) {
-  .VPHome .VPHero .container { max-width: 1280px; }
-  .VPHome .VPHero .main { max-width: 560px; }
-  .VPHome .VPHero .image { max-width: 640px; }
+.home .flow ol {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--vp-c-text-2);
+}
+
+.home .flow ol li {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+}
+
+.home .flow ol code {
+  font-size: 13px;
+  color: var(--vp-c-text-1);
+}
+
+@media (max-width: 639px) {
+  .home .flow ol { font-size: 12px; }
+  .home .flow ol code { font-size: 11px; padding: 2px 4px; }
 }
 
 /* Steps ------------------------------------------------------------------ */
@@ -186,11 +325,7 @@
 
 .home .step {
   position: relative;
-  min-width: 0;
   padding: 22px 22px 8px;
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 12px;
-  background: var(--vp-c-bg-soft);
 }
 
 .home .step .num {
@@ -210,9 +345,54 @@
 .home .step .n2 { background: #0f9f6e; }
 .home .step .n3 { background: #d97706; }
 
-.home .step h3 { margin-bottom: 6px; }
+.home .step .wick {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 56px;
+  height: 56px;
+}
+
+.home .step h3 { margin-bottom: 6px; padding-right: 64px; }
 .home .step p { font-size: 15px; margin-bottom: 14px; }
 .home .step div[class*='language-'] { margin: 0 0 14px; }
+.home .step div[class*='language-'] pre { padding: 16px 18px; }
+.home .step div[class*='language-'] code { font-size: 13px; }
+
+/* A command in a card or a narrow column wraps rather than scrolls: the whole
+   line stays visible and copies as one line. */
+.home .step div[class*='language-'] code,
+.home .columns div[class*='language-bash'] code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Screenshots ------------------------------------------------------------ */
+
+.home .shot {
+  margin: 28px auto 0;
+  max-width: 960px;
+}
+
+.home .shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--vp-c-divider);
+  box-shadow: var(--sw-shadow);
+}
+
+.home .shot figcaption {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--vp-c-text-3);
+}
+
+.home .shot + .columns {
+  margin-top: 32px;
+}
 
 /* Tiles ------------------------------------------------------------------ */
 
@@ -231,11 +411,6 @@
 }
 
 .home .tile {
-  min-width: 0;
-  padding: 22px;
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 12px;
-  background: var(--vp-c-bg-soft);
   border-top: 3px solid var(--tile);
 }
 
@@ -266,11 +441,225 @@
 .dark .home .t-rose   { --tile: #f472b6; }
 .dark .home .t-teal   { --tile: #22d3ee; }
 
-/* Markdown wraps the links of a .next block in one paragraph. */
-.home .next p {
+/* One server ------------------------------------------------------------- */
+
+.home .side {
+  display: grid;
+  gap: 24px 48px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+@media (min-width: 860px) {
+  .home .side { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+}
+
+.home .side > div { min-width: 0; }
+
+.home .side img {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+  margin: 0 auto;
+}
+
+/* For the people who run it ---------------------------------------------- */
+
+.home .pro {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+@media (min-width: 960px) {
+  .home .pro { grid-template-columns: repeat(3, 1fr); }
+}
+
+.home .pro p {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.home .pro .next,
+.home .pro .next p {
+  margin: 0;
+  font-size: 14px;
+  gap: 4px 18px;
+}
+
+/* Closing ---------------------------------------------------------------- */
+
+.home .closing {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-top: 40px;
+}
+
+.home .closing img {
+  flex: none;
+  width: 80px;
+  height: 80px;
+}
+
+.home .closing p {
+  margin: 0;
+  font-size: 17px;
+  color: var(--vp-c-text-1);
+}
+
+/* Documentation ---------------------------------------------------------- */
+
+/* Two paths into the documentation. */
+.vp-doc .paths {
+  display: grid;
+  gap: 16px;
+  margin: 24px 0 32px;
+}
+
+@media (min-width: 640px) {
+  .vp-doc .paths { grid-template-columns: 1fr 1fr; }
+}
+
+.vp-doc .path {
+  min-width: 0;
+  padding: 18px 22px 18px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+}
+
+/* The heading and Wick share one row; the list below has the full width. */
+.vp-doc .path header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.vp-doc .path h3 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.4;
+  letter-spacing: normal;
+}
+
+.vp-doc .path img {
+  flex: none;
+  width: 56px;
+  height: 56px;
+}
+
+.vp-doc .path ol {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.vp-doc .path ol li {
+  margin-top: 0;
+}
+
+.vp-doc .path p {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--vp-c-text-2);
+}
+
+/* An illustration above a section's text. */
+.vp-doc figure.illustration {
+  margin: 24px 0 8px;
+}
+
+.vp-doc figure.illustration img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.vp-doc figure.illustration figcaption {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--vp-c-text-3);
+}
+
+/* A paragraph with a small Wick beside it. */
+.vp-doc .wick-note {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin: 16px 0;
+}
+
+.vp-doc .wick-note img {
+  flex: none;
+  width: 64px;
+  height: 64px;
+}
+
+.vp-doc .wick-note p {
+  margin: 0;
+}
+
+/* Not found -------------------------------------------------------------- */
+
+.sw-notfound {
+  padding: 64px 24px 96px;
+  text-align: center;
+}
+
+@media (min-width: 768px) {
+  .sw-notfound { padding: 96px 32px 168px; }
+}
+
+.sw-notfound img {
+  display: block;
+  width: 250px;
+  max-width: 100%;
+  height: 160px;
+  margin: 0 auto 24px;
+}
+
+.sw-notfound .code {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--vp-c-text-3);
+}
+
+.sw-notfound h1 {
+  margin: 8px 0 12px;
+  font-size: 28px;
+  line-height: 1.3;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.sw-notfound p {
+  margin: 0 auto;
+  max-width: 44ch;
+  line-height: 1.6;
+  color: var(--vp-c-text-2);
+}
+
+.sw-notfound .links {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 28px;
-  margin: 0;
-  max-width: none;
+  justify-content: center;
+  gap: 8px 24px;
+  margin-top: 28px;
+  font-weight: 500;
+}
+
+.sw-notfound .links a {
+  color: var(--vp-c-brand-1);
+  text-decoration: none;
+}
+
+.sw-notfound .links a:hover {
+  text-decoration: underline;
 }

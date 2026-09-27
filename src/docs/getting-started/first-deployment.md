@@ -178,7 +178,12 @@ Next:
   shipwick status my-api       replicas, health, history
 ```
 
-With `image:` the build lines are one `✓ Pulled image ghcr.io/company/my-api:1.4.1`. Either way a summary follows: the version, how long the deployment took, how many replicas are healthy, and the URL; a first deployment ends with the two commands to run next. Caddy obtains the certificate for the domain on the first request.
+<div class="wick-note">
+<img src="/img/wick-check.svg" alt="Wick, the Shipwick flame, with a green check: the deployment succeeded" width="64" height="64">
+
+<p>With <code>image:</code> the build lines are one <code>✓ Pulled image ghcr.io/company/my-api:1.4.1</code>. Either way a summary follows: the version, how long the deployment took, how many replicas are healthy, and the URL; a first deployment ends with the two commands to run next. Caddy obtains the certificate for the domain on the first request.</p>
+
+</div>
 
 Pressing Ctrl+C while `deploy` waits stops the waiting, not the deployment.
 

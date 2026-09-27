@@ -5,7 +5,12 @@ description: Install the Shipwick command-line client on a laptop or in CI, and 
 
 # Install the CLI
 
-`shipwick` is the Shipwick command-line client. This page covers installing it on your laptop or in CI, keeping it current with `shipwick upgrade`, saving the agent's URL and token with `shipwick login`, working with several servers, and how the CLI decides which agent to talk to.
+<div class="wick-note">
+<img src="/img/wick.svg" alt="Wick, the Shipwick flame" width="64" height="64">
+
+<p><code>shipwick</code> is the Shipwick command-line client. This page covers installing it on your laptop or in CI, keeping it current with <code>shipwick upgrade</code>, saving the agent's URL and token with <code>shipwick login</code>, working with several servers, and how the CLI decides which agent to talk to.</p>
+
+</div>
 
 The server installer already puts `shipwick` on the server. You only need this page for other machines. With the CLI on your laptop, the server itself can be installed from there: `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` runs the installer over SSH and logs you in; see [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
 

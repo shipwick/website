@@ -5,7 +5,12 @@ description: Set up the Shipwick agent, Caddy and the dashboard on a Linux serve
 
 # Install Shipwick on a server
 
-This page is for whoever administers the server. It covers the installer, running it from your laptop over SSH, what it puts on the machine, the API token, DNS and firewall, and the ways to install without it.
+<div class="wick-note">
+<img src="/img/wick-tools.svg" alt="Wick, the Shipwick flame, with tools: setting up the server" width="64" height="64">
+
+<p>This page is for whoever administers the server. It covers the installer, running it from your laptop over SSH, what it puts on the machine, the API token, DNS and firewall, and the ways to install without it.</p>
+
+</div>
 
 ## Before you begin
 
