@@ -130,7 +130,7 @@ Each application route is generated with these settings:
 | The application was stopped with `shipwick stop` | The same `503`. The route stays in the configuration, so the domain keeps its certificate. |
 | A `recreate` deployment is between stopping the old version and the new one being ready | The same `503`. |
 | The hostname is one of the application's `redirects`, whatever the application's state | `308 Permanent Redirect` to `https://<domain>` with the same path and query. No replica is involved. |
-| No application is served at the requested hostname | `404 Not Found`, with the body `404 Not Found: no application is served at this address.` |
+| No application is served at the requested hostname | Over HTTPS the connection fails before any answer: there is no certificate for a hostname nothing serves. Plain HTTP is redirected to HTTPS first. A request that does get through with an unknown hostname answers `404 Not Found`, with the body `404 Not Found: no application is served at this address.` |
 
 An explicit `503` is generated because Caddy's own answer would be a bare `502`. The application is known; it just has no healthy replica. The domain answers at once instead of timing out.
 
