@@ -119,19 +119,11 @@ After a server reboot, the agent brings every application back up according to i
 
 On `SIGINT` or `SIGTERM` the agent shuts down in order: it ends log streams, stops accepting HTTP requests, stops the supervisor and cancels in-flight deployments (each is marked `FAILED` and cleaned up), waits up to 30 seconds, then closes the Docker client and the database. A second signal kills the process immediately.
 
-## Why there is no cluster
+## Why one server
 
-Kubernetes solves scheduling across fleets of machines. With one server, or three, its concepts come along (pods, services, ingresses, controllers, custom resources, a control plane to keep alive) and almost none of its power is used.
+Shipwick is built for one server on purpose. A single machine runs the 1 to 20 applications of most products with room to spare; what it lacks is the platform around them: deployments without downtime, supervision, rollback, HTTPS, secrets, jobs, backups. Shipwick is that platform, and being for one server is where its guarantees come from: one lock per application, one way replicas come to exist, a proxy that is never reloaded during a rollout, a failed deployment that never takes down the version that works. There is one process to run and one SQLite file to back up.
 
-| | Kubernetes | Shipwick |
-|---|---|---|
-| Unit of thought | Pod, Deployment, Service, Ingress, and more | Application |
-| To run it | A cluster | One process |
-| State | etcd | A SQLite file |
-| Configuration for one application | Several manifests | About 10 lines of YAML |
-| Multi-node scheduling | Yes | No, by design |
-
-Shipwick is for developers and small teams running 1 to 20 applications on a single server. Anything that runs with `docker run` runs on Shipwick. It is not a smaller Kubernetes.
+Anything that runs with `docker run` runs on Shipwick. It schedules nothing across machines; when one server is no longer enough, you have outgrown it.
 
 ## What Shipwick does not do
 

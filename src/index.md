@@ -1,12 +1,12 @@
 ---
 layout: home
 title: Shipwick
-titleTemplate: ':title · Production deployments, without Kubernetes'
+titleTemplate: ':title · Production deployments on your own server'
 
 hero:
   name: Shipwick
-  text: Production deployments, without Kubernetes.
-  tagline: Shipwick runs your Docker applications on your own server. Health checks, zero-downtime deploys, rollbacks, resource limits and HTTPS, from one small config file.
+  text: Production deployments on your own server.
+  tagline: One file describes the application, one command ships it. Rolling deployments with health checks and automatic rollback, HTTPS, scheduled jobs, backups, encrypted secrets, tokens with roles and a dashboard, on the Linux server you already have.
   actions:
     - theme: brand
       text: Get started
@@ -143,19 +143,21 @@ A `pre_deploy` command runs from the new image before any replica of it starts; 
 
 <section>
 
-## Why not Kubernetes?
+## Why one server
 
-Kubernetes solves scheduling across fleets of machines. If you have one server, or three, you inherit all of its concepts and use almost none of its power. Shipwick is for developers and small teams running 1–20 applications on a VPS, who want Docker in production without hand-rolling deploy scripts, restart logic, health checks and reverse-proxy configuration.
+A single server is a lot of computer. A few cores, a few gigabytes of memory and a good network run a company's whole product for the price of a lunch a month, and most products never need more than that. What such a server lacks is not power but the platform around it: deploying without downtime, restarting what crashes, knowing what is healthy, rolling back a bad release, serving HTTPS, keeping secrets out of files, running the nightly job, taking the backup. Teams build that platform themselves, in deploy scripts and cron entries, and every one is different.
 
-| | Kubernetes | Shipwick |
-|---|---|---|
-| Unit of thought | Pod, Deployment, Service, Ingress, … | Application |
-| To run it | A cluster | One process |
-| State | etcd | A SQLite file |
-| Configuration for one application | Several manifests | About 10 lines of YAML |
-| Multi-node scheduling | Yes | No, by design |
+Shipwick is that platform, built for one server on purpose. One process, one SQLite file, one YAML file per application. Nothing to keep alive besides the server itself, nothing else to buy. The focus is where its guarantees come from: one lock per application, one way replicas come to exist, a proxy that is never reloaded during a rollout, a failed deployment that never takes down the version that works.
 
-Shipwick is not a smaller Kubernetes. It does not do multi-node scheduling, service meshes or custom resources. If you need those, you need Kubernetes.
+| | |
+|---|---|
+| Unit of thought | An application: one `deploy.yaml` |
+| To run it | One process on the server, one SQLite file |
+| To operate it | `shipwick` in a terminal or a pipeline, a dashboard in a browser, an HTTP API |
+| Scope | One server, by design |
+
+Where it stops: Shipwick schedules nothing across machines. When one server is no longer enough, you have outgrown Shipwick, and the `deploy.yaml` you wrote says everything about the application that the next platform will ask.
+
 
 </section>
 
