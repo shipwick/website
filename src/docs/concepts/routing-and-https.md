@@ -165,7 +165,7 @@ When the record points somewhere else, the reason reads `resolves to 104.21.5.6,
 
 The reason is Let's Encrypt's rate limit of five failed authorizations per hostname per hour. Caddy asks for a certificate the moment it hears of a hostname, and a hostname that does not resolve fails within seconds: deployed before its DNS, a domain would use up the five within minutes and stay without a certificate for the rest of the hour, however quickly the record was fixed.
 
-The agent learns the server's addresses from `SHIPWICK_AGENT_DOMAIN` and `SHIPWICK_DASHBOARD_DOMAIN` at startup. Without either, a hostname only has to resolve at all. The agent's and the dashboard's own hostnames are never held back: they are the operator's, not an application's, and holding them back could lock the operator out.
+The agent asks public resolvers (Cloudflare's, Google's and Quad9's) rather than the server's own: a server's resolver remembers that a record did not exist for as long as the zone's negative TTL says, half an hour on Cloudflare, and would keep the hostname waiting that long after the record was created. When none of the public resolvers can be reached, the server's own decides. The agent learns the server's addresses from `SHIPWICK_AGENT_DOMAIN` and `SHIPWICK_DASHBOARD_DOMAIN` at startup. Without either, a hostname only has to resolve at all. The agent's and the dashboard's own hostnames are never held back: they are the operator's, not an application's, and holding them back could lock the operator out.
 
 ## One hostname, one application
 
