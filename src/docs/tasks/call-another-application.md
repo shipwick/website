@@ -50,9 +50,11 @@ Several files deploy in the order given and stop at the first failure, so `order
 
 `orders` now connects to `http://payments:8080` and gets a healthy replica of whatever version of `payments` is current. Plain HTTP, no domain, no certificate, no trip through the proxy. A database run by Shipwick is reached the same way, `postgres:5432`; see [Run a database or other stateful application](/docs/tasks/stateful-applications).
 
+The one-off containers of an application are on the same network and resolve the same names: a `pre_deploy` command reaches the database it migrates at `postgres:5432`, and so do [scheduled jobs and `shipwick run`](/docs/tasks/jobs). A port that an application also [publishes on the server](/docs/tasks/non-http-services) changes nothing here; other applications keep using the name.
+
 ## What the name resolves to
 
-A replica carries its application's name exactly while it is ready for traffic: it takes the name once it passed its health check (or, without one, once it stayed up through the stabilization window), and loses it the moment it stops. Docker's DNS returns one address per replica that carries the name.
+A replica carries its application's name exactly while it is ready for traffic: it takes the name once it passed its health check — `path`, `tcp` or `command`, whichever the application has — or, without one, once it stayed up through the stabilization window, and loses it the moment it stops. Docker's DNS returns one address per replica that carries the name.
 
 - **Only ready replicas answer.** A replica that fails its health check is taken off the name within a second and put back once it passes again. One that crashes disappears from the name at once.
 - **A replica is on the network from its first second.** It can reach `payments` while its own health check is still pending, which matters when passing that check requires a peer. It is findable by others only once it is ready itself.
@@ -75,5 +77,6 @@ name:
 ## What's next
 
 - [Run a database or other stateful application](/docs/tasks/stateful-applications) and reach it at `postgres:5432`.
+- [Expose a service that is not HTTP](/docs/tasks/non-http-services) when something outside the server must reach it too.
 - [Routing and HTTPS](/docs/concepts/routing-and-https) explains the two networks and how the names are given and taken.
 - The [deploy.yaml reference](/docs/reference/deploy-yaml#name) for the rules on names.

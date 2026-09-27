@@ -1,11 +1,11 @@
 ---
 title: Resource limits and metrics
-description: How cpu and memory limits are written, parsed and applied to containers, what happens at the limit, and how CPU and memory usage are measured and reported.
+description: How cpu and memory limits are written, parsed and applied to containers, what happens at the limit, how CPU and memory usage are measured and reported, and how a week of history is sampled and served.
 ---
 
 # Resource limits and metrics
 
-`resources` in `deploy.yaml` sets CPU and memory limits per replica, and the agent reports usage against them. This page describes the units and parsing rules, the Docker settings the limits become, what happens at the limit, and how metrics are measured.
+`resources` in `deploy.yaml` sets CPU and memory limits per replica, and the agent reports usage against them, live and over the last week. This page describes the units and parsing rules, the Docker settings the limits become, what happens at the limit, how metrics are measured, and how the history is sampled, stored and served.
 
 ## Limits
 
@@ -73,7 +73,7 @@ A replica that is killed repeatedly goes through the usual backoff and ends in `
 
 ## Metrics
 
-Usage is one command away, and live in the dashboard:
+Usage is one command away, and live in the dashboard, with a week of history next to it:
 
 ```text
 $ shipwick status
@@ -119,7 +119,7 @@ A replica that is not running reports zeros for usage and never fails the reques
 
 ### Point-in-time sampling
 
-A metrics response is a point-in-time sample. There is no background sampler: with nobody watching, nothing is measured, and nothing is stored. History is the client's business. The dashboard builds its sparklines in the browser while the page is open; any other client builds history by polling.
+A metrics response is a point-in-time sample; the history is described below. The dashboard's sparklines are built in the browser from these samples while the page is open.
 
 CPU usage is a rate, so it takes two readings. Docker will take both itself, a second apart, which would make every request cost a second. Instead the agent remembers the last reading of each container and computes the rate against it:
 
@@ -128,3 +128,41 @@ CPU usage is a rate, so it takes two readings. Docker will take both itself, a s
 - Readings less than 500 milliseconds apart are not compared either, because they make a noisy rate. That request also falls back to the two-sample call.
 
 Replicas are measured in parallel, so a first request costs about a second in total, not a second per replica.
+
+## History
+
+The agent records the CPU and memory of every running replica every 30 seconds and keeps seven days of it, in its own database. The dashboard charts the last hour, day or week per replica, next to the limits; `GET /api/v1/applications/:name/metrics/history?since=1h|24h|7d` serves the same series.
+
+```json
+{
+  "data": {
+    "application": "my-api", "since": "2026-03-01T09:00:00Z", "step": "30s",
+    "series": [
+      { "replica": 1, "points": [
+          { "at": "2026-03-01T09:00:00Z", "cpu_percent": 12.5, "memory_bytes": 216006656 },
+          { "at": "2026-03-01T09:00:30Z", "cpu_percent": 14.0, "memory_bytes": 216268800 }
+      ] },
+      { "replica": 2, "points": [ … ] }
+    ],
+    "limits": { "cpu": 1, "memory_bytes": 1073741824 }
+  }
+}
+```
+
+### How it is sampled
+
+A second loop in the agent, started with the supervisor, takes one cheap reading per running replica every 30 seconds and computes the rate against the previous one, through the same cache the live endpoint uses: a dashboard that is polling and the sampler feed each other's readings. The first reading of a container only primes the rate, so a replica appears in the history a minute after it starts, and an application that was just deployed answers with empty series until then. Rows are written in one transaction per tick and pruned once an hour to the retention of seven days. Replicas of a stopped application are not sampled.
+
+### How it is served
+
+The rows are raw and aggregation happens on read, in SQL. A week of 30-second samples of three replicas is 60,000 rows, a few megabytes, and storing them raw buys a step chosen per query instead of a resolution decided at write time:
+
+| `since` | Window | `step` | Points per series |
+|---|---|---|---|
+| `1h` (default) | The last hour | `30s` | Up to 120 |
+| `24h` | The last day | `5m` | Up to 288 |
+| `7d` | The last week | `1h` | Up to 168 |
+
+Each point aggregates the samples of one step: `cpu_percent` is their average, `memory_bytes` their peak, `at` is the start of the step. A step in which a replica has no sample, because it was not running or the agent was down, has no point: the series are sparse, never zero-filled or interpolated, so a gap in the chart is a gap in the record. Any other value of `since` is `400 INVALID_REQUEST`; an application with no active deployment answers `409 NOT_DEPLOYED`.
+
+`limits` are the active deployment's per-replica limits as written in `deploy.yaml`, `cpu` in cores and `memory_bytes` in bytes, `0` when unlimited. The dashboard draws the CPU limit line at `cpu × 100`, in the same unit as the points, one line per replica, and refreshes every 30 seconds, the sampling interval. Replica *n* keeps series color *n*, as in the log viewer.

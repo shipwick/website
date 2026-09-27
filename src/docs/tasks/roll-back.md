@@ -48,6 +48,8 @@ Pass the number, without the `#`, to `--to`:
 shipwick rollback --to 3
 ```
 
+The API and the [dashboard](/docs/tasks/dashboard) show one more thing per entry: `by`, the name of the token that made the deployment. A rollback is recorded under the token that asked for it.
+
 ## Which deployments are valid targets
 
 Only deployments that once served successfully are targets. In the history they have the status `SUPERSEDED`: they were active, and a later deployment replaced them. A `FAILED` attempt is not a version to return to, and neither is one that was `ROLLED_BACK`.
@@ -67,7 +69,8 @@ The agent applies the same rule. It also refuses a target that belongs to anothe
 
 A rollback is not a special mechanism. It is an ordinary deployment whose configuration comes from the history instead of from a file, and it goes through the same engine: rolled out replica by replica, health-checked, zero-downtime. If the old version no longer comes up today, the rollback is undone like any other failed deployment.
 
-- **The whole configuration returns**, not only the image: `env` values, replicas, limits, domain and health check, as they were stored with that deployment. Secrets are included, and they never leave the server to do so.
+- **The whole configuration returns**, not only the image: `env` values, replicas, limits, hostnames, published ports, health check, jobs, as they were stored with that deployment. Secrets are included, and they never leave the server to do so.
+- **A `pre_deploy` command runs again.** If the configuration you return to has one, it runs from that version's image before any of its replicas start, next to the version being replaced — exactly as it did when that version was first deployed. A migration that cannot run twice, or cannot run against the newer schema, fails the rollback before anything was touched.
 - **History is appended to, never rewritten.** A rollback is a new deployment record with a new number. It is marked `rollback` in the `VIA` column of `shipwick status` and points at the deployment it re-used.
 - **Your `deploy.yaml` is not changed.** If the file in your repository still describes the version you rolled back from, the next `shipwick deploy` deploys that version again.
 
@@ -81,7 +84,7 @@ Because both versions serve side by side for a moment during a rolling rollout, 
 shipwick redeploy
 ```
 
-This replaces all containers of the application with fresh ones, one at a time. It is also a way out of a crash loop, since new containers start with a clean slate.
+This replaces all containers of the application with fresh ones, one at a time. It is also a way out of a crash loop, since new containers start with a clean slate. A `pre_deploy` command in the stored configuration runs first, as on every deployment.
 
 To move the application to another image without touching anything else:
 
@@ -110,11 +113,11 @@ Both commands accept:
 | `--no-wait` | Start the operation and return immediately |
 | `-f`, `--file` | Read the application name from another `deploy.yaml` |
 
-`rollback` also accepts `--to N`; `redeploy` also accepts `--image`. Both exit 0 on success and 1 otherwise, as `deploy` does. Only one operation per application runs at a time; a second is refused.
+`rollback` also accepts `--to N`; `redeploy` also accepts `--image`. Both exit 0 on success and 1 otherwise, as `deploy` does. Only one operation per application runs at a time; a second is refused. Both need a token with the `deploy` role or above; a `read` token is refused and told so.
 
 ## From the dashboard
 
-The [dashboard](/docs/tasks/dashboard) offers both actions. Its rollback dialog lists exactly the deployments that are valid targets.
+The [dashboard](/docs/tasks/dashboard) offers both actions to tokens with the `deploy` or `admin` role. Its rollback dialog lists exactly the deployments that are valid targets.
 
 ## What's next
 

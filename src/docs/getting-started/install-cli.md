@@ -5,7 +5,7 @@ description: Install the Shipwick command-line client on a laptop or in CI, and 
 
 # Install the CLI
 
-`shipwick` is the Shipwick command-line client. This page covers installing it on your laptop or in CI, saving the agent's URL and token with `shipwick login`, and how the CLI decides which agent to talk to.
+`shipwick` is the Shipwick command-line client. This page covers installing it on your laptop or in CI, keeping it current with `shipwick upgrade`, saving the agent's URL and token with `shipwick login`, working with several servers, and how the CLI decides which agent to talk to.
 
 The server installer already puts `shipwick` on the server. You only need this page for other machines.
 
@@ -17,7 +17,7 @@ On macOS and Linux:
 brew install shipwick/tap/shipwick
 ```
 
-Upgrade with `brew upgrade shipwick`. Completions for bash, zsh and fish are installed along with it. The formula installs the same binaries as the installer below, verified against the same checksums; it lives in [shipwick/homebrew-tap](https://github.com/shipwick/homebrew-tap) and follows new releases within a day.
+Upgrade with `brew upgrade shipwick`; `shipwick upgrade` recognizes a Homebrew installation and prints that line instead of replacing the binary itself. Completions for bash, zsh and fish are installed along with it. The formula installs the same binaries as the installer below, verified against the same checksums; it lives in [shipwick/homebrew-tap](https://github.com/shipwick/homebrew-tap) and follows new releases within a day.
 
 ## The installer
 
@@ -44,12 +44,12 @@ curl -fsSL https://get.shipwick.com | SHIPWICK_BIN_DIR="$HOME/.local/bin" sh -s 
 To install a specific version, set `SHIPWICK_VERSION`:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.2.0 sh -s -- --cli
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.3.0 sh -s -- --cli
 ```
 
 ## Windows
 
-Download `shipwick_windows_amd64.exe` from the [releases page](https://github.com/shipwick/shipwick/releases) and put it on your `PATH`.
+Download `shipwick_windows_amd64.exe` from the [releases page](https://github.com/shipwick/shipwick/releases) and put it on your `PATH`. Later releases are installed with `shipwick upgrade`, below.
 
 ## From source
 
@@ -65,6 +65,48 @@ go build -o bin/shipwick ./cli/cmd/shipwick      # or: make build
 shipwick --version
 ```
 
+## Upgrade
+
+`shipwick upgrade` replaces the running binary with the latest release, then compares the server's version with it:
+
+```bash
+shipwick upgrade
+```
+
+```text
+✓ Upgraded shipwick v0.2.0 → v0.3.0
+  /usr/local/bin/shipwick
+
+The server runs v0.2.0; v0.3.0 is available. On the server run:
+  curl -fsSL https://get.shipwick.com | sh
+```
+
+The release is downloaded from GitHub and verified against the release's `checksums.txt` before anything changes; the new binary is written next to the old one and renamed over it only once its SHA-256 matches. Pre-releases are never picked. On Windows the replaced binary is left behind as `shipwick.old.exe` and removed the next time `shipwick` runs. If the directory is not writable, the command says so and suggests `sudo shipwick upgrade`, or running the installer again.
+
+The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there; `shipwick upgrade` tells you when the server is behind, and says `The server runs v0.3.0, the latest release.` when it is not. A server that cannot be reached is one line, not an error.
+
+A `shipwick` installed with Homebrew is left to Homebrew:
+
+```text
+shipwick v0.2.0 was installed with Homebrew; v0.3.0 is available.
+
+Upgrade with: brew upgrade shipwick
+```
+
+`--check` only reports:
+
+```bash
+shipwick upgrade --check
+```
+
+```text
+shipwick v0.2.0 is installed; v0.3.0 is available.
+
+Upgrade with: shipwick upgrade
+```
+
+When there is nothing to do, the first line reads `shipwick v0.3.0 is up to date.`
+
 ## Log in
 
 `shipwick login` saves the agent's URL and the API token for later commands.
@@ -73,7 +115,15 @@ shipwick --version
 shipwick login --url https://agent.example.com
 ```
 
+```text
+API token:
+✓ Logged in to https://agent.example.com (vps-1, agent v0.3.0)
+  saved as context default in /home/you/.config/shipwick/config.yaml
+```
+
 It asks for the token without echoing it, verifies the token against the agent, and only then writes the config file. If the agent rejects the token, nothing is saved. Without `--url`, `login` asks for the URL too and offers the current one as the default.
+
+Any token works: the root token the installer printed, or one created with `shipwick token create`. What the CLI may do afterwards follows the token's role; `shipwick server status` shows which token and role you are using. See [Create tokens for CI and teammates](/docs/tasks/tokens).
 
 In a script, pipe the token in:
 
@@ -91,6 +141,40 @@ shipwick server status
 
 CI jobs usually need no login at all: they set two environment variables instead. See [Deploy from CI](/docs/tasks/deploy-from-ci).
 
+## Several servers
+
+Each `shipwick login` saves a server under a name, a *context*. Without `--context`, the name is `default`. A second server gets a name of its own and becomes the current one:
+
+```bash
+shipwick login --context staging --url https://staging.example.com
+```
+
+Commands talk to the current context. `--context` picks another one for a single command, `SHIPWICK_CONTEXT` for a whole shell, and `shipwick context use` changes the current one:
+
+```bash
+shipwick deploy --context staging
+shipwick context use prod
+```
+
+```text
+✓ Switched to prod (https://agent.example.com)
+```
+
+| Command | |
+|---|---|
+| `shipwick context ls` | The saved servers and their URLs; `*` marks the current one |
+| `shipwick context use <name>` | Make a saved server the current one |
+| `shipwick context rm <name>` | Forget a server and its token. Asks first; `--yes` skips the question |
+| `shipwick context current` | Print the name of the current server |
+
+```text
+  NAME      URL
+* prod      https://agent.example.com
+  staging   https://staging.example.com
+```
+
+While more than one context is saved, output that names the server — `server status`, warnings — adds the context's name, so that a command run against the wrong server is visible as such. A config file written before contexts existed, with `url` and `token` at the top level, still loads as the context `default`.
+
 ## How the CLI finds the agent
 
 The URL and the token are resolved separately. The first source that has a value wins.
@@ -99,24 +183,28 @@ The URL and the token are resolved separately. The first source that has a value
 |---|---|---|
 | 1. Flag | `--url` | Never a flag |
 | 2. Environment | `SHIPWICK_AGENT_URL` | `SHIPWICK_AGENT_TOKEN` |
-| 3. Saved by `shipwick login` | yes | yes |
+| 3. Saved context | yes | yes |
 | 4. Default | `http://127.0.0.1:9000` | — |
+
+The saved context is the one `--context` names, else the one `SHIPWICK_CONTEXT` names, else the current one.
 
 The default URL suits an agent on the same machine and one reached through an SSH tunnel. If you did not give the agent a hostname, see [Reach the API without a hostname](/docs/tasks/access-without-a-hostname).
 
-The saved token belongs to the saved URL. If `--url` or `SHIPWICK_AGENT_URL` points `shipwick` at a different agent, the saved token is not sent there; set `SHIPWICK_AGENT_TOKEN` for that agent, or log in to it.
+The saved token belongs to the saved URL. If `--url` or `SHIPWICK_AGENT_URL` points `shipwick` at a different agent, the saved token is not sent there; set `SHIPWICK_AGENT_TOKEN` for that agent, or log in to it under a context of its own.
 
 ## How the CLI handles the token
 
-The API token is equivalent to root SSH access to the server, and `shipwick` treats it that way:
+An admin token is equivalent to root SSH access to the server, and `shipwick` treats every token that way:
 
 - The token is never accepted as a command-line flag. Arguments are visible to other users through `ps` and are kept in shell history.
 - `login` reads the token without echo, or from standard input with `--token-stdin`.
 - The config file is written with mode `0600`, in a directory created with mode `0700`.
 - A saved token is only sent to the agent it was saved for.
 - `shipwick` warns on standard error whenever the token is about to travel over plain HTTP to anything other than the local machine. Use HTTPS or an SSH tunnel.
+- A token asked to do more than its role allows is refused by the agent, and `shipwick` says which role it has and which one the command needs.
 
 ## What's next
 
 - [Deploy your first application](/docs/getting-started/first-deployment).
+- [Create tokens for CI and teammates](/docs/tasks/tokens).
 - The full command list is in the [shipwick reference](/docs/reference/cli).

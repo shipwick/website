@@ -92,28 +92,49 @@ A rollout that fails half-way is undone on its own. Any earlier successful deplo
 
 ### Supervision
 
-Crashed and unhealthy replicas are restarted with backoff, then reported as `CRASH_LOOP`. A container that disappears is recreated within about a second.
+Crashed and unhealthy replicas are restarted with backoff, then reported as `CRASH_LOOP`. A container that disappears is recreated within about a second. Health checks over HTTP, over TCP, or with a command inside the container.
 
 </div>
 <div>
 
 ### HTTPS and routing
 
-Caddy sits in front. Every application's domain gets a certificate and is load-balanced across its healthy replicas. There is no proxy configuration to write.
+Caddy sits in front. Every application's domain and aliases get a certificate and are load-balanced across its healthy replicas; `www` and old domains redirect. There is no proxy configuration to write.
 
 </div>
 <div>
 
 ### Resource limits
 
-CPU and memory limits per replica, and current usage against them in `shipwick status` and the dashboard.
+CPU and memory limits per replica, current usage against them in `shipwick status` and the dashboard, and a week of history charted per replica.
 
 </div>
 <div>
 
 ### CLI, API and dashboard
 
-`shipwick` for terminals and CI pipelines, a REST API with one token, and a web dashboard with deployments, live logs and metrics.
+`shipwick` for terminals and CI pipelines, a REST API with named tokens and roles, and a web dashboard with deployments, live logs, metrics and jobs.
+
+</div>
+<div>
+
+### Jobs and migrations
+
+A `pre_deploy` command runs from the new image before any replica of it starts; if it fails, nothing was touched. Scheduled `jobs` run on a cron schedule, and `shipwick run` runs a command by hand, each in a one-off container from the application's image.
+
+</div>
+<div>
+
+### Backups and notifications
+
+`shipwick backup` downloads an application's volumes as tar archives, `shipwick restore` puts one back. A webhook, Slack or Discord included, is told when a deployment succeeds, fails or is rolled back, and when an application goes down or recovers.
+
+</div>
+<div>
+
+### Tokens with roles
+
+`read` sees everything, `deploy` changes what runs, `admin` does everything. Create a token per CI pipeline and per person, see when each was last used, revoke it when it is done; every deployment records who made it.
 
 </div>
 </div>

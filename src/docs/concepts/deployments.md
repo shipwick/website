@@ -22,11 +22,12 @@ Every attempt is recorded, whether it succeeds or not. A record holds:
 | `error` | Why the deployment failed, if it did. |
 | `kind` | `deploy`, `redeploy` or `rollback`. |
 | `source_deployment_id` | For a redeploy or rollback, the deployment whose configuration was re-used. |
+| `by` | The name of the token that started it: `root` for the agent's own token, otherwise the token's name. Absent on deployments made before tokens had names. |
 | `started_at`, `completed_at` | When the record was created, and when the agent was done with it. |
 
 A deployment begins in one of three ways. `deploy` submits a `deploy.yaml`. `redeploy` takes the configuration of the active deployment, optionally with another image. `rollback` takes the configuration of an earlier successful deployment. All three resolve a configuration and hand it to the same entry point, so everything below applies to each of them. See [Rollback](/docs/concepts/rollback).
 
-Before a record is created, the agent checks the application's `domain`. If another application, the agent or the dashboard is already served on it, the request is refused as a configuration error. Nothing is recorded, pulled or started.
+Before a record is created, the agent checks the application's hostnames and published ports. If another application already answers to one of its `domain`, `aliases` or `redirects`, in any role, or the agent or the dashboard is served on it, the request is refused as a configuration error whose field names the offending line (`aliases[1]`). So is a `publish` entry whose server port another application publishes, or that the agent or the proxy listens on (`publish[0].host`). Nothing is recorded, pulled or started. A redeploy and a rollback are checked the same way, since a stored configuration's hostnames and ports may have been taken since.
 
 ## States
 
@@ -41,11 +42,11 @@ PENDING → BUILDING → STARTING → HEALTH_CHECKING → HEALTHY → ACTIVE →
 | State | What happens |
 |---|---|
 | `PENDING` | The record exists and the application's lock is held. The API has answered `202 Accepted`. |
-| `BUILDING` | The image is pulled. Shipwick does not build images; this state covers obtaining one. If the pull fails but the image exists locally, the local copy is used and a warning is recorded. |
+| `BUILDING` | The image is pulled. Shipwick does not build images; this state covers obtaining one. If the pull fails but the image exists locally, the local copy is used and a warning is recorded. With `pre_deploy`, the command then runs from the new image, before any replica of it exists; see [Before the replicas start](#before-the-replicas-start-the-pre-deploy-command). |
 | `STARTING` | The networks are ensured. The first new replica is created, recorded and started. On a first deployment, and under `recreate`, all replicas are. |
 | `HEALTH_CHECKING` | Every new replica must prove it is ready before it takes traffic. With a `health` block it must answer its check once within `interval × retries`, probed every second. Without one it must stay running through a 3 second stabilization window. A replica that exits fails the deployment at once. Replicas are replaced one at a time during this state. |
 | `HEALTHY` | Every replica has been replaced and serves. |
-| `ACTIVE` | The commit point. One database transaction promotes the deployment, marks the previous one `SUPERSEDED` and repoints the application. A final sweep then removes any container of the application that does not belong to the new deployment. |
+| `ACTIVE` | The commit point. One database transaction promotes the deployment, marks the previous one `SUPERSEDED` and repoints the application. A final sweep then removes any container of the application that does not belong to the new deployment, and the images that only retired deployments refer to. |
 | `SUPERSEDED` | A later deployment became `ACTIVE`. Superseded deployments are the possible targets of a rollback. |
 | `FAILED` | The deployment cannot succeed. If nothing of the old version had been retired, routing returns to it, the new containers are discarded, and this is the final state. Otherwise the rollback path follows. |
 | `ROLLBACK`, `RESTORING`, `ROLLED_BACK` | The previous version is made whole again. See [Rollback](/docs/concepts/rollback). |
@@ -53,6 +54,21 @@ PENDING → BUILDING → STARTING → HEALTH_CHECKING → HEALTHY → ACTIVE →
 The final states are `ACTIVE` (later `SUPERSEDED`), `FAILED` and `ROLLED_BACK`. `ACTIVE` is the only success.
 
 Illegal transitions are rejected by the engine, and every transition is a compare-and-swap in the database (`UPDATE … WHERE status = <expected>`), so a stale writer can never overwrite a newer state.
+
+## Before the replicas start: the pre-deploy command
+
+```yaml
+pre_deploy:
+  command: ["dotnet", "Migrate.dll"]
+  timeout: 10m    # default 10m; 1s to 1h
+```
+
+`pre_deploy` runs a command from the new image, with the application's environment and limits, once the image is pulled and before any replica of the new version exists. It runs in a one-off container that is removed afterwards, like a [scheduled job](/docs/tasks/jobs), and like a job it gets no `volumes`: a replica may be writing them. The deployment shows `Running pre-deploy command` and `Pre-deploy command finished (12s)`.
+
+- **A failure fails the deployment before anything was started.** If the command exits non-zero or outlives its timeout, the deployment is `FAILED` with `pre-deploy command exited 1` or `pre-deploy command timed out after 10m`, the last 20 lines of its output are saved with the deployment as a `log` event, and `shipwick deploy` prints them under the error. No replica of the new version was created, nothing of the serving version was touched, and there is nothing to roll back.
+- **It runs next to the running version, under `recreate` too.** The old replicas are stopped only afterwards. What the command does must therefore be safe next to the old code: add a column, do not drop one. That is the same backward compatibility a rolling update asks of migrations anyway.
+- **Its timeout is added to the deployment's.** A deployment normally has 15 minutes in total; with a hook, the hook's own timeout comes on top.
+- **A rollback runs it too.** A rollback deploys the stored configuration of an older deployment, hook included, from that older image. See [Rollback](/docs/concepts/rollback).
 
 ## Rolling replacement
 
@@ -97,6 +113,8 @@ Each deployment carries a list of events. `state` events mark transitions; `step
 ```text
 state  BUILDING
 step   Pulled image ghcr.io/company/my-api:1.4.2
+step   Running pre-deploy command             (only with pre_deploy)
+step   Pre-deploy command finished (12s)
 state  STARTING
 step   Started 1 container
 state  HEALTH_CHECKING
@@ -107,6 +125,7 @@ step   Replica 2/2 is serving 1.4.2; its 1.4.1 predecessor is retired
 state  HEALTHY
 step   Routed https://api.example.com to 2 replicas   (only with a domain)
 state  ACTIVE
+step   Removed 1 image of older versions      (only when there was one to remove)
 step   Deployment successful
 ```
 
@@ -121,7 +140,7 @@ deploy:
 
 The same rollout runs it with three differences:
 
-1. **The old version is stopped first.** After the image is pulled, the running version is taken out of the proxy and stopped, one replica at a time, gracefully. The containers are kept, not removed. The events say why: `Stopped 1.4.1: 1.4.2 cannot run next to it`.
+1. **The old version is stopped first.** After the image is pulled, and after the `pre_deploy` command has run if there is one, the running version is taken out of the proxy and stopped, one replica at a time, gracefully. The containers are kept, not removed. The events say why: `Stopped 1.4.1: 1.4.2 cannot run next to it`.
 2. **All new replicas start as one batch**, since nothing runs that they could disturb. They are verified like any new replica, against the health check or the stabilization window, and then given the application's names. The stopped containers of the old version are removed at that point.
 3. **A failure is undone by starting the old containers again.** See [Rollback](/docs/concepts/rollback#rolling-back-a-recreate-deployment).
 
@@ -139,7 +158,7 @@ Deploying postgres...
 ✓ Deployment successful
 ```
 
-Volumes without `recreate`, or with more than one replica, are refused by validation: two versions writing the same files at once is how data gets lost. See [Run a database or other stateful application](/docs/tasks/stateful-applications).
+Volumes without `recreate`, or with more than one replica, are refused by validation: two versions writing the same files at once is how data gets lost. See [Run a database or other stateful application](/docs/tasks/stateful-applications). Published ports have the same requirement, for the same reason: a server port has one holder, so the old version must be gone before the new one binds it. See [Expose a service that is not HTTP](/docs/tasks/non-http-services).
 
 ## When a deployment is done
 
@@ -150,6 +169,14 @@ A deployment's status settles (`ACTIVE`, `FAILED`) slightly before the agent is 
 > Poll `GET /api/v1/deployments/:id` until `completed_at` is set. From that moment a new operation on the application is guaranteed not to be rejected as busy.
 
 `FAILED` in particular is not necessarily the end: a deployment that fails after some replicas were replaced continues through `ROLLBACK`, `RESTORING` and `ROLLED_BACK`. `shipwick deploy` waits for `completed_at`, not for the first settled status.
+
+### Old images are removed
+
+Part of the cleanup after a successful deployment is removing the images that only retired deployments of the application refer to, so a server that deploys daily does not fill its disk with versions nobody can return to. What stays, across all applications: the image of every active deployment, and the image of each application's most recent superseded one, which is the rollback target, so a rollback never waits for a pull. Only images that some deployment of the application named are candidates. An image any container still uses is left alone, so is anything pulled outside Shipwick, and a failure to remove one is logged, never returned. The same sweep runs after `shipwick delete`. The step reads `Removed 1 image of older versions`.
+
+### Notifications
+
+With a webhook configured on the agent, the outcome of every deployment is posted there when it is known: `deployment.succeeded`, `deployment.failed` or `deployment.rolled_back`, with a sentence that says what is running now. See [Get notified](/docs/tasks/notifications).
 
 ## One operation per application
 
@@ -164,17 +191,19 @@ There is no queue. A queue hides the conflict from the person who needs to know 
 
 The supervisor itself never waits. A busy application is looked at again on its next tick, one second later.
 
+Scheduled jobs and one-off commands hold no lock while they run: the lock is taken only to record the run and start its container, so a job that runs for an hour does not block a deployment, and a deployment that finishes leaves a running job of the old version alone until it ends. The `pre_deploy` command is the exception; it runs inside the deployment, which holds the lock anyway. A backup holds the lock while the archive streams, so a deployment asked for meanwhile is refused as busy.
+
 While a deployment is in flight, the application's `deploying` field is `true` and `in_flight_deployment_id` names the deployment to follow. An application can be `HEALTHY`, with the old version serving, and `deploying` at once.
 
 ## When a deployment fails
 
-A new replica that crashes, is killed for exceeding its memory limit, or never becomes ready fails the deployment. So does an image that cannot be obtained, a proxy that cannot be updated, and a deployment that takes longer than 15 minutes in total, image pull included.
+A new replica that crashes, is killed for exceeding its memory limit, or never becomes ready fails the deployment. So does an image that cannot be obtained, a `pre_deploy` command that exits non-zero or times out, a proxy that cannot be updated, and a deployment that takes longer than 15 minutes in total, image pull included (plus the `pre_deploy` timeout, when there is one).
 
-If a replica crashed or never became healthy, its last 20 lines of output are saved with the deployment as a `log` event. The container is about to be deleted, and with it the only clue.
+If a replica crashed or never became healthy, its last 20 lines of output are saved with the deployment as a `log` event. The container is about to be deleted, and with it the only clue. A failed `pre_deploy` command leaves its last 20 lines the same way.
 
 What happens next depends on how far the rollout had come.
 
-**Before the first replica was replaced.** This is the usual case: a bad image rarely survives its first health check. Nothing of the old version was touched. The new containers are removed and the deployment ends as `FAILED`.
+**Before the first replica was replaced.** This is the usual case: a bad image rarely survives its first health check, and a failed `pre_deploy` command fails before a replica exists. Nothing of the old version was touched. The new containers are removed and the deployment ends as `FAILED`.
 
 ```text
 ✗ Deployment failed

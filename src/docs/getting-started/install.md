@@ -68,7 +68,7 @@ Shipwick is running.
 
 1. Checks for Linux, root, a running Docker and the Compose plugin.
 2. Writes `/opt/shipwick/compose.yml`. This is the release's `compose.production.yml`, in which both Shipwick images are pinned to the release's version. The file is verified against the release's `checksums.txt` before it replaces anything.
-3. On the first run only, writes `/opt/shipwick/.env` with a freshly generated API token and the two hostnames. The file has mode `0600` and the directory `0700`.
+3. On the first run only, writes `/opt/shipwick/.env` with a freshly generated API token and the two hostnames. If `SHIPWICK_WEBHOOK_URL` or `SHIPWICK_WEBHOOK_SECRET` is set in the environment of that run, it is written there too, so that an upgrade does not lose it. The file has mode `0600` and the directory `0700`.
 4. Pulls the images, starts the services, and waits for the agent to report healthy.
 5. Installs `shipwick` to `/usr/local/bin`, verified the same way. A checksum mismatch installs nothing and leaves a running installation as it was.
 6. Prints the token and the next steps.
@@ -81,7 +81,7 @@ Three containers run afterwards, defined in `/opt/shipwick/compose.yml`:
 | `caddy` | The reverse proxy. It publishes ports 80 and 443 (TCP) and 443 (UDP), and obtains and renews certificates on its own. |
 | `dashboard` | The web dashboard. It is reached only through Caddy, at the dashboard hostname, and has no credentials of its own. |
 
-State lives in Docker volumes: the agent's SQLite database in `agent-data`, certificates in `caddy-data`. Back up `caddy-data` and do not delete it casually.
+State lives in Docker volumes: the agent's SQLite database `shipwick.db` and its `encryption.key` in `agent-data`, certificates in `caddy-data`. The agent creates `encryption.key` on its first start and encrypts every deployment's `env` values with it before they are written to the database; without the key the database cannot be read, and the agent refuses to start against it. Back up `encryption.key` together with `shipwick.db`, back up `caddy-data`, and do not delete either volume casually.
 
 The installer accepts these environment variables:
 
@@ -92,16 +92,22 @@ The installer accepts these environment variables:
 | `SHIPWICK_DASHBOARD_DOMAIN` | — | Hostname for the dashboard; likewise |
 | `SHIPWICK_INSTALL_DIR` | `/opt/shipwick` | Where `compose.yml` and `.env` are written |
 | `SHIPWICK_BIN_DIR` | `/usr/local/bin` | Where `shipwick` is installed |
+| `SHIPWICK_WEBHOOK_URL` | — | Where the agent posts notifications: a Slack or Discord webhook, or any HTTPS endpoint. Kept in `.env` when given on the first run; see [Get notified](/docs/tasks/notifications) |
+| `SHIPWICK_WEBHOOK_SECRET` | — | Signs each notification, so your endpoint can tell it came from the agent. Likewise |
+
+Both webhook variables can also be added to `/opt/shipwick/.env` later, followed by `cd /opt/shipwick && docker compose up -d`.
 
 ## The API token
 
 The installer generates the token and prints it once, in the run that created it. It is also in `/opt/shipwick/.env`.
 
-::: warning The token is root on the server
-The agent controls the Docker daemon, and whoever controls the Docker daemon controls the host. Treat the API token like root SSH access to the server: keep it in a password manager or a CI secret, and keep `/opt/shipwick/.env` private.
+This is the **root token**: it has the `admin` role, its name is `root`, and it is the one to keep for yourself. Every other token is created from it with `shipwick token create`, named and given a role — `read` sees everything, `deploy` also deploys, rolls back, stops and starts, `admin` also deletes applications and manages tokens. Give CI a `deploy` token and put the root token in a password manager. See [Create tokens for CI and teammates](/docs/tasks/tokens).
+
+::: warning An admin token is root on the server
+The agent controls the Docker daemon, and whoever controls the Docker daemon controls the host. Treat the root token, and every `admin` token, like root SSH access to the server: keep it in a password manager, and keep `/opt/shipwick/.env` private.
 :::
 
-The agent itself keeps only the SHA-256 of the token. Read [Security](/docs/security) for the full picture.
+The agent itself keeps only the SHA-256 of each token. Read [Security](/docs/security) for the full picture.
 
 ## DNS and firewall
 
@@ -116,7 +122,7 @@ If you skipped the API hostname, the API is not exposed at all. See [Reach the A
 Everything the installer fetches comes from one [release](https://github.com/shipwick/shipwick/releases) — never from a branch — and each file is verified against that release's checksums. By default that is the latest release. To choose one:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.2.0 sh
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.3.0 sh
 ```
 
 Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade).
@@ -131,13 +137,14 @@ The installer's setup is one file, [configs/compose.production.yml](https://gith
 SHIPWICK_AGENT_TOKEN=<output of: openssl rand -hex 32>
 SHIPWICK_AGENT_DOMAIN=agent.example.com
 SHIPWICK_DASHBOARD_DOMAIN=dashboard.example.com
+SHIPWICK_WEBHOOK_URL=https://hooks.slack.com/services/...   # optional
 ```
 
 ```bash
 docker compose -f compose.production.yml up -d
 ```
 
-Generate the token yourself, as shown. The token must be at least 16 characters. If you let the agent generate one, it prints it to its log, and under Docker that log stays readable through `docker logs` for as long as the container exists.
+Generate the token yourself, as shown. The token must be at least 16 characters. If you let the agent generate one, it prints it to its log, and under Docker that log stays readable through `docker logs` for as long as the container exists. On its first start the agent also creates `encryption.key` in its data directory; back it up together with the database, or manage the key yourself with `SHIPWICK_ENCRYPTION_KEY` (64 hexadecimal characters).
 
 The compose file attached to a release pins both images to that release. The copy in the repository refers to `latest`.
 
@@ -161,10 +168,11 @@ The agent also runs as a plain binary on Linux, built with `make build`, next to
 SHIPWICK_CADDY_ADMIN=http://127.0.0.1:2019
 ```
 
-The agent listens on `127.0.0.1:9000` by default and keeps its data in `/var/lib/shipwick`. All variables are listed in [Agent configuration](/docs/reference/agent-configuration).
+The agent listens on `127.0.0.1:9000` by default and keeps its data — `shipwick.db` and `encryption.key` — in `/var/lib/shipwick`. All variables are listed in [Agent configuration](/docs/reference/agent-configuration).
 
 ## What's next
 
 - [Install the CLI](/docs/getting-started/install-cli) on your laptop.
 - [Deploy your first application](/docs/getting-started/first-deployment).
+- [Create tokens for CI and teammates](/docs/tasks/tokens) instead of handing out the root token.
 - [Open the dashboard](/docs/tasks/dashboard).

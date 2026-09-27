@@ -74,9 +74,11 @@ Rolling back my-api to 1.4.1  (deployment #3)...
 ✓ Deployment successful
 ```
 
-**The whole configuration returns, not only the image.** Environment values, replica count, limits, domain and health check come back as they were stored with that deployment. Secrets are included, and they never leave the server to do so. This is also why rollback exists as a server-side operation at all: the API only ever returns configurations with environment values masked, so no client could re-submit one.
+**The whole configuration returns, not only the image.** Environment values, replica count, limits, hostnames, published ports, jobs and health check come back as they were stored with that deployment. Secrets are included, and they never leave the server to do so. This is also why rollback exists as a server-side operation at all: the API only ever returns configurations with environment values masked, so no client could re-submit one.
 
-**The configuration is resolved under the application's lock.** "The active deployment" is still the active deployment when the new record is created.
+**A `pre_deploy` command runs on a rollback too.** A rollback is a deployment, and the stored configuration is deployed whole: if it has a `pre_deploy` command, that command runs from the older image, before any replica of it starts, and a failure fails the rollback with nothing touched. A migration that cannot run backwards will stop a rollback here; see [Deployments](/docs/concepts/deployments#before-the-replicas-start-the-pre-deploy-command).
+
+**The configuration is resolved under the application's lock.** "The active deployment" is still the active deployment when the new record is created. Its hostnames and published ports are checked again, since another application may have taken them since; a conflict refuses the rollback as a configuration error before anything is recorded.
 
 `shipwick redeploy` is the same idea applied to the running configuration: deploy it again, optionally with another image, without needing the `deploy.yaml` at hand. See [Roll back and redeploy](/docs/tasks/roll-back).
 
@@ -92,7 +94,9 @@ If there is no valid target, the API answers `409 NO_ROLLBACK_TARGET`. If the re
 
 ## History is only appended to
 
-A rollback creates a new deployment record with the next sequence number. Its `kind` is `rollback`, and its `source_deployment_id` points at the deployment whose configuration it re-used. The target's own record does not change, and nothing in the history is rewritten.
+A rollback creates a new deployment record with the next sequence number. Its `kind` is `rollback`, its `source_deployment_id` points at the deployment whose configuration it re-used, and `by` names the token that asked for it. The target's own record does not change, and nothing in the history is rewritten.
+
+With a webhook configured on the agent, a rollback that succeeds is reported as `deployment.rolled_back`, the same event an automatic rollback produces. See [Get notified](/docs/tasks/notifications).
 
 Rolling back from #5 to the configuration of #3 produces deployment #6. Deployment #5 becomes `SUPERSEDED` and is itself a valid target from then on.
 

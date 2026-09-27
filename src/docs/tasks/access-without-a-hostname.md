@@ -8,7 +8,7 @@ description: Keep the Shipwick agent's API off the public internet and reach it 
 The agent's API does not have to be reachable from the internet. This page shows how to leave it unexposed and use `shipwick` through an SSH tunnel or a private network instead. It is for servers where you have no hostname to spare for the API, or prefer not to publish it.
 
 ::: warning Never expose port 9000
-The API speaks plain HTTP, and its token is equivalent to root SSH access to the server. Do not publish port 9000 on a public interface and do not open it in your firewall. The ways in are HTTPS through Caddy, an SSH tunnel, or a private network.
+The API speaks plain HTTP, and an admin token is equivalent to root SSH access to the server. Do not publish port 9000 on a public interface and do not open it in your firewall. The ways in are HTTPS through Caddy, an SSH tunnel, or a private network.
 :::
 
 ## Leave the API hostname empty
@@ -73,6 +73,8 @@ API token:
 ```
 
 Press Enter to accept the URL, and paste the token. From then on every `shipwick` command works as long as the tunnel is open. Without the tunnel, `shipwick` reports that it cannot reach the agent and reminds you of the `ssh -L` command.
+
+If you also use a server that has a hostname, save the tunnelled one under a name of its own — `shipwick login --context lab` — and switch with `shipwick context use`; see [Several servers](/docs/getting-started/install-cli#several-servers).
 
 `shipwick` does not warn about plain HTTP here: the token only travels to your own machine's loopback address, and SSH encrypts it from there.
 

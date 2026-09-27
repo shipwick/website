@@ -46,7 +46,7 @@ Shipwick is not a smaller Kubernetes. It does not do multi-node scheduling, serv
 Shipwick is for one server. If you need to schedule workloads across a fleet of machines, you need Kubernetes.
 
 ::: info Status: 0.x
-The current version is 0.2.0. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) says so when it happens, and how to upgrade.
+The current version is 0.3.0. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) says so when it happens, and how to upgrade.
 :::
 
 ## How the documentation is organized
@@ -81,6 +81,12 @@ How to do one specific thing.
 - [Pull from private registries](/docs/tasks/private-registries)
 - [Call one application from another](/docs/tasks/call-another-application)
 - [Run a database or other stateful application](/docs/tasks/stateful-applications)
+- [Expose a service that is not HTTP](/docs/tasks/non-http-services)
+- [Serve several hostnames and redirect www](/docs/tasks/several-hostnames)
+- [Run scheduled jobs and one-off commands](/docs/tasks/jobs)
+- [Back up and restore volumes](/docs/tasks/backups)
+- [Create tokens for CI and teammates](/docs/tasks/tokens)
+- [Get notified](/docs/tasks/notifications)
 - [Upgrade Shipwick](/docs/tasks/upgrade)
 - [Reach the API without a hostname](/docs/tasks/access-without-a-hostname)
 
@@ -95,7 +101,7 @@ Every field, command, variable and endpoint.
 
 ### Security
 
-The API token is equivalent to root SSH access to the server. Read [Security](/docs/security) before you put Shipwick on a machine that matters.
+An admin token is equivalent to root SSH access to the server. Read [Security](/docs/security) before you put Shipwick on a machine that matters.
 
 ## Source and license
 

@@ -41,6 +41,12 @@ name: my-api
 # Pin a version tag: deployments are recorded (and rolled back) by it.
 image: ghcr.io/company/my-api:1.4.1
 
+# Run something other than the image's default. A string is one argument;
+# use a list for several: nothing is split on spaces.
+# entrypoint: ["dotnet"]
+# command: ["App.dll", "--urls", "http://0.0.0.0:8080"]
+# user: "1000:1000"
+
 # The port your application listens on inside the container.
 port: 8080
 
@@ -60,6 +66,10 @@ replicas: 1
 #   interval: 10s
 #   timeout: 3s
 #   retries: 3
+# Not an HTTP application? Instead of path, check that a port accepts
+# connections, or run a command inside the replica (exit 0 is healthy):
+#   tcp: 5432
+#   command: ["pg_isready", "-U", "postgres"]
 
 # Per-replica limits. Unlimited when omitted.
 # resources:
@@ -74,19 +84,32 @@ replicas: 1
 # deploy:
 #   strategy: recreate # rolling (default) | recreate
 
+# Run from the new image before its replicas start: database migrations.
+# It runs next to the version still serving, so it must be compatible with it.
+# pre_deploy:
+#   command: ["dotnet", "Migrate.dll"]
+#   timeout: 10m
+
+# Scheduled jobs: a one-off container from this image, on a cron schedule (UTC).
+# jobs:
+#   - name: nightly-report
+#     schedule: "0 3 * * *"
+#     command: ["node", "report.js"]
+#     timeout: 1h
+
 restart:
   policy: always # always | on-failure | never
 ```
 
 Only `name` and `image` are required. The image's tag becomes the deployment's version, so pin a version tag rather than `latest`. A value that must not be in the file, such as a password, is written as `${NAME}` and filled in by `shipwick` from its environment or an `--env-file` when you deploy.
 
-For this walk-through, set `replicas: 2` and uncomment the `health` block. Two replicas make the rolling update visible, and a health check is what lets Shipwick tell a working version from a broken one. Without a `health` block, a deployment only verifies that replicas start and stay up for a few seconds.
+For this walk-through, set `replicas: 2` and uncomment the `health` block with `path: /health`. Two replicas make the rolling update visible, and a health check is what lets Shipwick tell a working version from a broken one. Without a `health` block, a deployment only verifies that replicas start and stay up for a few seconds. Leave the rest commented out; migrations, scheduled jobs and the other options have pages of their own.
 
 The DNS record for `domain` must point at the server. Every field is described in the [deploy.yaml reference](/docs/reference/deploy-yaml).
 
 ## Validate
 
-`validate` checks the file offline and shows how it will be applied, defaults included:
+`validate` checks the file offline and shows how it will be applied, defaults included. Only what the file sets gets a line, so a file with more in it — hostnames, volumes, published ports, a pre-deploy command, jobs — shows more:
 
 ```bash
 shipwick validate
@@ -155,6 +178,8 @@ shipwick logs -f    # follow the logs of all replicas
 
 Run in the directory that holds `deploy.yaml`, these commands act on the application named in it. Elsewhere, name the application: `shipwick status my-api`. More in [Inspect applications and read logs](/docs/tasks/inspect-and-logs).
 
+The same is in the [dashboard](/docs/tasks/dashboard), if the server has one: the application's page follows a deployment live, whether it was started from `shipwick`, from CI or from the dashboard itself, and its history shows which token made each deployment.
+
 ## Deploy a new version
 
 Change the image tag in `deploy.yaml` to `1.4.2` and deploy again:
@@ -219,11 +244,12 @@ A replica that never answers its health check fails the deployment the same way:
 
 A new replica has `interval × retries` to answer — 30 seconds by default. Raise `retries` for an application that starts slowly.
 
-Every attempt, failed or not, is kept in the history that `shipwick status` shows. Only one deployment per application runs at a time; a second is refused rather than queued.
+Every attempt, failed or not, is kept in the history that `shipwick status` shows, together with the name of the token that made it (`by` in the API and the dashboard). Only one deployment per application runs at a time; a second is refused rather than queued.
 
 ## What's next
 
-- [Deploy from CI](/docs/tasks/deploy-from-ci) with `shipwick deploy --image`.
+- [Deploy from CI](/docs/tasks/deploy-from-ci) with `shipwick deploy --image` and a `deploy` token.
 - [Roll back](/docs/tasks/roll-back) to an earlier version.
+- [Run scheduled jobs and one-off commands](/docs/tasks/jobs), and migrations before a deployment.
 - Concepts: [Deployments](/docs/concepts/deployments), [Health and supervision](/docs/concepts/health-and-supervision), [Routing and HTTPS](/docs/concepts/routing-and-https).
 - Reference: [deploy.yaml](/docs/reference/deploy-yaml), [shipwick](/docs/reference/cli).

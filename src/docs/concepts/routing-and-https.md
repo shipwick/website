@@ -1,11 +1,11 @@
 ---
 title: Routing and HTTPS
-description: How Caddy serves application domains over HTTPS, how replicas are found by name instead of by proxy configuration, how traffic is balanced, what a deployment and a crash cost, and what clients see when nothing can serve.
+description: How Caddy serves application domains, aliases and redirects over HTTPS, how replicas are found by name instead of by proxy configuration, how traffic is balanced, what a deployment and a crash cost, what clients see when nothing can serve, and how ports that are not HTTP are published.
 ---
 
 # Routing and HTTPS
 
-Caddy stands in front of every application with a `domain`. It terminates TLS and proxies to the replicas; the agent tells it which name stands behind which domain, and Docker's DNS tells it which replicas carry that name. This page describes how the proxy configuration is produced and kept in place, how replicas come and go without Caddy being reconfigured, how traffic is balanced, what clients receive when nothing can serve, and what is not supported.
+Caddy stands in front of every application with a `domain`. It terminates TLS and proxies to the replicas; the agent tells it which name stands behind which hostname, and Docker's DNS tells it which replicas carry that name. This page describes how the proxy configuration is produced and kept in place, how replicas come and go without Caddy being reconfigured, how more hostnames are served or redirected, how traffic is balanced, what clients receive when nothing can serve, how a service that is not HTTP is published, and what is not supported.
 
 ## A domain is the whole configuration
 
@@ -23,9 +23,25 @@ Internet ──▶ Caddy :443 ──▶ my-api_8080 ──┬──▶ shipwick_
 
 Shipwick does not touch certificates, ACME or HTTP/3. The configuration it generates makes Caddy listen on `:443` with one host matcher per domain, and that is all Caddy needs to do the rest itself. For certificates to be issued, ports 80 and 443 of the server must be reachable from the internet. The production compose file also publishes 443/udp, for HTTP/3.
 
-Application containers publish no host ports. Caddy reaches them over the private `shipwick-services` network, by name.
+Application containers publish no host ports, unless `deploy.yaml` asks for some with `publish`; see [Ports that are not HTTP](#ports-that-are-not-http). Caddy reaches them over the private `shipwick-services` network, by name.
 
 Caddy keeps certificates in its data volume (`caddy-data` in the production compose file). Back that volume up, and do not delete it casually.
+
+## Several hostnames: aliases and redirects
+
+```yaml
+domain: example.com
+aliases: [api.example.com]                  # served exactly like example.com
+redirects: [www.example.com, example.net]   # 308 → https://example.com/<same path>
+```
+
+An application can answer to more than one hostname. Both lists need a `domain` and take up to 20 hostnames each, validated like the domain.
+
+**Aliases** are more hostnames in the host matcher of the application's one route: the same handler, the same names behind it, nothing else to keep in step. A request to an alias is served by the same replicas as a request to the domain.
+
+**Redirects** are a second route with no backend at all: a static `308` whose `Location` is `https://<domain>` plus the request's path and query. `https://www.example.com/docs?x=1` is answered with a `308` to `https://example.com/docs?x=1`. Because no replica is involved, redirects answer while the application is stopped or has no healthy replica, and a rollout never touches them. `308` rather than `301` keeps the method, so a `POST` to the old hostname stays a `POST`.
+
+Every hostname, in either role, sits in a host matcher on `:443` like the domain does, which is all Caddy needs to obtain and renew a certificate for it: `https://www.example.com` has to be answered before it can be redirected. Point each hostname's DNS at the server. During a rollout, the rollout's routing carries the whole set of hostnames, not only the domain, so aliases do not disappear for its duration and reappear with a reload. See [Serve several hostnames and redirect www](/docs/tasks/several-hostnames).
 
 ## Replicas are found by name
 
@@ -57,7 +73,8 @@ The agent owns Caddy's configuration entirely. Whenever the routes change it ren
 
 ```text
 routes = for every application with a domain:
-           domain → <app>_<port>, or a static 503 while no running replica carries the name
+           domain + aliases → <app>_<port>, or a static 503 while no running replica carries the name
+           redirects        → 308 to https://<domain>, no backend
        + the agent's own route      (SHIPWICK_AGENT_DOMAIN)
        + the dashboard's route      (SHIPWICK_DASHBOARD_DOMAIN)
 ```
@@ -74,7 +91,7 @@ Routing, both the names and the Caddy configuration, is synced by:
 - `stop`, `start` and `delete`;
 - the supervisor, at the end of every tick, once per second. This is what takes a replica that fails its health check off the name within a second and puts it back once it passes again, and what gives a restarted replica its names once it is ready.
 
-Naming is two calls to Docker, and all of it runs under one lock, because two callers renaming the same replica would collide in the middle. The proxy part is cheap: the rendered configuration is fingerprinted, and an unchanged fingerprint skips the load. The configuration changes when a domain or a port does, or when a name gains or loses its last running replica. A rollout, a crash or a restart is not that.
+Naming is two calls to Docker, and all of it runs under one lock, because two callers renaming the same replica would collide in the middle. The proxy part is cheap: the rendered configuration is fingerprinted, and an unchanged fingerprint skips the load. The configuration changes when a hostname or a port does, or when a name gains or loses its last running replica. A rollout, a crash or a restart is not that.
 
 ### Verification
 
@@ -112,6 +129,7 @@ Each application route is generated with these settings:
 | The last replica died and the supervisor has not looked yet | The same `503`. A server-level error route turns the `502` or `503` Caddy would produce when it finds nobody behind the name into the same answer. |
 | The application was stopped with `shipwick stop` | The same `503`. The route stays in the configuration, so the domain keeps its certificate. |
 | A `recreate` deployment is between stopping the old version and the new one being ready | The same `503`. |
+| The hostname is one of the application's `redirects`, whatever the application's state | `308 Permanent Redirect` to `https://<domain>` with the same path and query. No replica is involved. |
 | No application is served at the requested hostname | `404 Not Found`, with the body `404 Not Found: no application is served at this address.` |
 
 An explicit `503` is generated because Caddy's own answer would be a bare `502`. The application is known; it just has no healthy replica. The domain answers at once instead of timing out.
@@ -135,22 +153,46 @@ An unplanned change is not lossless, and cannot quite be:
 
 Everything after that goes to the surviving replicas.
 
-## One domain, one application
+## One hostname, one application
 
-A domain belongs to one application. A deployment that claims a domain already in use is refused as a configuration error before anything is recorded, pulled or started:
+A hostname belongs to one application, in one role. A deployment that claims a hostname already in use, whether as its domain, an alias or a redirect, and whatever role the hostname has on the other side, is refused as a configuration error before anything is recorded, pulled or started. The error names the line of `deploy.yaml` to change:
 
 ```text
 invalid deploy.yaml
 
-domain:
+aliases[1]:
   already served by application "web"
 ```
 
-The check covers the domain of every other application's active deployment and the hostnames the agent serves itself: an application cannot claim `SHIPWICK_AGENT_DOMAIN` or `SHIPWICK_DASHBOARD_DOMAIN`. Through the API this is a `400 INVALID_CONFIG` error with the field `domain`.
+The check covers the domain, aliases and redirects of every other application's active deployment, and the hostnames the agent serves itself: an application cannot claim `SHIPWICK_AGENT_DOMAIN` or `SHIPWICK_DASHBOARD_DOMAIN`. Within one file, each hostname may appear once: `"www.example.com" is already listed under aliases[0]`. Through the API this is a `400 INVALID_CONFIG` error whose field is `domain`, `aliases[0]` or `redirects[1]`. A redeploy and a rollback are checked the same way, since a stored configuration's hostnames may have been taken since. Two routes for one hostname would silently send all traffic to whichever sorts first, which is why the rule has no exceptions.
 
-Domains are validated hostnames: lowercase letters, digits and dashes in dot-separated labels, at most 253 characters. No scheme, port, path or wildcard is accepted. See the [deploy.yaml reference](/docs/reference/deploy-yaml#domain).
+Domains, aliases and redirects are validated hostnames: lowercase letters, digits and dashes in dot-separated labels, at most 253 characters. No scheme, port, path or wildcard is accepted. See the [deploy.yaml reference](/docs/reference/deploy-yaml#domain).
 
 The names on the services network are as exclusive as the domains: `agent`, `caddy`, `dashboard` and `localhost` belong to Shipwick's own containers there and are refused as application names.
+
+## Ports that are not HTTP
+
+The proxy speaks HTTP. A service that does not, a database a laptop connects to or a game server, is published on the server's own ports with `publish`. This is the one exception to "no host ports":
+
+```yaml
+publish:
+  - port: 5432        # inside the container
+    host: 15432       # on the server; default: the same as port
+    address: 10.0.0.5 # optional; default: every address of the server
+    protocol: tcp     # or udp
+```
+
+Exactly the listed container ports are bound on the server, on the given address or on every address. Nothing else changes: the container is on the same networks, other applications still reach it by name, and the port comes and goes with the replica.
+
+- **Only with `deploy.strategy: recreate` and one replica.** A server port has one holder, so the old version must be gone before the new one binds it, and two replicas cannot share it. Validation refuses anything else.
+- **Ports Shipwick holds are refused**: 80, 443, 8080 and 8443 are the proxy's, and the port the agent listens on is its own. So is a port another application's active configuration publishes on the same address, or on every address. The check runs before anything is recorded, with the field `publish[0].host` and the message `already published by application "postgres"`. Docker would refuse the second bind too, but only when the container starts, which under `recreate` is after the old version has been stopped.
+- **The proxy is not involved.** A published port bypasses Caddy entirely; there is no TLS, no hostname and no health-based rotation in front of it.
+
+::: warning Published ports bypass the host firewall
+On most distributions Docker inserts its own iptables rules ahead of ufw's or firewalld's, so a port published on every address is reachable from the internet whatever the firewall says. Publish only what must be reachable from outside the server, bind it to a private address where one exists (`address: 10.0.0.5`, a VPN or private-network interface), and keep what only other applications need unpublished: they reach it by name on the `shipwick` network.
+:::
+
+See [Expose a service that is not HTTP](/docs/tasks/non-http-services).
 
 ## The API and the dashboard on hostnames
 
@@ -187,6 +229,6 @@ The configuration is built as data and serialized, never assembled from strings,
 
 ## What is not supported
 
-- Custom Caddy directives per application, such as headers, redirects or basic authentication. The generated route matches on the hostname only and proxies everything to the application's `port`.
-- More than one domain per application, and wildcard domains. `domain` is a single hostname.
-- Reaching an application's name from outside the server. The names exist on the `shipwick-services` network only.
+- Custom Caddy directives per application, such as headers or basic authentication. The generated route matches on the hostnames only and proxies everything to the application's `port`; the only other route it generates is the `308` for `redirects`.
+- Wildcard domains. Every hostname is listed explicitly, as the `domain`, an alias or a redirect.
+- Reaching an application's name from outside the server. The names exist on the `shipwick-services` network only. A port that must be reachable from outside is published with `publish`.

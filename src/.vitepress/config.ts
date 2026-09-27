@@ -43,7 +43,7 @@ export default defineConfig({
       { text: 'Documentation', link: '/docs/', activeMatch: '^/docs/(?!reference/)' },
       { text: 'Reference', link: '/docs/reference/deploy-yaml', activeMatch: '^/docs/reference/' },
       {
-        text: 'v0.2.0',
+        text: 'v0.3.0',
         items: [
           { text: 'Changelog', link: `${repo}/blob/main/CHANGELOG.md` },
           { text: 'Releases', link: `${repo}/releases` },
@@ -85,6 +85,12 @@ export default defineConfig({
             { text: 'Pull from private registries', link: '/docs/tasks/private-registries' },
             { text: 'Call one application from another', link: '/docs/tasks/call-another-application' },
             { text: 'Run a stateful application', link: '/docs/tasks/stateful-applications' },
+            { text: 'Expose a service that is not HTTP', link: '/docs/tasks/non-http-services' },
+            { text: 'Serve several hostnames and redirect www', link: '/docs/tasks/several-hostnames' },
+            { text: 'Run scheduled jobs and one-off commands', link: '/docs/tasks/jobs' },
+            { text: 'Back up and restore volumes', link: '/docs/tasks/backups' },
+            { text: 'Create tokens for CI and teammates', link: '/docs/tasks/tokens' },
+            { text: 'Get notified', link: '/docs/tasks/notifications' },
             { text: 'Upgrade Shipwick', link: '/docs/tasks/upgrade' },
             { text: 'Reach the API without a hostname', link: '/docs/tasks/access-without-a-hostname' },
           ],

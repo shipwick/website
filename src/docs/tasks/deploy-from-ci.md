@@ -5,13 +5,32 @@ description: Run the shipwick CLI in a CI pipeline, pass the image you just buil
 
 # Deploy from CI
 
-This page shows how to deploy from a pipeline: keep `deploy.yaml` in the repository, pass the image the pipeline built, and let the exit code of `shipwick deploy` decide whether the job passes.
+This page shows how to deploy from a pipeline: create a token for it, keep `deploy.yaml` in the repository, pass the image the pipeline built, run migrations before the new version starts, and let the exit code of `shipwick deploy` decide whether the job passes.
 
 ## Before you begin
 
 - The agent's API must be reachable from the CI runner. The usual way is to serve it over HTTPS by giving the agent a hostname (`SHIPWICK_AGENT_DOMAIN`), as described in [Install Shipwick on a server](/docs/getting-started/install).
 - The pipeline must have pushed the image to a registry the server can pull from. For private registries, see [Pull from private registries](/docs/tasks/private-registries).
-- Store the agent URL and the API token as secrets in your CI system. The token is equivalent to root SSH access to the server; give it the same care as a deploy key.
+- Store the agent URL and a token as secrets in your CI system. Give the pipeline a token of its own, with the `deploy` role, as described next.
+
+## Create a token for the pipeline
+
+Do not put the root token in CI. It has the `admin` role, which is equivalent to root SSH access to the server, and it cannot be revoked short of changing it on the agent. A pipeline needs less: the `deploy` role deploys, redeploys, rolls back, stops and starts, and cannot delete applications, manage tokens or touch backups. From a machine where you are logged in with an admin token:
+
+```bash
+shipwick token create ci --role deploy
+```
+
+```text
+✓ Created token ci with the deploy role
+
+    swk_Xk3nM9…
+
+Store it now: it will not be shown again.
+In CI, set SHIPWICK_AGENT_TOKEN to it. On a machine you work from, save it with: shipwick login
+```
+
+The agent keeps only the SHA-256 of the token. `shipwick token ls` shows when the token was last used, and `shipwick token revoke ci` ends it the moment a runner or a secret store is compromised; deployments the pipeline made stay in the history, marked with the token's name. See [Create tokens for CI and teammates](/docs/tasks/tokens).
 
 ## Connect without logging in
 
@@ -20,9 +39,19 @@ A CI job needs no `shipwick login`. Set two environment variables:
 | Variable | |
 |---|---|
 | `SHIPWICK_AGENT_URL` | The agent's URL, for example `https://agent.example.com` |
-| `SHIPWICK_AGENT_TOKEN` | The API token |
+| `SHIPWICK_AGENT_TOKEN` | The token created above |
+
+The environment wins over any saved context, so `--context` and `SHIPWICK_CONTEXT` have no place in a pipeline: a runner has no config file, and a job that deploys to a second server sets the two variables to that server's values instead.
 
 `shipwick` never accepts the token as a flag, because arguments show up in `ps` and in logs. If the URL is plain HTTP and not the local machine, `shipwick` prints a warning on standard error before it sends the token.
+
+If the token's role does not cover a command, the agent refuses it and the job fails:
+
+```text
+This token may not do that: it has the read role.
+
+Use a token with the deploy role, or create one with: shipwick token create <name> --role deploy
+```
 
 ## Deploy the image you just built
 
@@ -51,6 +80,40 @@ shipwick deploy --image "ghcr.io/company/my-api:$GIT_SHA" --env-file .env.produc
 
 A variable set in the environment wins over the same name in an `--env-file`. A placeholder that is set nowhere fails the job before anything is sent: `deploy.yaml: refers to ${DATABASE_PASSWORD}, which is not set`. The value is never printed; the output says only `(1 variable substituted)`. The rules are in the [CLI reference](/docs/reference/cli#placeholders).
 
+## Run migrations before the new version starts
+
+A pipeline that runs database migrations as a separate step needs a connection to the database from the runner, which the server does not offer, and has to get the order right by itself. `pre_deploy` puts the migration inside the deployment instead:
+
+```yaml
+pre_deploy:
+  command: ["dotnet", "Migrate.dll"]
+  timeout: 10m
+```
+
+The command runs on the server, from the new image, with the application's environment and limits and on its network — it reaches `postgres:5432` like a replica does — once the image is pulled and before any replica of the new version exists. `shipwick deploy` shows it as two steps:
+
+```text
+✓ Pulled image ghcr.io/company/my-api:1.4.2
+✓ Running pre-deploy command
+✓ Pre-deploy command finished (12s)
+✓ Started 1 container
+```
+
+If the command exits non-zero or outlives its timeout, the deployment fails before anything was started, the job fails with it, and the last lines of the command's output are under the error:
+
+```text
+✗ Deployment failed
+
+  pre-deploy command exited 1
+
+  Last output of the pre-deploy command:
+  Npgsql.PostgresException: 42P07: relation "orders" already exists
+
+my-api is still running 1.4.1; the failed deployment did not affect it.
+```
+
+The command runs next to the version that is still serving, so a migration must be compatible with the old code: add a column, do not drop one. That is the same backward compatibility a rolling update asks of migrations anyway. See [Run scheduled jobs and one-off commands](/docs/tasks/jobs).
+
 ## Deploy several applications
 
 `-f` repeated deploys several applications in order, one after the other, and stops at the first failure:
@@ -75,10 +138,10 @@ shipwick deploy -f worker/deploy.yaml --image "ghcr.io/company/worker:$GIT_SHA"
 set -eu
 
 # Install shipwick. Pin the version so the pipeline does not change under you.
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.2.0 sh -s -- --cli
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.3.0 sh -s -- --cli
 
-# SHIPWICK_AGENT_URL and SHIPWICK_AGENT_TOKEN come from the CI system's
-# secret store, as environment variables.
+# SHIPWICK_AGENT_URL and SHIPWICK_AGENT_TOKEN (a deploy token) come from the
+# CI system's secret store, as environment variables.
 
 # Run from the directory that holds deploy.yaml.
 shipwick deploy --image "ghcr.io/company/my-api:$GIT_SHA"
@@ -88,7 +151,7 @@ The installer puts `shipwick` in `/usr/local/bin` and uses `sudo` if that direct
 
 ## A GitHub Actions job
 
-This job assumes an earlier step or job has built and pushed `ghcr.io/company/my-api:<commit SHA>`, and that the repository has two secrets, `SHIPWICK_AGENT_URL` and `SHIPWICK_AGENT_TOKEN`.
+This job assumes an earlier step or job has built and pushed `ghcr.io/company/my-api:<commit SHA>`, and that the repository has two secrets, `SHIPWICK_AGENT_URL` and `SHIPWICK_AGENT_TOKEN`, the latter holding the `deploy` token created above.
 
 ```yaml
 jobs:
@@ -101,7 +164,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install shipwick
-        run: curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.2.0 sh -s -- --cli
+        run: curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.3.0 sh -s -- --cli
 
       - name: Deploy
         run: shipwick deploy --image "ghcr.io/company/my-api:${{ github.sha }}"
@@ -161,7 +224,12 @@ shipwick redeploy my-api --image ghcr.io/company/my-api:$GIT_SHA
 
 The application must already have a successful deployment. Exit codes and `--no-wait` work as they do for `deploy`. See [Roll back and redeploy](/docs/tasks/roll-back).
 
+## Be told how it went
+
+The pipeline's log is one place to look. With `SHIPWICK_WEBHOOK_URL` set on the agent, every deployment's outcome — succeeded, failed, rolled back — is also posted to a Slack or Discord channel or to an endpoint of yours, whoever started it. See [Get notified](/docs/tasks/notifications).
+
 ## What's next
 
+- [Create tokens for CI and teammates](/docs/tasks/tokens): roles, revocation, what each token did.
 - [Roll back](/docs/tasks/roll-back) when a version that deployed successfully turns out to be wrong.
 - The [shipwick reference](/docs/reference/cli).

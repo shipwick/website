@@ -82,9 +82,9 @@ DEPLOY   VERSION   STATUS       VIA      WHEN
 #3       1.4.1     SUPERSEDED   deploy   3d ago
 ```
 
-`VIA` says how the deployment came to be: `deploy`, `redeploy` or `rollback`. `ACTIVE` is the deployment that is running. `SUPERSEDED` deployments ran successfully and were replaced; they are the valid [rollback](/docs/tasks/roll-back) targets. `FAILED` attempts never touched the running version. `ROLLED_BACK` attempts failed part-way, and the previous version was restored. The last column holds the reason a deployment failed.
+`VIA` says how the deployment came to be: `deploy`, `redeploy` or `rollback`. `ACTIVE` is the deployment that is running. `SUPERSEDED` deployments ran successfully and were replaced; they are the valid [rollback](/docs/tasks/roll-back) targets. `FAILED` attempts never touched the running version. `ROLLED_BACK` attempts failed part-way, and the previous version was restored. The last column holds the reason a deployment failed. The API and the [dashboard](/docs/tasks/dashboard) also record which token made each deployment, as `by`.
 
-**Events.** What the supervisor did recently, and why. This is the difference between "it is healthy" and "it is healthy now, after restarting four times tonight".
+**Events.** What the supervisor did recently, and why. This is the difference between "it is healthy" and "it is healthy now, after restarting four times tonight". The feed also holds what happened to the application by other hands: `Application stopped by ci` when a token other than the root token stops or starts it, `Volume data restored from a backup (412 MB)` after a [restore](/docs/tasks/backups), and the runs of [scheduled jobs](/docs/tasks/jobs) that went wrong — `Job nightly-report failed (exit 1)`, `Job cleanup timed out after 15m`, `Command rails could not run: …`. Runs that succeed record no event, since jobs run often; they are in `shipwick jobs`.
 
 ```text
 my-api  ● CRASH_LOOP
@@ -124,7 +124,9 @@ Logs are merged across replicas. When an application has more than one replica, 
 ! log stream ended: the containers were stopped or replaced. Run the command again to follow the new ones.
 ```
 
-Container logs are size-capped on the server, so very old output is not kept.
+Container logs are size-capped on the server, at 3 × 10 MB per container, so very old output is not kept.
+
+An application whose `deploy.yaml` ships its logs elsewhere with `logging` — `gelf`, `syslog`, `fluentd`, `awslogs`, `splunk` — is read the same way: Docker keeps a local copy next to what it ships (its dual logging, on by default since Docker 20.10), and `shipwick logs` shows that copy. If dual logging was turned off daemon-wide, `shipwick logs` shows nothing for that application, and your collector is the only place to read it. With `journald` or `local` the logs stay on the server and are read from there. The output of jobs and one-off commands is separate: `shipwick jobs logs`, see [Run scheduled jobs and one-off commands](/docs/tasks/jobs).
 
 ## Check the server
 
@@ -132,7 +134,13 @@ Container logs are size-capped on the server, so very old output is not kept.
 shipwick server status
 ```
 
-The command first checks that the agent is reachable. That check needs no token, so a wrong URL and a wrong token produce different errors. It then prints the agent and CLI versions, the server's hostname, operating system, kernel and architecture, the Docker version, CPUs and memory, the number of applications and running containers, and the state of the reverse proxy:
+The command first checks that the agent is reachable. That check needs no token, so a wrong URL and a wrong token produce different errors. When more than one server is saved, the first line names the context the command used. It then prints the agent and CLI versions, the server's hostname, operating system, kernel and architecture, the Docker version, CPUs and memory, the number of applications and running containers, the state of the reverse proxy, whether notifications are configured, and which token you are using:
+
+```text
+Proxy           ok  serving 3 domains
+Notifications   webhook configured
+Token           ci (deploy)
+```
 
 | `Proxy` | Meaning |
 |---|---|
@@ -140,7 +148,9 @@ The command first checks that the agent is reachable. That check needs no token,
 | `unreachable`, with an error | The agent cannot reach Caddy's admin endpoint |
 | `not configured` | `SHIPWICK_CADDY_ADMIN` is not set on the agent. Domains are recorded but not served |
 
-If a command fails with "The agent does not know this operation", the agent is probably older than your `shipwick`. Compare the two versions here.
+`Notifications` is `webhook configured` when `SHIPWICK_WEBHOOK_URL` is set on the agent and `none` otherwise; see [Get notified](/docs/tasks/notifications). `Token` is the name and role of the token the command was made with — `root (admin)` for the token the installer printed. It is the line to read when a command is refused for lack of a role; see [Create tokens for CI and teammates](/docs/tasks/tokens).
+
+If a command fails with "The agent does not know this operation", the agent is probably older than your `shipwick`. Compare the two versions here, or run `shipwick upgrade --check`, which compares them for you.
 
 ## Stop and start an application
 
@@ -154,7 +164,9 @@ shipwick start my-api
 ✓ Started my-api (2/2 replicas running)
 ```
 
-A stopped application stays stopped until you start it or deploy it again; the supervisor does not restart it. While it is stopped, its domain answers `503` rather than timing out, and keeps its certificate. `start` reports how many replicas are running; whether they are healthy is not known yet, so check with `shipwick status`.
+A stopped application stays stopped until you start it or deploy it again; the supervisor does not restart it, and none of its scheduled jobs run. While it is stopped, its domain answers `503` rather than timing out, and keeps its certificate; hostnames under `redirects` keep redirecting. `start` reports how many replicas are running; whether they are healthy is not known yet, so check with `shipwick status`.
+
+Both need the `deploy` role. When the token is not the root token, the application's events say who did it: `Application stopped by ci`.
 
 ## Delete an application
 
@@ -162,11 +174,12 @@ A stopped application stays stopped until you start it or deploy it again; the s
 shipwick delete my-api
 ```
 
-`delete` removes the application, its containers and its deployment history from the server. There is nothing to roll back to afterwards.
+`delete` removes the application, its containers and its deployment history from the server. There is nothing to roll back to afterwards. Its volumes stay; see [Run a database or other stateful application](/docs/tasks/stateful-applications). Deleting needs the `admin` role.
 
 It always wants the name spelled out and never reads it from `deploy.yaml`, so that running it from the wrong directory cannot delete the wrong application. In a terminal it asks you to type the application name to confirm. In a script, pass `--yes` (`-y`); without it, `delete` refuses to run when there is no terminal.
 
 ## What's next
 
-- The same information is in the [dashboard](/docs/tasks/dashboard), with CPU and memory updating live.
+- The same information is in the [dashboard](/docs/tasks/dashboard), with CPU and memory updating live and a week of history behind them.
+- [Run scheduled jobs and one-off commands](/docs/tasks/jobs): `shipwick jobs`, `shipwick run`, and where their output goes.
 - All flags are in the [shipwick reference](/docs/reference/cli).
