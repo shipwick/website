@@ -789,8 +789,8 @@ shipwick server status
 ```text
 https://agent.example.com  ● reachable
 
-Agent           v0.4.0
-CLI             v0.4.0
+Agent           v0.4.1
+CLI             v0.4.1
 Host            vps-1
 OS              linux (amd64, kernel 6.8.0)
 Docker          29.8.0
@@ -834,7 +834,7 @@ shipwick server install <user@host> [flags]
 | `--agent-domain <host>` | | Hostname for the API, for example `agent.example.com` |
 | `--dashboard-domain <host>` | | Hostname for the dashboard, for example `dashboard.example.com` |
 | `--context <name>` | the hostname | Name to save the server under |
-| `--version <tag>` | the latest release | Release to install, for example `v0.4.0` |
+| `--version <tag>` | the latest release | Release to install, for example `v0.4.1` |
 
 ```text
 $ shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com
@@ -873,8 +873,8 @@ shipwick doctor
 ```
 
 ```text
-✓ shipwick v0.4.0, the latest release
-✓ Agent https://agent.example.com runs v0.4.0, the latest release
+✓ shipwick v0.4.1, the latest release
+✓ Agent https://agent.example.com runs v0.4.1, the latest release
 ✓ Token laptop (admin)
 ✓ Docker 29.8.0 on the server
 ✓ Proxy serving 2 domains
@@ -921,7 +921,7 @@ shipwick login [flags]
 ```text
 $ shipwick login --url https://agent.example.com
 API token:
-✓ Logged in to https://agent.example.com (my-server, agent v0.4.0)
+✓ Logged in to https://agent.example.com (my-server, agent v0.4.1)
   saved as context default in /home/me/.config/shipwick/config.yaml
 ```
 
@@ -1100,27 +1100,27 @@ shipwick upgrade [flags]
 
 ```text
 $ shipwick upgrade
-✓ Upgraded shipwick v0.3.1 → v0.4.0
+✓ Upgraded shipwick v0.3.1 → v0.4.1
   /usr/local/bin/shipwick
 
-The server runs v0.3.1; v0.4.0 is available. On the server run:
+The server runs v0.3.1; v0.4.1 is available. On the server run:
   curl -fsSL https://get.shipwick.com | sh
 ```
 
 How the binary is replaced:
 
 - The latest release, never a pre-release, is looked up on GitHub. The release's `checksums.txt` is downloaded, then the binary for this operating system and architecture (`shipwick_linux_amd64`, `shipwick_windows_amd64.exe`, and so on) is written next to the running one as `.shipwick-new`, its SHA-256 is compared with the published checksum, and only then is it renamed over the old binary, with the old binary's permissions. A mismatch is refused, `<asset> does not match the checksum published with release <tag>; nothing was changed`, and so is a release without a binary for this platform. On Windows, where a running executable cannot be deleted, the old binary is moved aside as `shipwick.old.exe` and removed the next time `shipwick` runs.
-- **Homebrew and winget.** A binary under Homebrew's Cellar or winget's Packages directory is recognized by its path and left to the package manager. The command prints `shipwick v0.3.1 was installed with Homebrew; v0.4.0 is available.` followed by `Upgrade with: brew upgrade shipwick`, or the same with `winget upgrade Shipwick.Shipwick`, and changes nothing.
-- **Already current:** `shipwick v0.4.0 is up to date.` A build without a release version: `This shipwick is a development build (dev); the latest release is v0.4.0.` Neither changes anything.
-- **`--check`** prints `shipwick v0.3.1 is installed; v0.4.0 is available.` and `Upgrade with: shipwick upgrade`, and changes nothing.
+- **Homebrew and winget.** A binary under Homebrew's Cellar or winget's Packages directory is recognized by its path and left to the package manager. The command prints `shipwick v0.3.1 was installed with Homebrew; v0.4.1 is available.` followed by `Upgrade with: brew upgrade shipwick`, or the same with `winget upgrade Shipwick.Shipwick`, and changes nothing.
+- **Already current:** `shipwick v0.4.1 is up to date.` A build without a release version: `This shipwick is a development build (dev); the latest release is v0.4.1.` Neither changes anything.
+- **`--check`** prints `shipwick v0.3.1 is installed; v0.4.1 is available.` and `Upgrade with: shipwick upgrade`, and changes nothing.
 - **Where it refuses.** A directory it cannot write to: `cannot write to /usr/local/bin: permission denied`, then `Run it as root: sudo shipwick upgrade` or the installer line `curl -fsSL https://get.shipwick.com | sh -s -- --cli`; on Windows, the advice is an administrator prompt or downloading the `.exe` from the releases page. Nothing is downloaded before the staging file could be created.
 
 The server is not upgraded by this command: the installer does that, on the server, with access to Docker. After the binary step, `upgrade` asks the configured agent's health endpoint, which needs no token, and prints one of:
 
 | Situation | Line |
 |---|---|
-| The server is behind | `The server runs v0.3.1; v0.4.0 is available. On the server run:` and the installer command |
-| The server is current | `The server runs v0.4.0, the latest release.` |
+| The server is behind | `The server runs v0.3.1; v0.4.1 is available. On the server run:` and the installer command |
+| The server is current | `The server runs v0.4.1, the latest release.` |
 | The server runs a development build | `The server runs a development build (dev).` |
 | The server cannot be reached | `The server at http://127.0.0.1:9000 could not be reached; its version was not checked.` |
 | The URL does not answer as an agent | `The server at <url> did not answer as a Shipwick agent; its version was not checked.` |

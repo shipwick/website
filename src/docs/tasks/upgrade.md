@@ -45,7 +45,7 @@ From your laptop, the same over SSH:
 shipwick server install root@203.0.113.10
 ```
 
-It runs the installer on the server; the token is unchanged and not printed again, and the saved context keeps the one it has. `--version v0.4.0` picks a release. See [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
+It runs the installer on the server; the token is unchanged and not printed again, and the saved context keeps the one it has. `--version v0.4.1` picks a release. See [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
 
 What the installer does on an upgrade:
 
@@ -65,7 +65,7 @@ The installer writes a fresh `/opt/shipwick/compose.yml` on every run. Keep your
 By default the installer installs the latest release. Pre-releases, such as release candidates, are never picked by default. To install a specific version:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.4.0 sh
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.4.1 sh
 ```
 
 Everything comes from that one release — the compose file, the images and the CLI — so the three always belong together.
@@ -130,10 +130,10 @@ shipwick upgrade
 ```
 
 ```text
-✓ Upgraded shipwick v0.3.1 → v0.4.0
+✓ Upgraded shipwick v0.3.1 → v0.4.1
   /usr/local/bin/shipwick
 
-The server runs v0.4.0, the latest release.
+The server runs v0.4.1, the latest release.
 ```
 
 The latest release is downloaded from GitHub and verified against its `checksums.txt` before the binary is swapped; nothing changes if the checksum does not match. The command then compares the server's version with the release. When the server is behind, it says so and prints the installer line to run there; a server it cannot reach is one dim line, not an error. `shipwick upgrade --check` reports and changes nothing.
@@ -143,10 +143,10 @@ A `shipwick` from Homebrew is left to Homebrew — the command prints `Upgrade w
 In CI, pin the version in the installer line instead, and move it when you mean to:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.4.0 sh -s -- --cli
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.4.1 sh -s -- --cli
 ```
 
-The [GitHub Action](/docs/tasks/deploy-from-ci) takes the same pin as `version: v0.4.0`. If `shipwick` is newer than the agent and uses an operation the agent does not have, it says so: `The agent does not know this operation — it is probably older than this shipwick.` `shipwick server status` shows both versions, and `shipwick doctor` compares both with the latest release.
+The [GitHub Action](/docs/tasks/deploy-from-ci) takes the same pin as `version: v0.4.1`. If `shipwick` is newer than the agent and uses an operation the agent does not have, it says so: `The agent does not know this operation — it is probably older than this shipwick.` `shipwick server status` shows both versions, and `shipwick doctor` compares both with the latest release.
 
 ## If you installed without the installer
 

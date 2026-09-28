@@ -76,7 +76,7 @@ shipwick login --url https://agent.example.com
 
 ```text
 API token:
-✓ Logged in to https://agent.example.com (vps-1, agent v0.4.0)
+✓ Logged in to https://agent.example.com (vps-1, agent v0.4.1)
   saved as context default in /home/me/.config/shipwick/config.yaml
 ```
 

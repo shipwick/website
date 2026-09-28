@@ -161,7 +161,7 @@ Liveness, for load balancers and `shipwick server status`. The only unauthentica
 | `200` | [`Health`](#health) |
 
 ```json
-{ "data": { "status": "ok", "version": "v0.4.0" } }
+{ "data": { "status": "ok", "version": "v0.4.1" } }
 ```
 
 ### GET /server
@@ -173,7 +173,7 @@ Liveness, for load balancers and `shipwick server status`. The only unauthentica
 ```json
 {
   "data": {
-    "agent_version": "v0.4.0", "hostname": "vps-1",
+    "agent_version": "v0.4.1", "hostname": "vps-1",
     "os": "linux", "kernel": "6.8.0", "architecture": "amd64", "docker_version": "29.8.0",
     "cpus": 4, "memory_bytes": 8589934592, "applications": 3, "containers": 5,
     "proxy": { "enabled": true, "reachable": true, "error": "", "routes": 4 },

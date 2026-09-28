@@ -89,7 +89,7 @@ jobs:
 | `image` | Deploy this image instead of the one in `deploy.yaml` (`--image`) | |
 | `file` | The `deploy.yaml` to deploy. One path per line deploys several applications in order, stopping at the first failure (`-f`, repeated); `--image` then does not apply | `deploy.yaml` |
 | `env-file` | A `NAME=value` file that fills in `${NAME}` placeholders before the file is sent (`--env-file`). One path per line. Not needed for values stored on the server with `shipwick secret set` | |
-| `version` | The release of the CLI to use, such as `v0.4.0` | the latest release |
+| `version` | The release of the CLI to use, such as `v0.4.1` | the latest release |
 | `no-wait` | Start the deployment and return at once (`--no-wait`) | `false` |
 | `check-only` | For testing the action: download and verify the CLI, print its version, stop | `false` |
 
@@ -172,7 +172,7 @@ Use a token with the deploy role, or create one with: shipwick token create <nam
 set -eu
 
 # Install shipwick. Pin the version so the pipeline does not change under you.
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.4.0 sh -s -- --cli
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.4.1 sh -s -- --cli
 
 # SHIPWICK_AGENT_URL and SHIPWICK_AGENT_TOKEN (a deploy token) come from the
 # CI system's secret store, as environment variables.
