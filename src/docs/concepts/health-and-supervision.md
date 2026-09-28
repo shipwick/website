@@ -49,7 +49,7 @@ The request is sent by the agent over the application network with the header `U
 
 ### TCP
 
-The agent opens a connection to the container's address and closes it as soon as it is accepted, without sending a byte. The errors are the connection errors of the HTTP probe, prefixed with what was tried: `TCP connect to :5432: connection refused`.
+The agent opens a connection to the container's address and closes it as soon as it is accepted, without sending a byte. The errors are the connection errors of the HTTP probe, prefixed with what was tried: `TCP connect to port 5432: connection refused`.
 
 ### Command
 
@@ -80,7 +80,7 @@ A replica that never answers within the budget fails the deployment, and the err
 ```
 
 ```text
-  replica 1 did not become healthy within 30s: TCP connect to :5432: connection refused
+  replica 1 did not become healthy within 30s: TCP connect to port 5432: connection refused
 ```
 
 ```text

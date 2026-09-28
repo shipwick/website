@@ -77,7 +77,7 @@ The same installation, without logging in to the server yourself. With the [CLI 
 shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com
 ```
 
-It connects with your own `ssh` (a key that logs in without a password; the command runs `ssh` with `BatchMode=yes` and fails instead of asking for one), installs Docker with `get.docker.com` when it is missing, runs the installer with those hostnames, saves the token it prints as a context named after the host and makes it current, and ends with the DNS records to create:
+It connects with your own `ssh` (a key that logs in without a password; the command runs `ssh` with `BatchMode=yes` and fails instead of asking for one, and accepts a server's host key on first contact while refusing one that changed), installs Docker with `get.docker.com` when it is missing, runs the installer with those hostnames, saves the token it prints as a context named after the host and makes it current, and ends with the DNS records to create:
 
 ```text
 ✓ Connected to root@203.0.113.10 (x86_64)
