@@ -33,6 +33,16 @@ my-api   HEALTHY   1.4.2     2/2        api.example.com   2h ago
 | `REPLICAS` | Healthy replicas / desired replicas; `static` for a folder the proxy serves itself |
 | `DOMAIN` | The public hostname, with the application's `path` when it serves only one part of it (`example.com/api`), or `-` if the application has none |
 
+Since 0.6 an application that runs but wants a look says so at the end of its line: one with a hostname whose certificate is not in order, and one with active alerts.
+
+```text
+NAME     STATUS    VERSION   REPLICAS   DOMAIN            UPDATED
+my-api   HEALTHY   1.4.2     2/2        api.example.com   5m ago    certificate waiting for DNS, 2 alerts
+blog     HEALTHY   2.0.1     1/1        blog.example.com  3d ago
+```
+
+`shipwick status my-api` then says which hostname and which alerts.
+
 ## Application status
 
 | Status | Meaning |
@@ -93,6 +103,8 @@ When every certificate is in order there is no such table. `--verbose` (`-v`) li
 | `HEALTH` | `healthy`, `unhealthy`, `starting` (restarted, still within its startup time), `checking` (not probed yet, for example right after an agent restart), or `-` when no health check is configured |
 | `RESTARTS` | Restarts performed by the supervisor; `(crash loop)` when restarts of this replica are being rate-limited |
 | `STARTED` | When the container last started, for running containers |
+
+A container that a deployment replaced and that is still on its way out — it was sent `SIGTERM` and has its `deploy.stop_timeout` to exit — is listed below the replicas with the state `stopping`, since 0.6. It is not a replica any more and is not counted as one.
 
 **Recent deployments.** The last five attempts, newest first.
 

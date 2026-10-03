@@ -1,13 +1,13 @@
 ---
 title: Back up and restore volumes
-description: Have the server back up an application's volumes on a schedule with backups in deploy.yaml, keep a copy in an S3-compatible bucket, encrypt it, prove that a backup restores with shipwick backups verify, back up the agent's own state, and move a single archive to or from your machine with shipwick backup and shipwick restore.
+description: Have the server back up an application's volumes on a schedule with backups in deploy.yaml, keep a copy in an S3-compatible bucket, encrypt it, prove that a backup restores with shipwick backups verify, and move a single archive to or from your machine with shipwick backup and shipwick restore.
 ---
 
 # Back up and restore volumes
 
 An application with `volumes` keeps data that no redeploy, rollback or `delete` touches. Nothing copies that data anywhere until you ask for it, and there are two ways to ask. Since 0.5 the server takes backups itself: on a schedule under `backups` in `deploy.yaml`, kept on the server and, when you give the agent a bucket, off it, encrypted if you set a passphrase. And `shipwick backup` downloads the volumes as they are right now to your machine, as it always has.
 
-This page covers both: the `backups` block and what makes a backup consistent, the `shipwick backups` commands, where backups are kept and how the oldest are removed, a bucket on any S3-compatible service, encryption, proving that a backup restores, restoring one, the backup of the agent's own state and how to bring a lost server back from it, and then `shipwick backup` and `shipwick restore`, the volumes of deleted applications, and how a script or the dashboard does the same.
+This page covers both: the `backups` block and what makes a backup consistent, the `shipwick backups` commands, where backups are kept and how the oldest are removed, a bucket on any S3-compatible service, encryption, proving that a backup restores, restoring one, and then `shipwick backup` and `shipwick restore`, the volumes of deleted applications, and how a script or the dashboard does the same. The backup of the agent's own state, and bringing a lost server back from it, is in [Bring a lost server back](/docs/tasks/restore-the-agent-state).
 
 ## Before you begin
 
@@ -44,6 +44,7 @@ backups:
   schedule: "0 3 * * *"     # five cron fields, UTC, like jobs
   keep: 7                   # successful backups kept; default 7
   before: ["pg_dump", "-U", "postgres", "-f", "/var/lib/postgresql/data/backup.sql", "app"]
+  before_timeout: 1h        # how long `before` may run; default 1h, up to 24h
   stop: false               # stop the application for the archive; default false
 ```
 
@@ -52,11 +53,12 @@ backups:
 | `schedule` | required | Five cron fields, in UTC: minute, hour, day of month, month, day of week. |
 | `keep` | `7` | How many successful backups are kept, from 1 to 365. |
 | `before` | none | A command run inside the running replica before the archive is taken. |
+| `before_timeout` | `1h` | How long `before` may run, from 1s to 24h. Since 0.6. Needs `before`. |
 | `stop` | `false` | Stop the application while the archive is taken. |
 
 Two things decide whether what is in a backup can be trusted:
 
-- **`before`** runs inside the running replica first, as a list of arguments, never through a shell: a dump written into the volume, a checkpoint. It has an hour. If it exits non-zero the backup fails and nothing is archived, because an archive without the dump it was meant to hold is not the backup you asked for.
+- **`before`** runs inside the running replica first, as a list of arguments, never through a shell: a dump written into the volume, a checkpoint. If it exits non-zero the backup fails and nothing is archived, because an archive without the dump it was meant to hold is not the backup you asked for. It has an hour, or what `before_timeout` says, up to 24h; the application is held for as long as it runs. A command still running at the limit fails the backup the same way, with an error that names the key. Docker has no way to end a command once it was started in a container, so one that hangs stays there until it ends by itself or the application is deployed or restarted; the backup no longer waits for it.
 - **`stop: true`** stops the application for as long as the archive takes and starts it again whatever happens, a failed backup included. This is the one way to a consistent copy of files a process keeps open and has no dump tool for. The application is down meanwhile, and its event feed says so.
 
 Both may be given: the command runs, then the application stops. Without either, the archive is taken from under the running process, which is fine for uploads and not for a database.
@@ -84,7 +86,7 @@ ID   WHEN      TRIGGER    SIZE      WHERE                   STATUS      VERIFIED
 3    1m ago    schedule   39.1 MB   local, s3 (encrypted)   succeeded   1m ago
 ```
 
-Without an argument, the application described by `deploy.yaml` is shown. `WHERE` is `local` for the directory on the server and `s3` for the bucket.
+Without an argument, the application described by `deploy.yaml` is shown. `WHERE` is `local` for the directory on the server and `s3` for the bucket. `TRIGGER` is `schedule`, `manual`, or `adopted` for a backup that was recorded from its files.
 
 | | | Needs |
 |---|---|---|
@@ -95,6 +97,7 @@ Without an argument, the application described by `deploy.yaml` is shown. `WHERE
 | `shipwick backups download <app> <id> [-o dir]` | Fetch a backup's archives, decrypted, as `<app>-<volume>-backup-<id>.tar` | `admin` |
 | `shipwick backups rm <app> <id>` | Remove one, from the server and the bucket | `admin` |
 | `shipwick backups decrypt <file>` | Decrypt a file taken from the server or the bucket, on your machine | none: it talks to no server |
+| `shipwick backups adopt [app]` | Record the backups that the directory and the bucket hold and the agent's database does not know, as after [restoring the agent's state](/docs/tasks/restore-the-agent-state); everything, or one application's. Since 0.6 | `admin` |
 
 `shipwick backups run` takes a backup the way the schedule would: `before` runs first, and the application is stopped for the archive when `stop` says so. An application without a `backups` block is archived as it runs.
 
@@ -145,7 +148,8 @@ The bucket needs all four `SHIPWICK_BACKUP_S3_*` variables; `SHIPWICK_BACKUP_S3_
 
 Every backup then goes to the directory *and* to the bucket, under `<prefix>/<application>/<id>/`, and one that did not reach both has failed: nothing is kept of it. `keep` applies in both places. When the server's copy is gone, a restore, a verification or a download reads the backup from the bucket.
 
-- **An archive larger than 5 GB does not fit one S3 upload** and fails the same way. Such a volume is backed up to the server only, until multipart uploads exist.
+- **A large archive goes up in parts.** Since 0.6 an archive of more than 64 MiB is a multipart upload: in parts of that size, read from the file on the server one after the other, so that its size costs no memory, and a part that fails is sent again, up to three times in all. The limit is the service's own for one object, 5 TiB on S3; the server's disk has to hold the archive first. Before 0.6 an archive larger than 5 GB failed.
+- **No parts are left to be paid for.** An upload that fails or is interrupted is aborted. For the upload an agent did not live to abort — the server lost power in the middle of an archive — the agent leaves a note next to the file for as long as it is being sent, and the next agent aborts what the notes name before its own first upload. If the disk went with the agent, it asks the bucket for the unfinished uploads under its prefix and aborts those named like a backup's files. Not every service answers that question: MinIO lists unfinished uploads only under an exact key, and removes stale ones by itself. A lifecycle rule on the bucket that aborts incomplete multipart uploads after a few days costs nothing and is the last line.
 - **A bucket belongs to one server.** The agent marks the bucket, under its prefix, the first time it writes there, and refuses a bucket marked by another installation: a server set up afresh counts its backups from 1 again and would write over the ones it is about to be restored from. Two servers share a bucket by giving each a `SHIPWICK_BACKUP_S3_PREFIX`.
 
 ## Encrypt backups
@@ -223,66 +227,9 @@ A failed backup is listed with `failed` in `shipwick backups`, with its reason u
 
 ## The agent's own state
 
-`shipwick.db` and `encryption.key`, in the agent's [data directory](/docs/reference/agent-configuration#data-directory), are what the agent knows: every application's configuration and history, the tokens, and the secrets, which are unreadable without the key. The agent backs both up once a day, as a consistent copy of the database rather than a copy of a file in use, and keeps seven, under `_agent/` where application backups go.
+`shipwick.db` and `encryption.key` are what the agent knows: every application's configuration and history, the tokens, and the secrets, which are unreadable without the key. With `SHIPWICK_BACKUP_PASSPHRASE` set, the agent backs both up once a day, encrypted, and keeps seven, under `_agent/` where application backups go. **Without the passphrase the key is written nowhere**, and `shipwick doctor` says so. `shipwick server backup` takes one now; it needs the `admin` role.
 
-It only ever writes them encrypted. **Without `SHIPWICK_BACKUP_PASSPHRASE` the key is written nowhere**, and `shipwick doctor` says so:
-
-```text
-! The encryption key exists only on this server. Set SHIPWICK_BACKUP_PASSPHRASE (and an S3 bucket) in /opt/shipwick/.env to back it up; losing it loses every secret
-```
-
-With a passphrase and a bucket it reads:
-
-```text
-✓ Agent state backed up 3h ago to s3
-```
-
-`GET /server` reports the same as `backups`: `destination` (`s3`, `local` or `none`), `encrypted`, `state_last_at`, the last successful backup of the state or `null`, and `state_error`, which says why there is none or why the last attempt failed.
-
-`shipwick server backup` takes one now. It needs the `admin` role, and is refused without a passphrase.
-
-### Restore the agent's state on a new server
-
-This makes a new server *be* the old one: same database, same key, same history. To have a new installation take over what the old one runs instead, see [Move to a new server](/docs/tasks/move-to-a-new-server).
-
-You need the passphrase and the two files of the newest backup: the highest number under `<prefix>/_agent/` in the bucket, or under `/var/lib/shipwick/backups/_agent/` if the old disk is what you have.
-
-```bash
-# On your machine: decrypt the two files.
-export SHIPWICK_BACKUP_PASSPHRASE='…'
-shipwick backups decrypt shipwick.db.enc
-shipwick backups decrypt encryption.key.enc
-scp shipwick.db encryption.key user@server:/tmp/state/
-
-# On the server, installed as usual and with the same lines in .env:
-cd /opt/shipwick
-docker compose stop agent
-docker run --rm -v shipwick_agent-data:/data -v /tmp/state:/restore:ro busybox sh -c '
-  rm -f /data/shipwick.db-wal /data/shipwick.db-shm &&
-  cp /restore/shipwick.db /restore/encryption.key /data/ &&
-  chmod 600 /data/shipwick.db /data/encryption.key'
-docker compose start agent
-rm -r /tmp/state
-```
-
-If `SHIPWICK_ENCRYPTION_KEY` is set in `.env`, put the key file's content there instead of copying the file.
-
-The agent starts as the installation it was: it knows the applications, pulls their images and starts their containers again, on empty volumes. Bring the data back per application:
-
-```bash
-shipwick stop postgres
-shipwick backups postgres               # the backups the restored database knows
-shipwick backups restore postgres 12    # read from the bucket
-shipwick start postgres
-```
-
-What the restored state cannot know is what happened after it was taken:
-
-- A backup newer than it is still in the bucket, at `<prefix>/<application>/<id>/<volume>.tar.enc`: fetch it, `shipwick backups decrypt` it, and put it back with `shipwick restore`.
-- Static applications are deployed again from their folders.
-- API tokens other than the one in `.env` come back with the database.
-
-Until the state is restored, the new server refuses to write into the old one's bucket and `shipwick doctor` says why. That refusal is what keeps the backups you are about to need.
+When the server is lost, that backup makes a new server be the old one, and `shipwick backups adopt` then records the backups taken since. The procedure has a page of its own: [Bring a lost server back](/docs/tasks/restore-the-agent-state).
 
 ## Download a volume to your machine
 
@@ -400,8 +347,9 @@ The backups the agent keeps are started and followed like deployments: a request
 | `DELETE` | `/applications/:name/backups/:id` | admin | Remove the backup from every destination → `204` |
 | `GET` | `/server/backups` | admin | The backups of the agent's own state |
 | `POST` | `/server/backups` | admin | Back up the agent's state now → `202`; `409 BACKUPS_NOT_ENCRYPTED` without a passphrase |
+| `POST` | `/server/backups/adopt` | admin | Record the backups the destinations hold and the database does not know → `{adopted, skipped}`; `409 FOREIGN_BUCKET` for a bucket another installation writes to |
 
-An application without volumes is `409 NO_VOLUMES`. A backup that failed cannot be verified, restored or downloaded: `409 BACKUP_NOT_USABLE`. One that is still running, or being verified or restored, is `409 BACKUP_BUSY`. There is no endpoint that restores the agent's state; that is done with the agent stopped, as above.
+An application without volumes is `409 NO_VOLUMES`. A backup that failed cannot be verified, restored or downloaded: `409 BACKUP_NOT_USABLE`. One that is still running, or being verified or restored, is `409 BACKUP_BUSY`. There is no endpoint that restores the agent's state; that is done with the agent stopped; see [Bring a lost server back](/docs/tasks/restore-the-agent-state).
 
 The two archive endpoints of a volume carry the tar file itself as the body, both ways, and need the `admin` role.
 
@@ -428,15 +376,16 @@ A restore of an application that is not stopped is `409 APPLICATION_RUNNING`; a 
 
 ## The dashboard
 
-An application with volumes has a **Backups** panel: the schedule and how the last backup went, every backup with when it was taken, what started it, its size, where it is kept, its status and whether it was verified. **Back up now** and **Verify** need the `deploy` role. Opening a backup shows the output of its verification and, for an admin, a **Download** per volume, **Restore…**, offered only while the application is stopped and confirmed by typing the application's name, and **Remove**.
+An application with volumes has a **Backups** tab: the schedule and how the last backup went, every backup with when it was taken, what started it, its size, where it is kept, its status and whether it was verified. **Back up now** and **Verify** need the `deploy` role. Opening a backup shows the output of its verification and, for an admin, a **Download** per volume, **Restore…**, offered only while the application is stopped and confirmed by typing the application's name, and **Remove**.
 
-The Servers page has a Backups panel of its own: where backups are kept, whether they are encrypted, when the agent's own state was last backed up or why it is not, and, for an admin, the list of state backups and **Back up state now**.
+The server's page has a **Backups** tab of its own: where backups are kept, whether they are encrypted, when the agent's own state was last backed up or why it is not, and, for an admin, the list of state backups, **Back up state now** and **Adopt backups**.
 
-The Volumes card on the application's page is `shipwick backup` and `shipwick restore`. **Download** saves the archive under the agent's file name. **Restore** is offered only while the application is stopped: it checks that the file starts with a tar header, uploads it with a progress bar, shows the agent's own event when it is done, and offers **Start**. Both need the `admin` role. The Volumes page lists every volume on the server with its application and size, and lets an admin remove the volume of a deleted application. See [Use the dashboard](/docs/tasks/dashboard).
+The Volumes card on the application's Backups tab is `shipwick backup` and `shipwick restore`. **Download** saves the archive under the agent's file name. **Restore** is offered only while the application is stopped: it checks that the file starts with a tar header, uploads it with a progress bar, shows the agent's own event when it is done, and offers **Start**. Both need the `admin` role. The Volumes page lists every volume on the server with its application and size, and lets an admin remove the volume of a deleted application. See [Use the dashboard](/docs/tasks/dashboard).
 
 ## What's next
 
 - [Run a database or other stateful application](/docs/tasks/stateful-applications): where the volume lives and what survives which operation.
-- [Move to a new server](/docs/tasks/move-to-a-new-server): `shipwick export` and `import`, and a second server kept ready.
+- [Bring a lost server back](/docs/tasks/restore-the-agent-state): the agent's own state, and `shipwick backups adopt`.
+- [Move to a new server](/docs/tasks/move-to-a-new-server) with `shipwick export` and `import`, and [Keep a second server ready](/docs/tasks/standby).
 - [`shipwick backups`](/docs/reference/cli#backups), [`shipwick backup`](/docs/reference/cli#backup), [`shipwick restore`](/docs/reference/cli#restore), [`shipwick server backup`](/docs/reference/cli#server-backup) and [`shipwick volumes`](/docs/reference/cli#volumes) in the CLI reference.
 - The [`backups`](/docs/reference/deploy-yaml#backups) and [`volumes`](/docs/reference/deploy-yaml#volumes) fields in the deploy.yaml reference, and the [`SHIPWICK_BACKUP_*` variables](/docs/reference/agent-configuration#backups) of the agent.

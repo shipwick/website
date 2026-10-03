@@ -108,7 +108,7 @@ After a restart of the agent the list of requests starts empty, and `--requests`
 
 ## The dashboard
 
-Every application's page has a **Traffic** panel, static applications included: requests per step with the 5xx among them, the 95th percentile of their durations, the window's totals over 1h, 24h or 7d, and the most recent requests one by one. See [Use the dashboard](/docs/tasks/dashboard).
+The **Metrics** tab of every application's page shows its traffic, static applications included: requests per step with the 5xx among them, the 95th percentile of their durations, the window's totals over 1h, 24h or 7d, and the most recent requests one by one. See [Use the dashboard](/docs/tasks/dashboard).
 
 ## The API
 

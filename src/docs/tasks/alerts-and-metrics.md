@@ -53,7 +53,7 @@ An alert is raised once and cleared once, however long it lasts. A warning that 
 | `GET /server` | `alerts`: the ones that are active right now, oldest first |
 | `shipwick server status` | The active alerts under the disk's usage |
 | `shipwick doctor` | The active alerts among its checks; a critical one counts as a problem |
-| The dashboard | The Servers page and the Overview list them, the Servers entry in the navigation is marked while one holds, and an application's page shows the ones about it. See [Use the dashboard](/docs/tasks/dashboard) |
+| The dashboard | The server's Status tab and the Overview list them, the Status entry in the navigation carries their number while one holds, the applications list marks an application that has one, and an application's page opens with the ones about it. See [Use the dashboard](/docs/tasks/dashboard) |
 
 From the terminal:
 

@@ -30,7 +30,7 @@ Store it now: it will not be shown again.
 In CI, set SHIPWICK_AGENT_TOKEN to it. On a machine you work from, save it with: shipwick login
 ```
 
-The agent keeps only the SHA-256 of the token. `shipwick token ls` shows when the token was last used, and `shipwick token revoke ci` ends it the moment a runner or a secret store is compromised; deployments the pipeline made stay in the history, marked with the token's name. See [Create tokens for CI and teammates](/docs/tasks/tokens).
+The agent keeps only the SHA-256 of the token. `shipwick token ls` shows when the token was last used, and `shipwick token revoke ci` ends it the moment a runner or a secret store is compromised; deployments the pipeline made stay in the history, marked with the token's name. Since 0.6 the token can be limited to the applications the pipeline deploys and given an end, `shipwick token create ci --role deploy --app my-api --expires 90d`, and everything it does is in the [audit trail](/docs/tasks/audit). See [Create tokens for CI and teammates](/docs/tasks/tokens).
 
 ## GitHub Actions: the shipwick/deploy action
 

@@ -81,6 +81,7 @@ Two places can fill it in. `shipwick` replaces every `${NAME}` it has a value fo
 | [`backups.schedule`](#backups) | string | with `backups`; requires `volumes` | |
 | [`backups.keep`](#backups) | integer | no | `7` |
 | [`backups.before`](#backups) | list of strings | no | none |
+| [`backups.before_timeout`](#backups) | duration | no; requires `backups.before` | `1h` |
 | [`backups.stop`](#backups) | boolean | no | `false` |
 | [`publish[].port`](#publish) | integer | with `publish` | |
 | [`publish[].host`](#publish) | integer | no | the same as `port` |
@@ -97,6 +98,7 @@ Two places can fill it in. `shipwick` replaces every `${NAME}` it has a value fo
 | [`restart.policy`](#restart) | string | no | `always` |
 | [`deploy.strategy`](#deploy) | string | no | `rolling` |
 | [`deploy.stop_timeout`](#deploy) | duration | no | `10s` |
+| [`init`](#init) | boolean | no | `false` |
 | [`after`](#several-applications-shipwick-yaml) | list of strings | no; `shipwick.yaml` only | |
 
 With `static`, only `name`, `static`, `domain`, `aliases`, `redirects`, `path` and `proxy` apply; a field that describes a container is an error next to it.
@@ -184,7 +186,7 @@ A folder served by the proxy as it is: a built frontend. There is no container, 
 | Required | no. Replaces `image`. Requires `domain`: `is required for a static application: the proxy serves the files at it`. |
 | `static.dir` | Required as a map. A folder relative to `deploy.yaml`, inside its directory: `dist/`, `build`, `out/public`. Read on the machine where `shipwick deploy` runs, at deploy time. Backslashes are read as slashes; trailing slashes are dropped. |
 | `static.fallback` | A file in the folder, answered with status 200 for every path that names no file: `index.html` for a single-page application. Relative to the folder, at most 200 characters, with letters, digits, dots, dashes, underscores and tildes between the slashes. Without it such a path is a `404`. |
-| Excludes | `image`, `build`, `port`, `replicas`, `env`, `health`, `resources`, `volumes`, `publish`, `entrypoint`, `command`, `user`, `logging`, `pre_deploy`, `jobs`, `backups` and `deploy.stop_timeout`. Each is refused with `does not apply to a static application: the proxy serves the files, there is no container`. |
+| Excludes | `image`, `build`, `port`, `replicas`, `env`, `health`, `resources`, `volumes`, `publish`, `entrypoint`, `command`, `user`, `logging`, `pre_deploy`, `jobs`, `backups`, `deploy.stop_timeout` and `init`. Each is refused with `does not apply to a static application: the proxy serves the files, there is no container`. |
 
 ```yaml
 name: web
@@ -326,7 +328,7 @@ Like the domain, an alias in use by another application under the same path, or 
 
 ### redirects
 
-Hostnames answered with a `308` redirect to `https://<domain>`, with the same path and query; the method is kept. For `www.example.com` and old domains. Redirects from one path to another are [`proxy.redirects`](#proxy).
+Hostnames answered with a `308` redirect to `https://<domain>`, with the same path and query; the method is kept. For an application with a [`path`](#path), the redirect leads to `https://<domain><path>`, followed by the request's path and query. For `www.example.com` and old domains. Redirects from one path to another are [`proxy.redirects`](#proxy).
 
 | | |
 |---|---|
@@ -341,6 +343,8 @@ redirects: [www.example.com, example.net]
 ```
 
 `https://www.example.com/docs?x=1` is answered with a `308` to `https://example.com/docs?x=1`. A redirect needs no replica: it is answered whether or not the application is running, including while it is stopped. Every redirected hostname gets its own certificate, so its DNS must point at the server.
+
+Since 0.6 a redirect leads below the application's `path` when it has one. With `domain: example.com`, `path: /api` and `redirects: [api.example.net]`, `https://api.example.net/users?page=2` is answered with a `308` to `https://example.com/api/users?page=2`. Before, it led to the same path on the domain, which may belong to another application.
 
 Without a `domain`, `redirects` is an error: a redirect is sent to the domain. A redirect is a whole hostname, whatever the application's `path`, so it cannot be shared: a hostname in use anywhere is refused, with an error on `redirects[i]`.
 
@@ -367,7 +371,7 @@ name: web                 # the rest of example.com
 domain: example.com
 ```
 
-The longest path wins: with a third application at `/api/admin`, a request for `/api/admin/users` goes there, `/api/users` to `api`, and everything else to `web`. Without an application that takes the rest, the rest is a `404`. A path matches whole segments, `/api` and `/api/users` but not `/apix`, and without regard to case, so `/API` and `/api` are one path. Each application keeps its own replicas, health checks, rollouts and rollbacks. Aliases are served under the same path; `redirects` remain whole hostnames.
+The longest path wins: with a third application at `/api/admin`, a request for `/api/admin/users` goes there, `/api/users` to `api`, and everything else to `web`. Without an application that takes the rest, the rest is a `404`. A path matches whole segments, `/api` and `/api/users` but not `/apix`, and without regard to case, so `/API` and `/api` are one path. Each application keeps its own replicas, health checks, rollouts and rollbacks. Aliases are served under the same path; `redirects` remain whole hostnames, and lead to the application's path: see [`redirects`](#redirects).
 
 Two applications cannot have the same path of a hostname, or both none: the second deployment is refused by the agent with an error on `path`, as described under [`domain`](#domain).
 
@@ -575,6 +579,7 @@ Backups of the application's volumes, taken by the agent on a schedule. A backup
 | `backups.schedule` | string | required when `backups` is present | Five cron fields, read in UTC, as for [`jobs`](#jobs). Runs of whitespace between fields are collapsed to one space. |
 | `backups.keep` | integer | `7` | 1 to 365. How many successful backups are kept; the oldest go once a new one has succeeded. |
 | `backups.before` | list of strings | none | A command run inside the running replica before the archive is taken. Same rule as `pre_deploy.command`: 1 to 256 arguments, the first not blank, none containing a NUL byte or longer than 4096 bytes. A list, not a string. |
+| `backups.before_timeout` | duration | `1h` | `1s` to `24h`. How long `before` may run. Requires `backups.before`. Since 0.6. |
 | `backups.stop` | boolean | `false` | Stop the application while the archive is taken, and start it again whatever happens. |
 
 `backups` requires [`volumes`](#volumes): a backup is an archive of them. An unknown key inside the block is an error.
@@ -591,12 +596,13 @@ backups:
   schedule: "0 3 * * *"     # five cron fields, UTC, like jobs
   keep: 7                   # successful backups kept; default 7
   before: ["pg_dump", "-U", "postgres", "-f", "/var/lib/postgresql/data/backup.sql", "app"]
+  before_timeout: 1h        # how long `before` may run; default 1h, up to 24h
   stop: false               # stop the application for the archive; default false
 ```
 
 Two things decide whether what is in the archive can be trusted:
 
-- `before` runs inside the running replica first, as a list of arguments, never through a shell: a dump written into the volume, a checkpoint. It has an hour. If it exits non-zero the backup fails and nothing is archived.
+- `before` runs inside the running replica first, as a list of arguments, never through a shell: a dump written into the volume, a checkpoint. If it exits non-zero the backup fails and nothing is archived. It has an hour, or what `before_timeout` says, up to 24 hours; the application is held for as long as it runs. A command still running at the limit fails the backup the same way, with an error that names the key: `backups.before did not finish within 1h; the backup was given up and nothing was archived. Give the command longer with backups.before_timeout in deploy.yaml (up to 24h)`. Docker has no way to end a command once it was started in a container, so one that hangs stays there until it ends by itself or the application is deployed or restarted; the backup no longer waits for it.
 - `stop: true` stops the application for as long as the archive takes and starts it again whatever happens, a failed backup included. The application is down meanwhile.
 
 Both may be given: the command runs, then the application stops. Without either, the archive is taken from under the running process, which is fine for uploads and not for a database.
@@ -775,10 +781,39 @@ deploy:
 `stop_timeout` applies wherever Shipwick stops a replica gracefully: a deployment that replaces it, `shipwick stop`, `shipwick delete`, the restart of an unhealthy replica. A deployment does not wait for the replaced replicas: once every new replica serves, it is done, and the old containers get their `SIGTERM` and their time in the background. What the time is used for is the application's business. A process that handles `SIGTERM` leaves cleanly and usually at once; one that does not keeps running until the time is up and is killed with whatever it was serving, and the application's events say so:
 
 ```text
-The replaced container shipwick_my-api_6_1 did not exit within 10s of SIGTERM and was killed. To let it finish its requests, handle SIGTERM in the application; to give it longer, set deploy.stop_timeout
+The replaced container shipwick_my-api_6_1 did not exit within 10s of SIGTERM and was killed. If its process has no handler for SIGTERM, set init: true and the signal ends it at once; to let it finish its requests, handle SIGTERM in the application; to give it longer, set deploy.stop_timeout
 ```
 
-See [Deployments](/docs/concepts/deployments).
+Since 0.6 `shipwick stop` writes the same line about a replica it had to kill, and the line names [`init`](#init), which is the remedy for a process that never sees the signal. See [Deployments](/docs/concepts/deployments).
+
+### init
+
+Runs Docker's init process as the first process of every container of the application, with the image's own process as its child. The init process passes `SIGTERM` on and reaps the children the application leaves behind. Since 0.6.
+
+| | |
+|---|---|
+| Type | boolean |
+| Required | no |
+| Default | `false` |
+| Rule | `true` or `false`. Does not apply to a static application. |
+
+```yaml
+init: true
+```
+
+The kernel hands the first process of a container no signal it has not installed a handler for, which is why a server started as `node server.js` sits out its whole [`deploy.stop_timeout`](#deploy) and is then killed. Under an init process the application is an ordinary process and ends on `SIGTERM` at once. The same ten-line Node server, stopped with `shipwick stop`, took 0.3 seconds with `init: true` and 10.4 seconds, its whole grace period and then the kill, without. An application that handles `SIGTERM` to finish its requests still does under an init process; ending at once is what happens to one that does not.
+
+It applies to every container of the application: replicas, the [`pre_deploy`](#pre-deploy) command, [`jobs`](#jobs) and `shipwick run`.
+
+It is not the default, because an image that brings its own init does not want a second one: s6-overlay refuses to start unless it is the first process, and an image whose entrypoint is `tini` would run two. Leave it out for such an image.
+
+`shipwick init` writes `init: true` into the `deploy.yaml` of a Node project whose Dockerfile it writes. The event about a container that had to be killed depends on the field: without it, the line under [`deploy`](#deploy); with it, the signal did arrive and the process took longer than it was given:
+
+```text
+The replaced container shipwick_my-api_6_1 did not exit within 10s of SIGTERM and was killed. It runs under an init process, so the signal reached it: to give it longer, set deploy.stop_timeout
+```
+
+A value that is not a boolean, `init: tini`, is a syntax error reported with its line number. Next to [`static`](#static) the field is refused, whatever its value: `does not apply to a static application: the proxy serves the files, there is no container`. See [Deployments](/docs/concepts/deployments).
 
 ## Units
 
@@ -797,7 +832,7 @@ Units are binary, matching Docker's convention: `1gb` is 1024 `mb`. Units are ca
 
 ### Durations
 
-Used by `health.interval`, `health.timeout`, `health.start_period`, `pre_deploy.timeout`, `jobs[].timeout` and `deploy.stop_timeout`. A number with a unit, in Go's duration syntax: `500ms`, `3s`, `1m`, `1m30s`. Valid units are `ns`, `us`, `ms`, `s`, `m` and `h`. A number without a unit is not valid. Each field has its own range, listed with the field.
+Used by `health.interval`, `health.timeout`, `health.start_period`, `pre_deploy.timeout`, `jobs[].timeout`, `backups.before_timeout` and `deploy.stop_timeout`. A number with a unit, in Go's duration syntax: `500ms`, `3s`, `1m`, `1m30s`. Valid units are `ns`, `us`, `ms`, `s`, `m` and `h`. A number without a unit is not valid. Each field has its own range, listed with the field.
 
 ### CPU
 
@@ -830,7 +865,7 @@ Other forms the report takes:
 | A build path that is absolute or leaves the project | `build.context:` / `invalid value "/srv/app": must be relative to deploy.yaml`; `build.dockerfile:` / `invalid value "../Dockerfile": must stay inside the directory of deploy.yaml` |
 | `build` and `static` together | `build:` / `cannot be combined with static: a static application has no image to build` |
 | A static application without a domain | `domain:` / `is required for a static application: the proxy serves the files at it` |
-| A container field next to `static` | `port:` / `does not apply to a static application: the proxy serves the files, there is no container`; the same on `backups` and `deploy.stop_timeout` |
+| A container field next to `static` | `port:` / `does not apply to a static application: the proxy serves the files, there is no container`; the same on `backups`, `deploy.stop_timeout` and `init` |
 | A static folder that is absolute or leaves the project | `static:` / `must be a relative path: the folder is found next to deploy.yaml`; `must stay inside the directory of deploy.yaml`, expected `dist/, build/, out/ — a folder relative to deploy.yaml` |
 | A `fallback` without a folder | `static.dir:` / `is required: the folder the fallback page is in`, expected `dist` |
 | A `fallback` that is not a file in the folder | `static.fallback:` / `invalid value "/index.html": must be relative to the folder`; `invalid value "../index.html": name a file inside the folder, with letters, digits, dots, dashes, underscores and tildes between the slashes`, expected `index.html, 200.html, app/index.html — a file in the folder` |
@@ -886,6 +921,8 @@ Other forms the report takes:
 | An empty argument or a NUL byte in `health.command` | `health.command[1]:` / `must not be empty`; `must not contain NUL bytes` |
 | An unknown deployment strategy | `deploy.strategy:` / `invalid value "blue-green"`, expected `rolling, recreate` |
 | A `stop_timeout` out of range | `deploy.stop_timeout:` / `invalid value "15m": out of range`, expected `10s, 30s, 5m, ... (1s to 10m)` |
+| An `init` that is not a boolean | `line 3:` / `cannot unmarshal … into the expected type` |
+| `init` next to `static` | `init:` / `does not apply to a static application: the proxy serves the files, there is no container` |
 | More than 10 volumes | `volumes:` / `too many (11)`, expected `at most 10` |
 | A volume name used twice | `volumes[1].name:` / `"data" is used twice` |
 | A volume path that is not absolute and clean | `volumes[0].path:` / `invalid value "data/"`, expected `an absolute path inside the container, e.g. /var/lib/postgresql/data` |
@@ -893,11 +930,13 @@ Other forms the report takes:
 | Volumes without `recreate` | `deploy.strategy:` / `must be "recreate" for an application with volumes: two versions cannot write the same files at once` |
 | Volumes with more than one replica | `replicas:` / `must be 1 for an application with volumes, got 2: replicas cannot share a volume` |
 | `backups` that is not a block | `backups:` / `must be a block with a schedule` |
-| An unknown key under `backups` | `backups:` / `unknown field "schedul"`, expected `schedule, keep, before, stop` |
+| An unknown key under `backups` | `backups:` / `unknown field "schedul"`, expected `schedule, keep, before, before_timeout, stop` |
 | `backups` without a schedule | `backups.schedule:` / `is required`, expected `"0 3 * * *" (minute hour day-of-month month day-of-week, in UTC)` |
 | An invalid backup schedule | `backups.schedule:` / `invalid value "61 * * * *": minute: value 61 out of range 0-59`, expected `five cron fields in UTC, e.g. "0 3 * * *" (every day at 03:00)` |
 | A `keep` out of range | `backups.keep:` / `invalid value 0`, expected `a number between 1 and 365` |
 | An empty or oversized `before` command | `backups.before:` / `is required`; `too many arguments (257)`; `argument 2 is longer than 4096 bytes`; `argument 2 must not contain NUL bytes` |
+| A `before_timeout` without `before` | `backups.before_timeout:` / `needs backups.before: it is that command's time limit`, expected `10m, 1h, 6h, ... (1s to 24h)` |
+| A `before_timeout` out of range, or without a unit | `backups.before_timeout:` / `invalid value "25h": out of range`; `invalid value "90"`, expected `10m, 1h, 6h, ... (1s to 24h)` |
 | `backups` without `volumes` | `backups:` / `needs volumes: a backup is an archive of the application's volumes` |
 | Published ports without `recreate` | `deploy.strategy:` / `must be "recreate" for an application that publishes ports: two versions cannot listen on the same server port` |
 | Published ports with more than one replica | `replicas:` / `must be 1 for an application that publishes ports, got 2: replicas cannot share a server port` |
@@ -1010,7 +1049,8 @@ port: 8080
 domain: api.example.com
 
 # More hostnames served exactly like `domain`, and hostnames redirected to it
-# (308, same path and query) — www, an old domain. Each gets a certificate.
+# (308, same path and query; below `path`, if the application has one) — www,
+# an old domain. Each gets a certificate.
 # `domain` and aliases may be a wildcard, "*.example.com", when the agent has
 # a Cloudflare API token or you supplied a certificate that covers it
 # (shipwick cert set).
@@ -1101,6 +1141,7 @@ deploy:
 #   schedule: "0 3 * * *"
 #   keep: 7       # successful backups kept; default 7, up to 365
 #   before: ["pg_dump", "-U", "postgres", "-f", "/var/lib/postgresql/data/backup.sql", "app"]
+#   before_timeout: 1h   # how long `before` may run; default 1h, up to 24h
 #   stop: false   # default false
 
 # Ports that are not HTTP, published on the server itself: a database reached
@@ -1125,6 +1166,13 @@ deploy:
 # deploy:
 #   strategy: recreate
 #   stop_timeout: 2m
+
+# Docker's init process in front of the image's own, in every container of
+# the application: it passes SIGTERM on and reaps children. For a process that
+# does not handle the signal as the container's first process — Node started
+# as `node server.js` — and is otherwise killed when stop_timeout ends. Leave
+# it out for an image that brings its own init (tini, s6-overlay).
+# init: true
 
 # Ship logs to a collector instead of the server's disk: json-file (default),
 # local, syslog, journald, gelf, fluentd, awslogs or splunk, with the driver's

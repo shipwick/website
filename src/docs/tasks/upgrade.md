@@ -5,7 +5,7 @@ description: Upgrade the agent, Caddy setup and dashboard by running the install
 
 # Upgrade Shipwick
 
-You upgrade a Shipwick server by running the installer again, on the server or from your laptop over SSH, and a CLI elsewhere with `shipwick upgrade`. This page covers what the installer changes, what it leaves alone, how to choose a version, what happens to your applications and to a running deployment while the agent restarts, what the upgrades to 0.5, 0.4 and 0.3 do on first start, and how to upgrade the CLI on laptops and in CI.
+You upgrade a Shipwick server by running the installer again, on the server or from your laptop over SSH, and a CLI elsewhere with `shipwick upgrade`. This page covers what the installer changes, what it leaves alone, how to choose a version, what happens to your applications and to a running deployment while the agent restarts, what the upgrades to 0.6, 0.5, 0.4 and 0.3 do on first start and what you may want to turn on afterwards, and how to upgrade the CLI on laptops and in CI.
 
 ## Read the changelog first
 
@@ -50,7 +50,7 @@ From your laptop, the same over SSH:
 shipwick server install root@203.0.113.10
 ```
 
-It runs the installer on the server; the token is unchanged and not printed again, and the saved context keeps the one it has. `--version v0.4.1` picks a release. See [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
+It runs the installer on the server; the token is unchanged and not printed again, and the saved context keeps the one it has. `--version v0.4.1` picks a release. A server with no connection is upgraded from a bundle of the newer release: see [Install on a server with no way out](/docs/tasks/corporate-network#install-on-a-server-with-no-way-out). See [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
 
 What the installer does on an upgrade:
 
@@ -96,6 +96,41 @@ Supervision then resumes. The supervisor's state is held in memory, so every rep
 A job that was running when the old agent stopped is marked `interrupted` and its container removed; the job runs again at its next scheduled time. Firings that fell while the agent was down are not caught up.
 
 After a server reboot, the agent brings every application back up according to its restart policy.
+
+### Upgrading from 0.5 to 0.6
+
+0.6 adds to what the agent stores and to what it tells the proxy; applications run as before, and nothing changes for a `deploy.yaml` that worked before. All three containers are recreated, because their images changed. The proxy is away for the moment that takes, and established connections through it are cut; certificates and configuration are on volumes and stay, and the applications behind the proxy keep running.
+
+On its first start the new agent:
+
+1. **Applies five schema migrations** to `shipwick.db`, numbers 14 to 18: what the agent remembers about imports and a promotion across its own restarts, the applications and the expiry of a token, the audit trail, the access rules, and the sessions of people who signed in. An older agent refuses a database whose schema is newer than it supports, so do not downgrade afterwards. Nothing is encrypted anew.
+2. **Loads Caddy's configuration once.** The new agent renders the proxy's configuration with one more setting — requests to replicas never go through a proxy of the environment — so the configuration it finds differs from the one it renders, and it is loaded once. A connection that is being established at that instant is reset, as with any [change of the configuration](/docs/concepts/routing-and-https); it does not happen again afterwards.
+
+Existing tokens keep working: none is limited and none expires. The audit trail starts with the first change made after the upgrade.
+
+Three things behave differently without being asked:
+
+- **A hostname under `redirects` of an application with a `path`** redirects to the domain and that path, `https://example.com/api/users` for a request for `/users`, instead of to the same path on the domain.
+- **A standby remembers what it imported** across restarts of its agent, and no longer imports the newest export once more after every restart.
+- **An import validates every application's configuration** by all the rules a `deploy.yaml` is held to.
+
+What is new is opt-in. What an operator may want to turn on:
+
+| | How |
+|---|---|
+| Limit CI's token to what it deploys, and give it an end | Create its replacement with `shipwick token create ci-2 --role deploy --app my-api --expires 90d`, hand it over, revoke the old one. See [Create tokens for CI and teammates](/docs/tasks/tokens) |
+| Let people sign in to the dashboard with the company's accounts | `SHIPWICK_OIDC_ISSUER`, `SHIPWICK_OIDC_CLIENT_ID` and `SHIPWICK_OIDC_CLIENT_SECRET` in `/opt/shipwick/.env`, then `shipwick access grant`. See [Sign in with your company's accounts](/docs/tasks/sign-in) |
+| Read who changed what | Nothing to turn on: `shipwick audit`. See [See who changed what](/docs/tasks/audit) |
+| Stop Node replicas at once instead of after their grace period | `init: true` in `deploy.yaml`. See [An init process](/docs/concepts/deployments#an-init-process) |
+| Give a long dump more than an hour | `backups.before_timeout` in `deploy.yaml`. See [Back up on a schedule](/docs/tasks/backups#back-up-on-a-schedule) |
+| Show several servers in one dashboard | `SHIPWICK_AGENTS` in `/opt/shipwick/.env`. See [Several servers in one dashboard](/docs/tasks/dashboard#several-servers-in-one-dashboard) |
+| Go out through a proxy, trust an authority of your own | `HTTPS_PROXY`, `SHIPWICK_CA_FILE`, `SHIPWICK_DNS_RESOLVERS`, `SHIPWICK_ACME_DIRECTORY`. See [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network) |
+
+Each variable is one the new compose file passes through and that is empty until you set it. Backups larger than 5 GB now reach the bucket without anything being set: an archive of more than 64 MiB is sent in parts.
+
+In the dashboard, an application's page and the server's page are tabs with addresses of their own, and tokens are under Access. The old addresses — `/tokens`, `/secrets`, `/registries` — redirect. See [Use the dashboard](/docs/tasks/dashboard).
+
+On laptops and in CI, upgrade the CLI as described below; the new commands need it. A 0.5 `shipwick` keeps working against a 0.6 agent for everything it knows; it promotes a standby in one request that is held until the end. A 0.6 `shipwick` against a 0.5 agent says so where the agent lacks something: `the agent is older than this shipwick and keeps no audit trail`, `the agent is older than this shipwick: it knows neither --app nor --expires, and created nothing`.
 
 ### Upgrading from 0.4 to 0.5
 
@@ -183,7 +218,7 @@ docker compose -f compose.production.yml up -d
 
 If you built the images from source, rebuild them from the new checkout — since 0.5 there are three, the proxy's with `docker build -t ghcr.io/shipwick/caddy -f Dockerfile.caddy .` — and run `sh scripts/install.sh` from it again.
 
-If the agent runs as a plain binary, replace it with the new build and restart it. The first start of 0.3.0 creates `encryption.key` in `SHIPWICK_DATA_DIR`, or reads `SHIPWICK_ENCRYPTION_KEY` if you set it; the first starts of 0.4.0 and 0.5 apply the migrations described above. A Caddy on the host that is the official build obtains certificates as before; the Cloudflare DNS challenge needs a Caddy with the Cloudflare DNS module.
+If the agent runs as a plain binary, replace it with the new build and restart it. The first start of 0.3.0 creates `encryption.key` in `SHIPWICK_DATA_DIR`, or reads `SHIPWICK_ENCRYPTION_KEY` if you set it; the first starts of 0.4.0, 0.5 and 0.6 apply the migrations described above. A Caddy on the host that is the official build obtains certificates as before; the Cloudflare DNS challenge needs a Caddy with the Cloudflare DNS module.
 
 ## What's next
 

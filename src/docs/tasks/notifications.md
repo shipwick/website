@@ -39,7 +39,7 @@ shipwick server status
 Notifications   webhook configured
 ```
 
-Without a webhook the line reads `none  (set SHIPWICK_WEBHOOK_URL on the agent)`. The same fact is `notifications: {"webhook": true}` in `GET /server`, and a Notifications row on the dashboard's Servers page.
+Without a webhook the line reads `none  (set SHIPWICK_WEBHOOK_URL on the agent)`. The same fact is `notifications: {"webhook": true}` in `GET /server`, and a Notifications row on the Status tab of the dashboard's server page.
 
 ## Slack and Discord
 

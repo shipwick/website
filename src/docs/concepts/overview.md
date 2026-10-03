@@ -170,15 +170,13 @@ Out of scope, and likely to stay there:
 - Multi-node scheduling, service meshes, custom resources.
 - Building images on the server. The `BUILDING` state of a deployment covers obtaining an image, not building one. `build: .` does not cross this line: the build runs on the developer's machine, and the agent only loads the result.
 - Anything that requires an external database or queue.
-- Failing over. A [second server can be kept ready](/docs/tasks/move-to-a-new-server), holding a recent copy of everything the first one runs, deployed and stopped; a person decides when to start it, and the data is as old as the last export. Nothing watches the first server and nothing decides.
+- Failing over. A [second server can be kept ready](/docs/tasks/standby), holding a recent copy of everything the first one runs, deployed and stopped; a person decides when to start it, and the data is as old as the last export. Nothing watches the first server and nothing decides.
 
 Not yet:
 
 - Host mounts. `volumes` are named Docker volumes; a path on the host cannot be mounted.
 - Registry credential helpers (`credsStore`). The agent sends the credential stored with `shipwick registry login`, or else an `auths` entry of the Docker configuration file. See [Pull from private registries](/docs/tasks/private-registries).
 - The DNS challenge with a provider other than Cloudflare. The proxy carries the Cloudflare DNS module and nothing else, so a wildcard hostname in a zone hosted elsewhere needs a [certificate of your own](/docs/tasks/certificates).
-- Backups larger than 5 GB in a bucket. An archive is one upload; a larger volume is backed up to the server only.
-- Several servers in one dashboard. The CLI keeps several as contexts; the dashboard signs in to one agent at a time.
-- Roles per application. A token's role applies to the whole server.
+- Roles per application. A `deploy` token can be [limited to some applications](/docs/tasks/tokens#limit-a-token-to-some-applications), which narrows what it changes; it still reads everything, and that is not tenancy.
 
 Shipwick is for one server. An installation that outgrows one server has outgrown Shipwick.

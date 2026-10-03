@@ -587,6 +587,33 @@
   color: var(--vp-c-text-3);
 }
 
+/* A screenshot of the dashboard inside a documentation page. */
+.vp-doc figure.shot {
+  margin: 24px 0;
+}
+
+.vp-doc figure.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--vp-c-divider);
+}
+
+.vp-doc figure.shot figcaption {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--vp-c-text-3);
+}
+
+/* A table's first column is what a row is about: a field, a flag, a variable,
+   kept in one piece. A long value in the columns after it, a URL or a list
+   of name=URL pairs, may break anywhere rather than push the prose beside it
+   out of sight. */
+.vp-doc td:not(:first-child) code {
+  overflow-wrap: anywhere;
+}
+
 /* A paragraph with a small Wick beside it. */
 .vp-doc .wick-note {
   display: flex;

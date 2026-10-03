@@ -245,7 +245,7 @@ The agent knows the server's addresses, so the message spells the record out: an
 
 The reason is Let's Encrypt's rate limit of five failed authorizations per hostname per hour. Caddy asks for a certificate the moment it hears of a hostname, and a hostname that does not resolve fails within seconds: deployed before its DNS, a domain would use up the five within minutes and stay without a certificate for the rest of the hour, however quickly the record was fixed.
 
-The agent asks public resolvers (Cloudflare's, Google's and Quad9's) rather than the server's own: a server's resolver remembers that a record did not exist for as long as the zone's negative TTL says, half an hour on Cloudflare, and would keep the hostname waiting that long after the record was created. When none of the public resolvers can be reached, the server's own decides. The agent learns the server's addresses from `SHIPWICK_AGENT_DOMAIN` and `SHIPWICK_DASHBOARD_DOMAIN` at startup. Without either, a hostname only has to resolve at all. The agent's and the dashboard's own hostnames are never held back: they are the operator's, not an application's, and holding them back could lock the operator out.
+The agent asks public resolvers (Cloudflare's, Google's and Quad9's) rather than the server's own: a server's resolver remembers that a record did not exist for as long as the zone's negative TTL says, half an hour on Cloudflare, and would keep the hostname waiting that long after the record was created. When none of the public resolvers can be reached — behind a firewall that lets no DNS out — the server's own decides, and the public ones are left alone for five minutes. Since 0.6 `SHIPWICK_DNS_RESOLVERS` names others to ask, or `system` for the server's own from the start; see [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network#dns). The agent learns the server's addresses from `SHIPWICK_AGENT_DOMAIN` and `SHIPWICK_DASHBOARD_DOMAIN` at startup. Without either, a hostname only has to resolve at all. The agent's and the dashboard's own hostnames are never held back: they are the operator's, not an application's, and holding them back could lock the operator out.
 
 Three kinds of hostname are decided without looking at where they point:
 
@@ -297,7 +297,7 @@ Status codes, durations and request counts exist in one place, the proxy. Caddy 
 - **What is kept.** Counts per application and minute, with the status classes, the bytes and a histogram of durations, for seven days, next to the metrics. A percentile is as exact as its histogram bucket is wide: 48 ms means "between 25 and 50". The requests themselves are the last 200 of each application, in the agent's memory only.
 - **What it costs.** Reading the log costs the agent about 27 µs of CPU per request: 3% of one core at 880 requests a second, measured on the development stack, where Caddy itself used 15 times as much for the same requests.
 
-`shipwick traffic` and the dashboard's Traffic panel show it. See [See what the proxy served](/docs/tasks/traffic).
+`shipwick traffic` and the Metrics tab of the application's page in the dashboard show it. See [See what the proxy served](/docs/tasks/traffic).
 
 ## A hostname and path, one application
 

@@ -5,9 +5,23 @@ description: Let shipwick init write a Dockerfile and a deploy.yaml, deploy with
 
 # Your first deployment
 
-This page takes one application from nothing to running on your server, then updates it, then breaks it on purpose. It assumes a server with [Shipwick installed](/docs/getting-started/install) and `shipwick` [installed and logged in](/docs/getting-started/install-cli).
+This page takes one application from nothing to running on your server, then updates it, then breaks it on purpose. The whole of it is two commands, in your project's directory:
 
-You need one of two things: a project that `shipwick init` can write a Dockerfile for, or a Dockerfile of your own, in which case the image is built on your machine and sent to the server, with no registry in between; or an image the server can pull, from a public registry or a [private one](/docs/tasks/private-registries). The examples use an application that listens on port 8080 and answers `GET /health`.
+```bash
+shipwick init      # writes a Dockerfile and a deploy.yaml
+shipwick deploy    # builds the image here, sends it to the server, runs it
+```
+
+## Before you begin
+
+- `shipwick` is [installed on your laptop](/docs/getting-started/install-cli), and the server is [installed](/docs/getting-started/install). After `shipwick server install` you are logged in already; `shipwick doctor` confirms it.
+- Docker runs on your laptop: the image is built there and sent to the server, with no registry in between.
+- Your project is one `shipwick init` can write a Dockerfile for, or has a Dockerfile of its own.
+- A hostname for the application, with a DNS record that points at the server. It can follow: a deployment made before the record exists succeeds and names the record to create.
+
+Already have an image in a registry? Name it instead of building: `image: ghcr.io/company/my-api:1.4.2`. A [private registry](/docs/tasks/private-registries) needs `shipwick registry login` once.
+
+The examples use an application that listens on port 8080 and answers `GET /health`.
 
 ## Create deploy.yaml
 
@@ -62,6 +76,11 @@ build: .
 # command: ["App.dll", "--urls", "http://0.0.0.0:8080"]
 # user: "1000:1000"
 
+# Node as a container's first process ignores SIGTERM unless the application
+# handles it, and is killed when its grace period ends. An init process in
+# front of it passes the signal on: a replaced replica stops at once.
+init: true
+
 # The port your application listens on inside the container.
 port: 8080
 
@@ -115,7 +134,7 @@ restart:
 
 Only `name` and `image`, or `build` in its place, are required. With `build: .`, every deployment builds the image afresh and its version is the build's timestamp; with `image:`, the tag is the version, so pin a version tag rather than `latest`. A value that must not be in the file, such as a password, is written as `${NAME}` and filled in when you deploy: by `shipwick` from its environment or an `--env-file`, or by the server from a secret stored once with `shipwick secret set NAME`.
 
-For this walk-through, set `domain: api.example.com`, `replicas: 2`, and uncomment the `health` block with `path: /health`. Two replicas make the rolling update visible, and a health check is what lets Shipwick tell a working version from a broken one. Without a `health` block, a deployment only verifies that replicas start and stay up for a few seconds. For a Nuxt, Next, SvelteKit, Remix or Astro application `init` writes `health` with `path: /` live, since those answer their root. Leave the rest commented out; migrations, scheduled jobs and the other options have pages of their own.
+For this walk-through, set `domain: api.example.com`, `replicas: 2`, and uncomment the `health` block with `path: /health`. Two replicas make the rolling update visible, and a health check is what lets Shipwick tell a working version from a broken one. Without a `health` block, a deployment only verifies that replicas start and stay up for a few seconds. For a Nuxt, Next, SvelteKit, Remix or Astro application `init` writes `health` with `path: /` live, since those answer their root. Leave the rest commented out; migrations, scheduled jobs and the other options have pages of their own. `init: true` is written, since 0.6, for a Node project whose Dockerfile `init` writes; see [An init process](/docs/concepts/deployments#an-init-process).
 
 The DNS record for `domain` should point at the server: an `A` record with the server's address, DNS only, not proxied, unless the agent has a Cloudflare API token; see [Put Cloudflare in front of the server](/docs/tasks/cloudflare). If it does not yet, the deployment still succeeds and tells you which record to create, as shown below. Every field is described in the [deploy.yaml reference](/docs/reference/deploy-yaml).
 
@@ -226,8 +245,8 @@ shipwick doctor
 ```
 
 ```text
-✓ shipwick v0.5.1, the latest release
-✓ Agent https://agent.example.com runs v0.5.1, the latest release
+✓ shipwick v0.6.0, the latest release
+✓ Agent https://agent.example.com runs v0.6.0, the latest release
 ✓ Token laptop (admin)
 ✓ Docker 29.8.0 on the server
 ✓ Proxy serving 2 routes
@@ -253,7 +272,7 @@ shipwick open       # open https://api.example.com in the browser
 
 Run in the directory that holds `deploy.yaml`, these commands act on the application named in it. Elsewhere, name the application: `shipwick status my-api`. More in [Inspect applications and read logs](/docs/tasks/inspect-and-logs).
 
-The same is in the [dashboard](/docs/tasks/dashboard), if the server has one; `shipwick open --dashboard` opens it, and `shipwick server status` shows its address. The application's page follows a deployment live, whether it was started from `shipwick`, from CI or from the dashboard itself, and its history shows which token made each deployment. An application with `build:` says there that its image is built by `shipwick deploy`.
+The same is in the [dashboard](/docs/tasks/dashboard), if the server has one; `shipwick open --dashboard` opens it, and `shipwick server status` shows its address. Sign in with the API token: after `shipwick server install` it is `SHIPWICK_AGENT_TOKEN` in `/opt/shipwick/.env` on the server. The application's page opens with what is wrong, if anything is, and follows a deployment live, whether it was started from `shipwick`, from CI or from the dashboard itself; its history shows who made each deployment. An application with `build:` says there that its image is built by `shipwick deploy`.
 
 ## Deploy a new version
 
@@ -359,7 +378,8 @@ The folder must hold an `index.html`, and the `fallback` page when one is named.
 
 ## What's next
 
-- [Deploy from CI](/docs/tasks/deploy-from-ci) with the GitHub Action or `shipwick deploy --image`, and a `deploy` token.
+- [Use the dashboard](/docs/tasks/dashboard): the same application in a browser.
+- [Deploy from CI](/docs/tasks/deploy-from-ci) with the GitHub Action or `shipwick deploy --image`, and a `deploy` token [limited to this application](/docs/tasks/tokens).
 - [Roll back](/docs/tasks/roll-back) to an earlier version.
 - [Run scheduled jobs and one-off commands](/docs/tasks/jobs), and migrations before a deployment.
 - [Run a database](/docs/tasks/stateful-applications) next to it, and describe both in one `shipwick.yaml`; see [Several applications](/docs/reference/deploy-yaml#several-applications-shipwick-yaml).

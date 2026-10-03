@@ -1,6 +1,6 @@
 ---
 title: Install Shipwick on a server
-description: Set up the Shipwick agent, Caddy and the dashboard on a Linux server with the installer, or by hand; what the installer writes, the API token, the CLI it signs in on the server, DNS and Cloudflare.
+description: Set up the Shipwick agent, Caddy and the dashboard on a Linux server with one command from your laptop, or with the installer on the server; what it writes, the API token, DNS, the firewall and Cloudflare.
 ---
 
 # Install Shipwick on a server
@@ -8,7 +8,7 @@ description: Set up the Shipwick agent, Caddy and the dashboard on a Linux serve
 <div class="wick-note">
 <img src="/img/wick-tools.svg" alt="Wick, the Shipwick flame, with tools: setting up the server" width="64" height="64">
 
-<p>This page is for whoever administers the server. It covers the installer, running it from your laptop over SSH, what it puts on the machine, the API token, the CLI it signs in on the server, DNS, Cloudflare and the firewall, and the ways to install without it.</p>
+<p>One command sets up a server: from your laptop over SSH, or on the server itself. This page covers both, what the installer puts on the machine, the API token, DNS, Cloudflare and the firewall, and the ways to install without it.</p>
 
 </div>
 
@@ -16,15 +16,60 @@ description: Set up the Shipwick agent, Caddy and the dashboard on a Linux serve
 
 You need:
 
-- A Linux server, and root on it.
-- Docker, installed and running, with the Compose plugin. The installer does not install Docker; that decision belongs to the server's owner. If Docker is missing, the installer stops and points you to `curl -fsSL https://get.docker.com | sh`.
-- `curl` or `wget`.
+- A Linux server you can reach as root over SSH, with a public address. Ubuntu or Debian is the well-trodden path; any Linux with Docker works.
+- Docker with the Compose plugin on it. `shipwick server install`, from your laptop, installs Docker when it is missing. The installer run on the server itself does not: that decision belongs to the server's owner there, and it stops and points you to `curl -fsSL https://get.docker.com | sh`.
+- `curl` or `wget` on the server.
 - Ports 80 and 443 free on the server and reachable from the internet. Automatic HTTPS depends on them, so Shipwick cannot share a server with another web server, reverse proxy or deployment platform that holds them. The installer checks this first and changes nothing if a port is taken.
-- Optionally, two DNS names that point at the server: one for the API, one for the dashboard. Every application you give a `domain` later needs a DNS record too.
+- Two DNS names that point at the server: one for the API, one for the dashboard. Both are optional, and both are what makes the rest comfortable: without the first, `shipwick` reaches the server only through an [SSH tunnel](/docs/tasks/access-without-a-hostname). Every application you give a `domain` later needs a DNS record too.
+
+A server whose way to the internet is a proxy, or that has none, is covered in [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network).
+
+## Run the installer from your laptop
+
+The shortest way: nothing to type on the server, and the token is saved for you. With the [CLI installed](/docs/getting-started/install-cli) on your machine:
+
+```bash
+shipwick server install root@203.0.113.10 \
+  --agent-domain agent.example.com \
+  --dashboard-domain dashboard.example.com
+```
+
+It connects with your own `ssh` (a key that logs in without a password; the command runs `ssh` with `BatchMode=yes` and fails instead of asking for one, and accepts a server's host key on first contact while refusing one that changed), installs Docker with `get.docker.com` when it is missing, runs the installer with those hostnames, saves the token it prints as a context named after the host and makes it current, and ends with the DNS records to create:
+
+```text
+✓ Connected to root@203.0.113.10 (x86_64)
+✓ Docker 29.8.0
+Running the Shipwick installer...
+  ✓ Installed /opt/shipwick/compose.yml
+  ✓ Wrote /opt/shipwick/.env
+  ✓ Started the Shipwick services
+  ✓ The agent is healthy
+  ...
+✓ Shipwick is running on root@203.0.113.10
+✓ Saved the API token as context 203.0.113.10 (https://agent.example.com), now current
+
+Create these DNS records, DNS only (not proxied):
+  A     agent.example.com  →  203.0.113.10
+  A     dashboard.example.com  →  203.0.113.10
+
+Next: in your project, run: shipwick init
+      once the records exist, check the setup with: shipwick doctor
+```
+
+| Flag | |
+|---|---|
+| `--agent-domain <host>` | Hostname for the API. Without it the API is not exposed, and the context points at `http://127.0.0.1:9000` for the [SSH tunnel](/docs/tasks/access-without-a-hostname) |
+| `--dashboard-domain <host>` | Hostname for the dashboard |
+| `--context <name>` | Name to save the server under; default: its hostname |
+| `--version <tag>` | Release to install, such as `v0.6.0`; default: the latest |
+
+The remote commands are fixed; the hostnames and the version are validated first and reach the installer as environment assignments. Running the command again upgrades the server: the token is then unchanged and not printed again, and the context keeps the one it has.
+
+Then go on to [Your first deployment](/docs/getting-started/first-deployment); the rest of this page is for when you want to know more.
 
 ## Run the installer
 
-On the server, as root:
+The same installation on the server itself, as root:
 
 ```bash
 curl -fsSL https://get.shipwick.com | sh
@@ -45,7 +90,7 @@ Without a terminal, the installer asks nothing and takes the hostnames from the 
 curl -fsSL https://get.shipwick.com | SHIPWICK_AGENT_DOMAIN=agent.example.com SHIPWICK_DASHBOARD_DOMAIN=dashboard.example.com sh
 ```
 
-The output looks like this:
+The installer prints the API token once; you sign in from your laptop with it, `shipwick login --url https://agent.example.com`. The output looks like this:
 
 ```text
 Shipwick installer (shipwick/shipwick@latest)
@@ -81,45 +126,6 @@ curl -fsSL https://get.shipwick.com | SHIPWICK_CLOUDFLARE_API_TOKEN=... sh
 ```
 
 The installer checks that the value has the form of a token — letters, digits, `-` and `_` only, without quotes — before it writes anything, keeps it in `/opt/shipwick/.env`, and ends with `Certificates are obtained through Cloudflare DNS: hostnames may be proxied by Cloudflare. Set the zone's SSL/TLS mode to Full (strict).` instead of the three lines about DNS records above. See [Put Cloudflare in front](/docs/tasks/cloudflare) for the token's permissions.
-
-## Run the installer from your laptop
-
-The same installation, without logging in to the server yourself. With the [CLI installed](/docs/getting-started/install-cli) on your machine:
-
-```bash
-shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com
-```
-
-It connects with your own `ssh` (a key that logs in without a password; the command runs `ssh` with `BatchMode=yes` and fails instead of asking for one, and accepts a server's host key on first contact while refusing one that changed), installs Docker with `get.docker.com` when it is missing, runs the installer with those hostnames, saves the token it prints as a context named after the host and makes it current, and ends with the DNS records to create:
-
-```text
-✓ Connected to root@203.0.113.10 (x86_64)
-✓ Docker 29.8.0
-Running the Shipwick installer...
-  ✓ Installed /opt/shipwick/compose.yml
-  ✓ Wrote /opt/shipwick/.env
-  ✓ Started the Shipwick services
-  ✓ The agent is healthy
-  ...
-✓ Shipwick is running on root@203.0.113.10
-✓ Saved the API token as context 203.0.113.10 (https://agent.example.com), now current
-
-Create these DNS records, DNS only (not proxied):
-  A     agent.example.com  →  203.0.113.10
-  A     dashboard.example.com  →  203.0.113.10
-
-Next: in your project, run: shipwick init
-      once the records exist, check the setup with: shipwick doctor
-```
-
-| Flag | |
-|---|---|
-| `--agent-domain <host>` | Hostname for the API. Without it the API is not exposed, and the context points at `http://127.0.0.1:9000` for the [SSH tunnel](/docs/tasks/access-without-a-hostname) |
-| `--dashboard-domain <host>` | Hostname for the dashboard |
-| `--context <name>` | Name to save the server under; default: its hostname |
-| `--version <tag>` | Release to install, such as `v0.5.1`; default: the latest |
-
-The remote commands are fixed; the hostnames and the version are validated first and reach the installer as environment assignments. Running the command again upgrades the server: the token is then unchanged and not printed again, and the context keeps the one it has.
 
 ## What the installer does
 
@@ -201,10 +207,10 @@ If you skipped the API hostname, the API is not exposed at all. See [Reach the A
 Everything the installer fetches comes from one [release](https://github.com/shipwick/shipwick/releases) — never from a branch — and each file is verified against that release's checksums. By default that is the latest release. To choose one:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.5.1 sh
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.6.0 sh
 ```
 
-Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade). From your laptop, `shipwick server install user@host --version v0.5.1` does the same over SSH.
+Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade). From your laptop, `shipwick server install user@host --version v0.6.0` does the same over SSH.
 
 ## Other ways to install
 
@@ -253,7 +259,7 @@ The agent listens on `127.0.0.1:9000` by default and keeps its data — `shipwic
 
 ## What's next
 
-- [Install the CLI](/docs/getting-started/install-cli) on your laptop, if `shipwick server install` did not already put it there.
 - [Deploy your first application](/docs/getting-started/first-deployment).
+- If you ran the installer on the server: [sign in from your laptop](/docs/getting-started/install-cli#log-in) with the token it printed.
 - [Create tokens for CI and teammates](/docs/tasks/tokens) instead of handing out the root token.
-- [Open the dashboard](/docs/tasks/dashboard).
+- [Open the dashboard](/docs/tasks/dashboard), and let people [sign in with your company's accounts](/docs/tasks/sign-in).

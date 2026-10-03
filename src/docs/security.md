@@ -1,11 +1,11 @@
 ---
 title: Security
-description: The trust model of a Shipwick installation, how to expose the API safely, what Shipwick does to protect the server, how secrets, registry credentials, certificate keys and backups are encrypted and how the key is rotated, what the proxy logs, what Shipwick does not do yet, and how to report a vulnerability.
+description: The trust model of a Shipwick installation, how to expose the API safely, what Shipwick does to protect the server, how secrets, registry credentials, certificate keys and backups are encrypted and how the key is rotated, what the proxy logs, tokens with limits and an end, signing in through a provider, the audit trail, what Shipwick does not do yet, and how to report a vulnerability.
 ---
 
 # Security
 
-The agent holds the Docker socket, which makes it root on the server it runs on. This page describes the trust model that follows from that, how to expose the API safely, what Shipwick does and does not do — tokens and roles, what is encrypted at rest and how the key is rotated, backups and exports, what the proxy sees and logs — and how to report a vulnerability.
+The agent holds the Docker socket, which makes it root on the server it runs on. This page describes the trust model that follows from that, how to expose the API safely, what Shipwick does and does not do — tokens and roles, signing in through a provider, the audit trail, what is encrypted at rest and how the key is rotated, backups and exports, what the proxy sees and logs — and how to report a vulnerability.
 
 ## Trust model
 
@@ -13,7 +13,7 @@ The agent holds the Docker socket, which makes it root on the server it runs on.
 
 - **An `admin` token is equivalent to root SSH access to the server.** Treat it so. The token the installer prints is one.
 - **Shipwick is not a multi-tenant sandbox.** Whoever can submit a `deploy.yaml` to the agent, which any `deploy` token can, can run arbitrary images on the server, with any command, as any user inside the container.
-- **Roles limit what a token may ask the API for, not what the server trusts.** `read` sees everything, environment values masked and secrets by name only; `deploy` changes what runs, and sends images and static folders; `admin` also deletes applications, manages tokens, secrets, registry credentials and certificates, rotates the encryption key, downloads, restores or removes backups and volumes, and exports and imports the server. A role applies to the whole server, not to one application.
+- **Roles limit what a token may ask the API for, not what the server trusts.** `read` sees everything, environment values masked and secrets by name only; `deploy` changes what runs, and sends images and static folders; `admin` also deletes applications, manages tokens, secrets, registry credentials and certificates, rotates the encryption key, downloads, restores or removes backups and volumes, and exports and imports the server, reads the audit trail and manages who may sign in. Since 0.6 a `deploy` token can be limited to the applications it names; that narrows what a leaked token can be used for, and it is not a wall between tenants: a limited token still reads every application's logs and configuration.
 - The same holds for anyone with access to the Docker socket, the agent's data directory or Caddy's admin socket.
 - **Whoever holds the backup passphrase and the bucket holds everything**: every application's data, and the agent's database together with the key to it. See [Backups and exports](#backups-and-exports).
 
@@ -43,19 +43,44 @@ On the server, open ports 80 and 443 and nothing else, plus whatever `publish` d
 
 ### Tokens and roles
 
-Every request carries a bearer token, every token has a role, and every endpoint is registered with the role it requires: `read` < `deploy` < `admin`, each including the ones before it. One middleware decides. A wrong or revoked token is `401 UNAUTHORIZED`; a valid token whose role does not cover the endpoint is `403 FORBIDDEN`, and the answer says which role it has and which the endpoint wants.
+Every request carries a bearer token, every token has a role, and every endpoint is registered with the role it requires: `read` < `deploy` < `admin`, each including the ones before it. One middleware decides. A wrong or revoked token is `401 UNAUTHORIZED`; a valid token whose role does not cover the endpoint is `403 FORBIDDEN`, and the answer says which role it has and which the endpoint wants. A person who [signed in through a provider](#signing-in-through-a-provider) is the same kind of caller, and passes through the same check.
 
 - **The root token** is the one the agent is configured with: `SHIPWICK_AGENT_TOKEN`, or the one generated on first start. It is `admin`, named `root`, and it is not in the database. The agent keeps only its SHA-256 hash, in memory and in `agent-token.sha256` next to the database, so a lost or corrupt database can never lock the operator out. It cannot be revoked through the API. Rotating it means setting a new `SHIPWICK_AGENT_TOKEN` and restarting the agent.
 - **Every other token** is created with `shipwick token create <name> --role read|deploy|admin` and stored as its name, role and the SHA-256 of its value. The value is shown once, in the response that creates it, and nowhere else; the agent cannot show it again. `shipwick token revoke` ends it, and requests with it are `401` from then on.
+- **A `deploy` token can be limited to applications**, since 0.6: `--app my-api --app web`. It changes those and reads everything; another application is `403 TOKEN_LIMITED`, with a message that names the token's applications. No handler decides this for itself: every endpoint is registered with its role and whether it is about one application, and the check runs before the handler. An endpoint of the `deploy` role that is not about one application is refused to a limited token outright. The list is fixed when the token is created.
+- **A token can expire**, since 0.6: `--expires 90d`, or a date. From then on it is `401 TOKEN_EXPIRED`. Only the token itself gets this answer, so it tells nothing to anyone who does not hold it; a wrong token is `401 UNAUTHORIZED` whatever else exists. An expired token does not count towards the limit on failed attempts, and stays listed until it is revoked. A token cannot be extended, and the root token does not expire.
 - **Token values** are 32 random bytes in unpadded base64url behind the prefix `swk_`. The prefix carries no entropy; it is there so that a token is recognisable in the places it must never be, a log line or a commit, and so that a leak scanner can grep for it.
 - **Comparison is constant-time.** The presented token is hashed once; the root hash is compared in constant time, and a stored token is looked up by its hash, one indexed query, and then compared in constant time as well, so the database's own comparison cannot be turned into a timing oracle.
-- **Who did what is recorded.** Each deployment stores the token that started it (`by`), and a stop or start by a token other than root names it in the application's events. `last_used_at` on a token is written at most once a minute: it says whether a token is still in use, not what it did last.
+- **Who did what is recorded.** Every request that changes something is written to the [audit trail](#the-audit-trail). Each deployment stores the token that started it (`by`), and a stop or start by a token other than root names it in the application's events. `last_used_at` on a token is written at most once a minute: it says whether a token is still in use, not what it did last.
 - **Guessing is answered.** After 20 failed authentications within a minute from one client address, the agent answers wrong tokens from that address with `429 RATE_LIMITED` and a `Retry-After` header for the next minute. A valid token is never refused: behind Caddy every client shares the proxy's address, and behind the dashboard every browser shares the dashboard server's, so a guesser must not be able to lock anyone else out. Only failures count, so a mistyped token does not reach the limit, and `GET /health` is not limited.
 - A configured root token must be at least 16 characters. The agent refuses to start with a shorter one.
 - If the agent generates its token, it prints it once, directly to standard output and not through the logger, and it cannot be recovered afterwards. Under Docker, "printed" means it is in the container's log (`docker logs`) for as long as that container exists. The installer avoids this by generating the token itself and passing it in. Do the same when setting things up by hand.
 - The installer writes the token to `/opt/shipwick/.env` with mode `0600`, in a directory with mode `0700`, and never rewrites an existing `.env`.
 
-Give CI a `deploy` token and people `admin` ones. See [Create tokens for CI and teammates](/docs/tasks/tokens).
+Give CI a `deploy` token, limited to what it deploys and with an end, and people `admin` ones — or no tokens at all: people can sign in with the company's accounts. See [Create tokens for CI and teammates](/docs/tasks/tokens).
+
+### Signing in through a provider
+
+Since 0.6 the agent can be configured with an OpenID Connect provider, and people then sign in to the dashboard with its accounts. Shipwick keeps no passwords and no list of users: second factors, password rules and offboarding stay with the provider. A table of rules on the agent says who gets which role; nobody without a rule gets in. See [Sign in with your company's accounts](/docs/tasks/sign-in).
+
+- **The client secret** is read from the agent's environment, sent to the provider's token endpoint and nowhere else, and never logged or returned. The dashboard and the browser never see it.
+- **The flow is the authorization code with PKCE.** The code the provider appends to the callback is useless to anyone who reads it there: redeeming it takes a verifier that never left the dashboard's server-side cookie, and the provider redeems each code once.
+- **An ID token is believed only** if one of the provider's keys signed it (RS256 or ES256; a token that claims to be unsigned is refused), if it was issued by the configured issuer for this client, is within its time and minutes old, and carries the one-time value of this sign-in. Each such value is accepted once. An address the provider marks as unverified is refused.
+- **The provider is only ever asked to send people back to the dashboard's configured hostname**, never to an address taken from a request.
+- **A session lasts ten hours** and is not extended by use. Of a session the agent keeps the SHA-256, as of a token. Every request asks the rules again: a session whose rule was revoked or changed ends with its next request, not at its expiry, and an admin can end one at once with `shipwick access signout`.
+- **What the agent cannot see is a change at the provider.** Someone removed from a group there, or whose account was disabled, keeps a session that exists until it ends, ten hours at most.
+- **A failed sign-in and a session nobody issued count** towards the same limit as a wrong token, and a limited address is answered without the provider being asked.
+- Rules, sessions and sign-ins stay on the server: an export takes none of them along, as it takes no tokens.
+
+### The audit trail
+
+Since 0.6 every request that changes something leaves an entry: who made it — the token's name, or the address of a person who signed in — when, from which address, what it was about and how it was answered. Reading it needs `admin`: `shipwick audit`, or the dashboard's Access page. See [See who changed what](/docs/tasks/audit).
+
+- **Refusals are recorded too**: a request refused for its role or its application limit is an entry, since an attempt is what one looks for after a token leaked. So are sign-ins, admitted or not.
+- **Nothing from a request's body is kept except names**: no `env`, no secret's value, no command, no passphrase.
+- **A request without a valid token has no entry.** It has no name to record; it is in the agent's log, and counted by the limit on failed attempts.
+- **The address is the connection's, with the proxy's word next to it.** Caddy replaces `X-Forwarded-For` with the address it saw, so through the proxy it is the client; on a connection that bypasses the proxy the header is whatever the caller sent. Both are kept, so the reader can tell.
+- **It is kept for a year**, and at most 100,000 entries. It lives in the agent's database and travels with its backups.
 
 ### Secrets at rest
 
@@ -156,6 +181,7 @@ See [Traffic](/docs/tasks/traffic).
 
 ### Nothing secret in logs or responses
 
+- A proxy's URL in `HTTPS_PROXY` may hold a password. The agent logs the proxy's host and port and nothing else of it, `GET /server` reports the same, and no error repeats the URL. See [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network).
 - Tokens, `Authorization` headers, request bodies and environment values are never logged. The request log holds the method, path, status, duration and remote address.
 - Environment values and basic-auth passwords are masked as `********` in every API response. Validation errors never echo a value.
 - `GET /metrics`, the Prometheus endpoint, is authenticated like the rest of the API: a token with the `read` role. It carries numbers and names — statuses, replica counts, CPU, memory, restarts, the disk, the active alerts — and no values. Give the scraper a `read` token of its own.
@@ -216,20 +242,21 @@ With a hostname for the API, the installer saves the URL and the token as a cont
 
 ### Session handling in the dashboard
 
-- **The token never reaches JavaScript.** The dashboard's own server verifies it against the agent at sign-in and keeps it in an `httpOnly`, `SameSite=Strict` cookie, `Secure` over HTTPS, valid for 7 days. The browser application only knows whether a session exists and, from `GET /server`, the token's name and role. An XSS bug or a malicious browser extension cannot read the token. A token created on the Tokens page is shown once, in the page, and never stored; so is the new key of a rotation, when the agent's key is set in its environment.
-- **The role follows the token.** Whoever signs in brings a token, and what the dashboard offers follows that token's role: controls the role does not cover are disabled with the reason, and the Tokens page appears for `admin` tokens only. That is a courtesy; roles are enforced by the agent, which answers `403` to a request the role does not cover whatever the page does.
+- **The token never reaches JavaScript.** The dashboard's own server verifies it against the agent at sign-in and keeps it in an `httpOnly`, `SameSite=Strict` cookie, `Secure` over HTTPS, valid for 7 days; a person's session is kept the same way, until the agent says it ends. With several servers in one dashboard each has a cookie of its own. The browser application only knows whether a session exists and, from `GET /server`, the token's name and role. An XSS bug or a malicious browser extension cannot read the token. A token created on the Access page is shown once, in the page, and never stored; so is the new key of a rotation, when the agent's key is set in its environment.
+- **The role follows the token.** Whoever signs in brings a token, and what the dashboard offers follows that token's role: controls the role does not cover are disabled with the reason, a token limited to some applications is told so on the page of every other, and the Access page appears for `admin` only. That is a courtesy; roles are enforced by the agent, which answers `403` to a request the role does not cover whatever the page does.
 - **The browser never talks to the agent.** The dashboard server relays requests and adds the `Authorization` header. The agent therefore needs no CORS support and can stay off the public internet.
 - **CSRF.** Every state-changing request must carry the header `X-Shipwick-Request: 1`. A cross-origin page cannot add a custom header without a CORS preflight, and the server never grants one. `Sec-Fetch-Site`, where the browser sends it, must be `same-origin`. `SameSite=Strict` is the second layer.
-- **The relay is not an open proxy.** The target host comes only from the dashboard's `SHIPWICK_AGENT_URL`. Only `GET`, `HEAD`, `POST`, `PUT` and `DELETE` are accepted, the path must stay under `/api/v1/` with each segment limited to `[A-Za-z0-9._~-]`, and only `Accept`, `Content-Type` and, for an upload, `Content-Length` are forwarded. The browser's cookies never are. `POST` bodies over 128 KB are refused; a `PUT` body, a volume archive or a secret's value, is streamed through and bounded by the agent's own limits. The dashboard uploads neither static folders nor images: `shipwick deploy` does that.
+- **The relay is not an open proxy.** The target host comes only from the dashboard's `SHIPWICK_AGENT_URL` or `SHIPWICK_AGENTS`; a request chooses among the configured names and never supplies an address. Only `GET`, `HEAD`, `POST`, `PUT` and `DELETE` are accepted, the path must stay under `/api/v1/` with each segment limited to `[A-Za-z0-9._~-]`, and only `Accept`, `Content-Type` and, for an upload, `Content-Length` are forwarded. The browser's cookies never are. `X-Forwarded-For` is set by the relay itself, for the audit trail; a header a browser sends directly is ignored. `POST` bodies over 128 KB are refused; a `PUT` body, a volume archive or a secret's value, is streamed through and bounded by the agent's own limits. The dashboard uploads neither static folders nor images: `shipwick deploy` does that. A `deploy.yaml` pasted into it is checked by the agent like one sent by the CLI.
 - **Failed sign-ins are slowed down by the agent.** Every browser reaches the agent from the dashboard server's address, so 20 failed sign-ins within a minute, from anyone, make the agent answer wrong tokens with `429` for a minute; the dashboard shows `Too many failed attempts from this address; try again in a minute` and never presents it as a rejected token. A valid token is never refused.
-- **A `401` from the agent ends the session.** The cookie is cleared and the application returns to the sign-in page.
+- **A `401` from the agent ends the session.** The cookie is cleared and the application returns to the sign-in page, with the reason when the agent gives one: the token expired, the session ran out or was ended.
+- **Signing in through a provider** keeps the client secret on the agent. The dashboard's server only starts the sign-in and passes the code on; the values it keeps for that are in an `httpOnly` cookie that lasts ten minutes and is cleared by the callback whatever happens.
 - The token is never logged by the dashboard. Post-login redirects only accept same-site paths.
 - In production the dashboard sends a Content-Security-Policy of `default-src 'self'` (with inline script and style allowed), `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. It loads nothing from third parties.
-- The dashboard has no database and no credentials of its own. Accounts are the agent's named tokens with roles.
+- The dashboard has no database and no credentials of its own. Accounts are the agent's named tokens with roles, and the people its access rules admit.
 
 ## What Shipwick does not do yet
 
-- **Roles are per server, not per application.** A `deploy` token can deploy every application on the server; there is no way to limit a token to one of them.
+- **A limit on a token does not hide anything.** A `deploy` token limited to some applications still reads every application's logs and configuration, and `read` and `admin` cannot be limited. One Docker daemon does not separate tenants, and Shipwick does not promise it.
 - **Rate limiting is per client address, and the dashboard is one client.** The agent slows down failed authentications by address, which behind the dashboard is the dashboard server's; there is no limit per token or per browser. Tokens the agent issues are 32 random bytes; a configured root token is at least 16 characters.
 - **Registry credential helpers are not supported.** A helper is a program on the host that the Docker command line executes; the agent's container does not have it, and the agent executes nothing. A credential stored with `shipwick registry login` is encrypted; one read from the `auths` entries of the Docker configuration file on the server is stored there base64-encoded, not encrypted. With `build: .` no registry and no credentials are involved.
 - **Backups are not encrypted unless you set a passphrase.** Without `SHIPWICK_BACKUP_PASSPHRASE` the backups of volumes are plain tar files, and the agent's own state, the database and the key, is not backed up at all.
@@ -259,7 +286,8 @@ There is no bug bounty. Until 1.0, only the latest release receives security fix
 Vulnerabilities:
 
 - reaching the API, or the dashboard's session, without a valid token;
-- a token doing what its role does not allow;
+- a token doing what its role or its application limit does not allow, or working after it expired;
+- signing in through the provider without a rule that admits the person, or a session that outlives its rule;
 - recovering a token, the encryption key or an application's environment values from logs, API responses, error messages, the dashboard, or files readable by others; or reading environment values from a copy of the database without the key;
 - input in `deploy.yaml` or an API request that executes something on the server itself, escapes the fields it belongs to (proxy configuration, container names, file paths, logging options), or yields a privileged container, a host mount, or a published host port that `publish` did not ask for;
 - an application container that can reconfigure the proxy, reach the agent's data, or claim a hostname or a server port held by another application;

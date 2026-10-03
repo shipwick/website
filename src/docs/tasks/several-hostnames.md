@@ -32,7 +32,7 @@ health:
 |---|---|
 | `domain` | The hostname the application is served on, and the one redirects are sent to. |
 | `aliases` | More hostnames served exactly like `domain`: the same route, the same replicas, their own certificates. `api.example.com` here answers with the same content as `example.com`. |
-| `redirects` | Hostnames answered with a `308` to `https://<domain>` with the same path and query. `www.example.com` and the old `example.net` here. |
+| `redirects` | Hostnames answered with a `308` to `https://<domain>` with the same path and query. `www.example.com` and the old `example.net` here. For an application with a [`path`](/docs/tasks/paths-and-proxy), to `https://<domain><path>`: below the part of the domain the application serves. |
 
 Hostnames are lowercased and validated like `domain`. `shipwick validate` shows them:
 

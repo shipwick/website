@@ -1,6 +1,6 @@
 ---
 title: Install the CLI
-description: Install the Shipwick command-line client on a laptop or in CI, and connect it to an agent.
+description: Install the shipwick command-line client on your laptop or in CI with one command, keep it current, and connect it to a server.
 ---
 
 # Install the CLI
@@ -12,7 +12,13 @@ description: Install the Shipwick command-line client on a laptop or in CI, and 
 
 </div>
 
-The server installer already puts `shipwick` on the server, and since 0.5 signs it in to its own agent when the API has a hostname; see [On the server](#on-the-server). You only need this page for other machines. With the CLI on your laptop, the server itself can be installed from there: `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` runs the installer over SSH and logs you in; see [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
+Start here. The CLI is the first thing to install, because with it on your laptop the server is installed from there: `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` runs the installer over SSH and saves the token for you; see [Install on a server](/docs/getting-started/install). The quickest way to the CLI on macOS and Linux:
+
+```bash
+curl -fsSL https://get.shipwick.com | sh -s -- --cli
+```
+
+The server installer also puts `shipwick` on the server, and since 0.5 signs it in to its own agent when the API has a hostname; see [On the server](#on-the-server).
 
 ## Homebrew
 
@@ -49,7 +55,7 @@ curl -fsSL https://get.shipwick.com | SHIPWICK_BIN_DIR="$HOME/.local/bin" sh -s 
 To install a specific version, set `SHIPWICK_VERSION`:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.5.1 sh -s -- --cli
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.6.0 sh -s -- --cli
 ```
 
 ## Windows
@@ -79,21 +85,21 @@ shipwick upgrade
 ```
 
 ```text
-✓ Upgraded shipwick v0.3.1 → v0.5.1
+✓ Upgraded shipwick v0.3.1 → v0.6.0
   /usr/local/bin/shipwick
 
-The server runs v0.3.1; v0.5.1 is available. On the server run:
+The server runs v0.3.1; v0.6.0 is available. On the server run:
   curl -fsSL https://get.shipwick.com | sh
 ```
 
 The release is downloaded from GitHub and verified against the release's `checksums.txt` before anything changes; the new binary is written next to the old one and renamed over it only once its SHA-256 matches. Pre-releases are never picked. On Windows the replaced binary is left behind as `shipwick.old.exe` and removed the next time `shipwick` runs. If the directory is not writable, the command says so and suggests `sudo shipwick upgrade`, or running the installer again.
 
-The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there, or with `shipwick server install user@host` from your machine; `shipwick upgrade` tells you when the server is behind, and says `The server runs v0.5.1, the latest release.` when it is not. A server that cannot be reached is one line, not an error.
+The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there, or with `shipwick server install user@host` from your machine; `shipwick upgrade` tells you when the server is behind, and says `The server runs v0.6.0, the latest release.` when it is not. A server that cannot be reached is one line, not an error.
 
 A `shipwick` installed with Homebrew is left to Homebrew:
 
 ```text
-shipwick v0.3.1 was installed with Homebrew; v0.5.1 is available.
+shipwick v0.3.1 was installed with Homebrew; v0.6.0 is available.
 
 Upgrade with: brew upgrade shipwick
 ```
@@ -105,16 +111,16 @@ shipwick upgrade --check
 ```
 
 ```text
-shipwick v0.3.1 is installed; v0.5.1 is available.
+shipwick v0.3.1 is installed; v0.6.0 is available.
 
 Upgrade with: shipwick upgrade
 ```
 
-When there is nothing to do, the first line reads `shipwick v0.5.1 is up to date.`
+When there is nothing to do, the first line reads `shipwick v0.6.0 is up to date.`
 
 ## Log in
 
-`shipwick login` saves the agent's URL and the API token for later commands.
+`shipwick login` saves the agent's URL and the API token for later commands. After `shipwick server install` you are logged in already: it saved the token as a context. You need `login` when the installer ran on the server itself, on a second machine, or with a token someone created for you.
 
 ```bash
 shipwick login --url https://agent.example.com
@@ -122,7 +128,7 @@ shipwick login --url https://agent.example.com
 
 ```text
 API token:
-✓ Logged in to https://agent.example.com (vps-1, agent v0.5.1)
+✓ Logged in to https://agent.example.com (vps-1, agent v0.6.0)
   saved as context default in /home/you/.config/shipwick/config.yaml
 ```
 
@@ -246,8 +252,11 @@ An admin token is equivalent to root SSH access to the server, and `shipwick` tr
 - `shipwick` warns on standard error whenever the token is about to travel over plain HTTP to anything other than the local machine. Use HTTPS or an SSH tunnel.
 - A token asked to do more than its role allows is refused by the agent, and `shipwick` says which role it has and which one the command needs.
 
+Behind a proxy, `shipwick` follows `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` for the agent and for GitHub, and since 0.6 `SHIPWICK_CA_FILE` names a PEM file of certificate authorities trusted in addition to the system's, for an agent whose certificate a company's own authority issued. See [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network).
+
 ## What's next
 
+- [Install on a server](/docs/getting-started/install): one command from here, `shipwick server install`.
 - [Deploy your first application](/docs/getting-started/first-deployment).
 - [Create tokens for CI and teammates](/docs/tasks/tokens).
 - The full command list is in the [shipwick reference](/docs/reference/cli).

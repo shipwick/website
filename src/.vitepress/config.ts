@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 const site = 'https://shipwick.com'
 const repo = 'https://github.com/shipwick/shipwick'
-const version = '0.5.1'
+const version = '0.6.0'
 
 export default defineConfig({
   lang: 'en-US',
@@ -80,14 +80,16 @@ export default defineConfig({
     ],
 
     sidebar: {
+      // The task pages are grouped by what a person is after; each of those
+      // groups can be folded away.
       '/docs/': [
         {
           text: 'Getting started',
           items: [
             { text: 'What is Shipwick?', link: '/docs/' },
             { text: 'How it fits together', link: '/docs/getting-started/how-it-fits' },
-            { text: 'Install on a server', link: '/docs/getting-started/install' },
             { text: 'Install the CLI', link: '/docs/getting-started/install-cli' },
+            { text: 'Install on a server', link: '/docs/getting-started/install' },
             { text: 'Your first deployment', link: '/docs/getting-started/first-deployment' },
           ],
         },
@@ -104,30 +106,66 @@ export default defineConfig({
           ],
         },
         {
-          text: 'Tasks',
+          text: 'Deploy and run',
+          collapsed: false,
           items: [
             { text: 'Deploy from CI', link: '/docs/tasks/deploy-from-ci' },
             { text: 'Roll back and redeploy', link: '/docs/tasks/roll-back' },
             { text: 'See what is running', link: '/docs/tasks/inspect-and-logs' },
             { text: 'Use the dashboard', link: '/docs/tasks/dashboard' },
-            { text: 'Pull from private registries', link: '/docs/tasks/private-registries' },
+            { text: 'Run scheduled jobs and one-off commands', link: '/docs/tasks/jobs' },
             { text: 'Call one application from another', link: '/docs/tasks/call-another-application' },
-            { text: 'Run a stateful application', link: '/docs/tasks/stateful-applications' },
-            { text: 'Expose a service that is not HTTP', link: '/docs/tasks/non-http-services' },
+            { text: 'Pull from private registries', link: '/docs/tasks/private-registries' },
+          ],
+        },
+        {
+          text: 'Domains and HTTPS',
+          collapsed: false,
+          items: [
             { text: 'Serve several hostnames and redirect www', link: '/docs/tasks/several-hostnames' },
             { text: 'Share a hostname by path and configure the proxy', link: '/docs/tasks/paths-and-proxy' },
             { text: 'Put Cloudflare in front of the server', link: '/docs/tasks/cloudflare' },
             { text: 'Use a certificate of your own', link: '/docs/tasks/certificates' },
-            { text: 'See what the proxy served', link: '/docs/tasks/traffic' },
-            { text: 'Run scheduled jobs and one-off commands', link: '/docs/tasks/jobs' },
+            { text: 'Expose a service that is not HTTP', link: '/docs/tasks/non-http-services' },
+          ],
+        },
+        {
+          text: 'Data and backups',
+          collapsed: false,
+          items: [
+            { text: 'Run a stateful application', link: '/docs/tasks/stateful-applications' },
             { text: 'Back up and restore volumes', link: '/docs/tasks/backups' },
+            { text: 'Bring a lost server back', link: '/docs/tasks/restore-the-agent-state' },
             { text: 'Move to a new server', link: '/docs/tasks/move-to-a-new-server' },
+            { text: 'Keep a second server ready', link: '/docs/tasks/standby' },
+          ],
+        },
+        {
+          text: 'Access',
+          collapsed: false,
+          items: [
             { text: 'Create tokens for CI and teammates', link: '/docs/tasks/tokens' },
+            { text: "Sign in with your company's accounts", link: '/docs/tasks/sign-in' },
+            { text: 'See who changed what', link: '/docs/tasks/audit' },
             { text: 'Rotate the encryption key', link: '/docs/tasks/rotate-the-encryption-key' },
+          ],
+        },
+        {
+          text: 'Watch',
+          collapsed: false,
+          items: [
             { text: 'Get notified', link: '/docs/tasks/notifications' },
             { text: 'Get alerts and scrape metrics', link: '/docs/tasks/alerts-and-metrics' },
+            { text: 'See what the proxy served', link: '/docs/tasks/traffic' },
+          ],
+        },
+        {
+          text: 'The server',
+          collapsed: false,
+          items: [
             { text: 'Upgrade Shipwick', link: '/docs/tasks/upgrade' },
             { text: 'Reach the API without a hostname', link: '/docs/tasks/access-without-a-hostname' },
+            { text: 'Run behind a corporate proxy or without internet', link: '/docs/tasks/corporate-network' },
           ],
         },
         {

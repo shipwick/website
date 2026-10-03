@@ -45,7 +45,7 @@ domain: example.com
 | Whole segments | `/api` matches `/api` and `/api/users`, not `/apix`. |
 | Case does not count | `/API` and `/api` are one path. |
 | The rest is a `404` | Without an application that takes the rest, a path nobody serves answers `404`. |
-| Aliases follow | Aliases are served under the same path. `redirects` remain whole hostnames. |
+| Aliases follow | Aliases are served under the same path. `redirects` remain whole hostnames, and lead to the application's path: with `redirects: [api.example.net]` on `api`, `https://api.example.net/users?page=2` is answered with a `308` to `https://example.com/api/users?page=2`. Before 0.6 it led to the same path on the domain, which may belong to another application. |
 
 A `path` starts with `/`, does not end with one, and has letters, digits, dots, dashes, underscores and tildes between the slashes, at most 200 characters. `path: /` is the same as no path.
 

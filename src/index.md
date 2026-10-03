@@ -6,16 +6,16 @@ titleTemplate: ':title · Production deployments on your own server'
 hero:
   name: Shipwick
   text: Production deployments on your own server.
-  tagline: One small file describes your application. One command builds it, ships it to your Linux server and routes it over HTTPS, with health checks and automatic rollback.
+  tagline: For developers and small teams with a Linux server of their own. One small file describes your application; one command builds it, ships it to the server and serves it over HTTPS, with health checks and automatic rollback.
   image:
     src: /img/hero.svg
     alt: A laptop sends a container to one server, where Wick, the Shipwick flame, keeps watch
   actions:
     - theme: brand
       text: Get started
-      link: /docs/getting-started/how-it-fits
+      link: /docs/getting-started/install-cli
     - theme: alt
-      text: Read the docs
+      text: What is Shipwick?
       link: /docs/
 ---
 
@@ -41,33 +41,32 @@ hero:
 
 ## Five minutes
 
-<p class="lead">A Linux server with Docker, a domain that points at it, and a Dockerfile or an image of your application. That is all it takes.</p>
+<p class="lead">A Linux server you can reach over SSH, a domain that points at it, and your project on your laptop, with Docker running there. That is all it takes.</p>
 
 <div class="steps">
 <div class="step card">
 <span class="num n1">1</span>
-<img class="wick" src="/img/wick-tools.svg" alt="" width="56" height="56">
+<img class="wick" src="/img/wick.svg" alt="" width="56" height="56">
 
-### Set up the server
+### Install the CLI
 
-One command installs the agent, the reverse proxy and the dashboard, and prints your API token. Or run it from your laptop over SSH: `shipwick server install root@203.0.113.10`.
+On your laptop. One binary, `shipwick`; with Homebrew it is `brew install shipwick/tap/shipwick`.
 
 ```bash
-curl -fsSL https://get.shipwick.com | sh
+curl -fsSL https://get.shipwick.com | sh -s -- --cli
 ```
 
 </div>
 <div class="step card">
 <span class="num n2">2</span>
-<img class="wick" src="/img/wick.svg" alt="" width="56" height="56">
+<img class="wick" src="/img/wick-tools.svg" alt="" width="56" height="56">
 
-### Connect your laptop
+### Install the server
 
-Install the CLI and sign in once. From then on `shipwick` talks to your server, from anywhere.
+From your laptop, over SSH. It installs Docker if it is missing, then the agent, the reverse proxy and the dashboard, and saves the API token for you. `--agent-domain` and `--dashboard-domain` give the API and the dashboard their hostnames.
 
 ```bash
-brew install shipwick/tap/shipwick
-shipwick login --url https://agent.example.com
+shipwick server install root@203.0.113.10
 ```
 
 </div>
@@ -77,7 +76,7 @@ shipwick login --url https://agent.example.com
 
 ### Deploy
 
-`init` writes a Dockerfile and a `deploy.yaml` for your project. `deploy` builds the image on your machine, sends it over and replaces replicas one at a time, each after it proved healthy. No registry needed.
+In your project. `init` writes a Dockerfile and a `deploy.yaml` for it. `deploy` builds the image on your machine, sends it over and replaces replicas one at a time, each after it proved healthy. No registry needed.
 
 ```bash
 shipwick init
@@ -89,8 +88,8 @@ shipwick deploy
 
 <div class="next">
 
-[Install on a server](/docs/getting-started/install)
 [Install the CLI](/docs/getting-started/install-cli)
+[Install on a server](/docs/getting-started/install)
 [Your first deployment](/docs/getting-started/first-deployment)
 
 </div>
@@ -112,20 +111,20 @@ shipwick deploy
 ```yaml
 # deploy.yaml
 name: my-api
-image: ghcr.io/company/my-api:1.4.2
+build: .                  # built on your machine, sent to the server
 port: 8080
-domain: api.example.com
+domain: api.example.com   # served over HTTPS, certificate included
 replicas: 2
 health:
-  path: /health
+  path: /health           # traffic moves over only once this answers 200
 ```
 
 </div>
 <div>
 
-The file above is the whole configuration: the image, the port it listens on, the domain, how many replicas, and how to tell that one is healthy. The certificate is obtained on the first request.
+The file above is the whole configuration: where the image comes from, the port it listens on, the domain, how many replicas, and how to tell that one is healthy. The certificate is obtained on the first request.
 
-Building instead of pulling? Write `build: .` in place of `image:` and `shipwick deploy` builds the image on your machine and sends it to the server; no registry in between. A built frontend needs no container at all: `static: dist/`, and the proxy serves the folder.
+Already have an image in a registry, as in the picture? Name it instead of building: `image: ghcr.io/company/my-api:1.4.2`. A built frontend needs no container at all: `static: dist/`, and the proxy serves the folder.
 
 </div>
 </div>
@@ -166,15 +165,15 @@ A command from the new image before any replica starts, scheduled jobs from the 
 
 ### Databases, with backups as plain files
 
-Volumes for the things that keep data. `shipwick backup` downloads one as a tar file, `shipwick restore` puts it back, `shipwick volumes` shows what a deleted application left.
+Volumes for the things that keep data. The server backs them up on a schedule, encrypted, to an S3-compatible bucket, and `shipwick backups verify` proves that one restores. `shipwick backup` downloads a volume as a tar file.
 
 </div>
 <div class="tile card t-rose">
 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
 
-### Secrets on the server, tokens with roles
+### Secrets on the server, access with limits
 
-`shipwick secret set` keeps a value encrypted on the server and `${NAME}` fills it in on every deploy. A `deploy` token for CI, `read` for a teammate, `admin` for you.
+`shipwick secret set` keeps a value encrypted on the server and `${NAME}` fills it in on every deploy. A `deploy` token for CI, limited to its applications and with an end; your company's accounts for people; an audit trail of who changed what.
 
 </div>
 <div class="tile card t-teal">
@@ -182,14 +181,14 @@ Volumes for the things that keep data. `shipwick backup` downloads one as a tar 
 
 ### A dashboard, a CLI and an API
 
-Replicas, health, a week of CPU and memory, history, live logs, jobs, backups, secrets and tokens. Whatever one of the three does, the others can.
+Replicas, health, a week of CPU and memory, history, live logs, jobs, backups, secrets and access, for one server or several. Whatever one of the three does, the others can.
 
 </div>
 </div>
 
 <figure class="shot">
-<img src="/img/dashboard.png" alt="The Shipwick dashboard in a browser" width="2880" height="1800">
-<figcaption>The dashboard: the same information as the terminal, live, with the everyday actions.</figcaption>
+<img src="/img/dashboard.png" alt="The overview of the Shipwick dashboard: a sentence that says four applications need attention, the alerts that hold, and the applications with what is wrong with each" width="2880" height="1800">
+<figcaption>The dashboard: the same information as the terminal, live, with the everyday actions. It opens with the answer to "is everything fine?".</figcaption>
 </figure>
 
 </section>
@@ -308,12 +307,13 @@ Three containers from `/opt/shipwick/compose.yml`: the agent, Caddy and the dash
 
 ### Security
 
-The agent holds the Docker socket, so an `admin` token is root on the server: treat it so, and give CI a `deploy` token. The API speaks plain HTTP on `127.0.0.1:9000` and is reached over HTTPS through Caddy, an SSH tunnel or a private network. Only the SHA-256 of each token is kept, `env` values and secrets are encrypted at rest, no shell runs anywhere, and containers are never privileged.
+The agent holds the Docker socket, so an `admin` token is root on the server: treat it so, and give CI a `deploy` token. The API speaks plain HTTP on `127.0.0.1:9000` and is reached over HTTPS through Caddy, an SSH tunnel or a private network. Only the SHA-256 of each token is kept, `env` values and secrets are encrypted at rest, no shell runs anywhere, and containers are never privileged. People can sign in through your OpenID Connect provider, and every change is in the audit trail.
 
 <div class="next">
 
 [Security](/docs/security)
 [Tokens and roles](/docs/tasks/tokens)
+[Sign in with your accounts](/docs/tasks/sign-in)
 
 </div>
 
@@ -343,24 +343,24 @@ The dashboard, `shipwick` and `curl` use the same REST API under `/api/v1`, and 
 
 <div class="columns">
 <div>
-<p class="caption">On a Linux server with Docker, as root:</p>
-
-```bash
-curl -fsSL https://get.shipwick.com | sh
-```
-
-</div>
-<div>
-<p class="caption">On your laptop or in CI, only the CLI:</p>
+<p class="caption">On your laptop or in CI, the CLI:</p>
 
 ```bash
 curl -fsSL https://get.shipwick.com | sh -s -- --cli
 ```
 
 </div>
+<div>
+<p class="caption">Or on a Linux server with Docker, as root, the server itself:</p>
+
+```bash
+curl -fsSL https://get.shipwick.com | sh
+```
+
+</div>
 </div>
 
-Or with Homebrew: `brew install shipwick/tap/shipwick`. With the CLI installed, `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` sets up the server over SSH, saves the token for you and prints the DNS records to create; `shipwick doctor` checks the whole setup afterwards. Everything the installer downloads comes from one release and is verified against its checksums.
+The CLI also comes with Homebrew, `brew install shipwick/tap/shipwick`, and for Windows as `shipwick_windows_amd64.exe` from the [latest release](https://github.com/shipwick/shipwick/releases/latest). With it installed, `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` sets up the server over SSH, saves the token for you and prints the DNS records to create; `shipwick doctor` checks the whole setup afterwards. Everything the installer downloads comes from one release and is verified against its checksums. A server with no connection is [installed from one file](/docs/tasks/corporate-network).
 
 <div class="closing">
 <img src="/img/wick-wave.svg" alt="Wick, the Shipwick flame, waving" width="80" height="80">

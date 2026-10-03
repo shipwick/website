@@ -130,10 +130,24 @@ The grace period belongs to the version that is stopping, not to the one replaci
 What the time is used for is the application's business. A process that handles `SIGTERM` — stops accepting, finishes its requests, exits — leaves cleanly and usually at once. One that does not handle it keeps running, and keeps receiving a share of the requests, until the time is up and it is killed with whatever it was serving. A program started as the container's first process (`CMD ["node", "server.js"]`) ignores `SIGTERM` unless it installs a handler. The agent cannot tell the two apart beforehand, so it says so afterwards: a replaced container that had to be killed is reported in the application's events, in `shipwick status` and the dashboard, once it is gone, which is after the deployment has completed:
 
 ```text
-The replaced container shipwick_my-api_6_1 did not exit within 10s of SIGTERM and was killed. To let it finish its requests, handle SIGTERM in the application; to give it longer, set deploy.stop_timeout
+The replaced container shipwick_my-api_6_1 did not exit within 10s of SIGTERM and was killed. If its process has no handler for SIGTERM, set init: true and the signal ends it at once; to let it finish its requests, handle SIGTERM in the application; to give it longer, set deploy.stop_timeout
 ```
 
-Handle the signal, or start the program under an init such as `tini` in your image. See [`deploy`](/docs/reference/deploy-yaml#deploy) in the reference.
+`shipwick stop` writes the same line about a replica it had to kill. Until the old container is gone, `shipwick status` lists it as `stopping`, apart from the replicas.
+
+### An init process
+
+The kernel hands the first process of a container no signal it has not installed a handler for, which is why `node server.js` sits out its grace period. Since 0.6, `init: true` puts Docker's own init process in front of it:
+
+```yaml
+init: true
+```
+
+The init process passes `SIGTERM` on to the application, which is then an ordinary process and ends on it at once, and it reaps the children the application leaves behind. The same ten-line Node server, stopped with `shipwick stop`, took 0.3 seconds with `init: true` and 10.4 seconds — its whole grace period, then the kill — without.
+
+It applies to every container of the application: replicas, the pre-deploy hook, jobs and one-off commands. It is not the default, because an image that brings its own init does not want a second one: s6-overlay refuses to start unless it is the first process, and an image whose entrypoint is `tini` would run two. `shipwick init` writes `init: true` into the `deploy.yaml` of a Node project whose Dockerfile it writes.
+
+An application that handles `SIGTERM` to finish its requests still does under an init process; ending at once is what happens to one that does not. See [`init`](/docs/reference/deploy-yaml#init) and [`deploy`](/docs/reference/deploy-yaml#deploy) in the reference.
 
 ### Progress events
 
