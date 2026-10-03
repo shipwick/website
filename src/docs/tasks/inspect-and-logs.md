@@ -166,7 +166,7 @@ shipwick server status
 The command first checks that the agent is reachable. That check needs no token, so a wrong URL and a wrong token produce different errors. When more than one server is saved, the first line names the context the command used. It then prints the agent and CLI versions, the server's hostname, operating system, kernel and architecture, the Docker version, CPUs and memory, the number of applications and running containers, the state of the reverse proxy, whether notifications are configured, which token you are using, the dashboard's address, how full the server's disk is, and the alerts that are active:
 
 ```text
-Proxy           ok  serving 3 domains
+Proxy           ok  serving 3 routes
 Notifications   webhook configured
 Token           ci (deploy)
 Dashboard       https://dashboard.example.com
