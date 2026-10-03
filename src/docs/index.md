@@ -73,7 +73,7 @@ Shipwick is for one server, by design. It schedules nothing across machines, run
 When one server is no longer enough, you have outgrown Shipwick. Until then, it is the whole platform.
 
 ::: info Status: 0.x
-The current version is 0.4.1. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) says so when it happens, and how to upgrade.
+The current version is 0.5.0. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) says so when it happens, and how to upgrade.
 :::
 
 ## How the documentation is organized

@@ -49,7 +49,7 @@ curl -fsSL https://get.shipwick.com | SHIPWICK_BIN_DIR="$HOME/.local/bin" sh -s 
 To install a specific version, set `SHIPWICK_VERSION`:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.4.1 sh -s -- --cli
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.5.0 sh -s -- --cli
 ```
 
 ## Windows
@@ -79,21 +79,21 @@ shipwick upgrade
 ```
 
 ```text
-✓ Upgraded shipwick v0.3.1 → v0.4.1
+✓ Upgraded shipwick v0.3.1 → v0.5.0
   /usr/local/bin/shipwick
 
-The server runs v0.3.1; v0.4.1 is available. On the server run:
+The server runs v0.3.1; v0.5.0 is available. On the server run:
   curl -fsSL https://get.shipwick.com | sh
 ```
 
 The release is downloaded from GitHub and verified against the release's `checksums.txt` before anything changes; the new binary is written next to the old one and renamed over it only once its SHA-256 matches. Pre-releases are never picked. On Windows the replaced binary is left behind as `shipwick.old.exe` and removed the next time `shipwick` runs. If the directory is not writable, the command says so and suggests `sudo shipwick upgrade`, or running the installer again.
 
-The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there, or with `shipwick server install user@host` from your machine; `shipwick upgrade` tells you when the server is behind, and says `The server runs v0.4.1, the latest release.` when it is not. A server that cannot be reached is one line, not an error.
+The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there, or with `shipwick server install user@host` from your machine; `shipwick upgrade` tells you when the server is behind, and says `The server runs v0.5.0, the latest release.` when it is not. A server that cannot be reached is one line, not an error.
 
 A `shipwick` installed with Homebrew is left to Homebrew:
 
 ```text
-shipwick v0.3.1 was installed with Homebrew; v0.4.1 is available.
+shipwick v0.3.1 was installed with Homebrew; v0.5.0 is available.
 
 Upgrade with: brew upgrade shipwick
 ```
@@ -105,12 +105,12 @@ shipwick upgrade --check
 ```
 
 ```text
-shipwick v0.3.1 is installed; v0.4.1 is available.
+shipwick v0.3.1 is installed; v0.5.0 is available.
 
 Upgrade with: shipwick upgrade
 ```
 
-When there is nothing to do, the first line reads `shipwick v0.4.1 is up to date.`
+When there is nothing to do, the first line reads `shipwick v0.5.0 is up to date.`
 
 ## Log in
 
@@ -122,7 +122,7 @@ shipwick login --url https://agent.example.com
 
 ```text
 API token:
-✓ Logged in to https://agent.example.com (vps-1, agent v0.4.1)
+✓ Logged in to https://agent.example.com (vps-1, agent v0.5.0)
   saved as context default in /home/you/.config/shipwick/config.yaml
 ```
 
