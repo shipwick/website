@@ -18,11 +18,11 @@ Every endpoint of the API requires a role, and a role includes the ones below it
 
 | Role | May |
 |---|---|
-| `read` | See everything: applications, deployments and their history, logs, events, metrics, jobs and runs, volumes, the names of the secrets, the server |
-| `deploy` | And change what runs: deploy, redeploy, roll back, stop, start, run a job or a command, send an image or a static folder |
-| `admin` | And everything else: delete applications, download and restore volume backups, remove the volume of a deleted application, store and remove secrets, create, list and revoke tokens |
+| `read` | See everything: applications, deployments and their history, logs, events, metrics, traffic, jobs and runs, volumes, the backups the server took, the names of the secrets, the registries that have a credential and the supplied certificates without their passwords and keys, the server, what a standby holds, and the Prometheus endpoint `/metrics` |
+| `deploy` | And change what runs: deploy, redeploy, roll back, stop, start, run a job or a command, send an image or a static folder, take a backup on the server and verify one |
+| `admin` | And everything else: delete applications, download and restore volume backups, remove a backup, remove the volume of a deleted application, store and remove secrets, registry credentials and certificates, rotate the encryption key, back up the agent's own state, export the server, import an export, pull and promote on a standby, create, list and revoke tokens |
 
-Give CI a `deploy` token: a pipeline deploys and rolls back, and never needs to delete an application. Give people `admin` tokens, and someone who only watches a `read` one.
+Give CI a `deploy` token: a pipeline deploys and rolls back, and never needs to delete an application. Give people `admin` tokens, someone who only watches a `read` one, and a Prometheus scraper a `read` one of its own.
 
 ::: warning admin is root on the server
 The agent holds the Docker socket, and whoever can submit a `deploy.yaml` can run any image on the server. A `deploy` token is already that; an `admin` token can also delete applications and mint more tokens. Roles limit what a token may ask of the agent, not what the server can be made to do. See [Security](/docs/security).
@@ -110,7 +110,7 @@ A wrong or revoked token is `401 UNAUTHORIZED` instead, `The agent rejected the 
 
 ## In the dashboard
 
-Anyone signs in to the dashboard with a token, and the dashboard becomes that token. The sidebar shows its name and role. Controls the role does not cover are disabled with the reason: a `read` token cannot deploy, redeploy, roll back, stop or start; only `admin` can delete an application, download or restore a backup, store or remove a secret, remove the volume of a deleted application, or open the Tokens page, where tokens are created, listed and revoked, the new token's value shown once in the page. Whatever the page shows, the agent enforces the roles: a request the role does not cover is answered `403` however it was made. See [Use the dashboard](/docs/tasks/dashboard).
+Anyone signs in to the dashboard with a token, and the dashboard becomes that token. The sidebar shows its name and role. Controls the role does not cover are disabled with the reason: a `read` token cannot deploy, redeploy, roll back, stop, start, or take or verify a backup; only `admin` can delete an application, download, restore or remove a backup, store or remove a secret, a registry credential or a certificate, remove the volume of a deleted application, write an export, promote a standby, rotate the encryption key, or open the Tokens page, where tokens are created, listed and revoked, the new token's value shown once in the page. Whatever the page shows, the agent enforces the roles: a request the role does not cover is answered `403` however it was made. See [Use the dashboard](/docs/tasks/dashboard).
 
 ## See which tokens are in use
 
@@ -150,5 +150,5 @@ Requests with the token are `401` from then on; a pipeline that still carries it
 ## What's next
 
 - [Deploy from CI](/docs/tasks/deploy-from-ci) with a `deploy` token.
-- [`shipwick token`](/docs/reference/cli#token) in the CLI reference, and [Tokens](/docs/reference/api#tokens) in the API reference.
+- [`shipwick token`](/docs/reference/cli#token) in the CLI reference, and [Tokens](/docs/reference/api#get-tokens) in the API reference.
 - [Security](/docs/security): the trust model behind the roles.

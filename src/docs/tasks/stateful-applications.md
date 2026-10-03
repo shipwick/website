@@ -9,7 +9,7 @@ An application that keeps data, a database above all, needs two things that a st
 
 ## Before you begin
 
-- The data lives in a named Docker volume on the server. `shipwick backup` downloads it as a tar archive and `shipwick restore` puts one back; see below.
+- The data lives in a named Docker volume on the server. With `backups` in `deploy.yaml` the server archives it on a schedule; `shipwick backup` downloads it as a tar archive and `shipwick restore` puts one back; see below.
 - A stateful application is deployed with `deploy.strategy: recreate`, which stops the running version before it starts the new one. Every deployment of it is a short outage. See [Recreate](/docs/concepts/deployments#recreate).
 - Volumes are named volumes only. A path on the host cannot be mounted.
 
@@ -122,7 +122,39 @@ It belongs to the application, not to a deployment. Every deployment of `postgre
 
 ## Back up and restore
 
-`shipwick backup` downloads every volume of the application as a tar archive, named `<application>-<volume>-<UTC timestamp>.tar`, into the current directory or the one given with `-o`:
+Since 0.5 the server backs the volume up itself. Add a `backups` block to `deploy.yaml` and deploy:
+
+```yaml
+backups:
+  schedule: "0 3 * * *"     # five cron fields, UTC, like jobs
+  keep: 7                   # successful backups kept; default 7
+  before: ["pg_dump", "-U", "postgres", "-f", "/var/lib/postgresql/data/backup.sql", "app"]
+```
+
+A database that is being written to may not be consistent in a copy of its files, and the block has two answers to that. `before` runs a command inside the running replica first, as a list of arguments and never through a shell: here a dump written into the volume, which the archive then holds. If the command exits non-zero the backup fails and nothing is archived. `stop: true` stops the application for as long as the archive takes and starts it again whatever happens: the copy is exactly what is on disk, at the cost of a short outage. Without either, the archive is taken from under the running process, which is fine for uploads and not for a database.
+
+The backups are kept on the server, the oldest beyond `keep` are removed, and with a bucket configured on the agent each one also goes off the server, encrypted when a passphrase is set. `shipwick backups` lists them:
+
+```bash
+shipwick backups postgres
+```
+
+```text
+ID   WHEN      TRIGGER    SIZE      WHERE                   STATUS      VERIFIED
+5    25s ago   schedule   39 MB     local, s3 (encrypted)   succeeded   -
+4    42s ago   manual     39 MB     local, s3 (encrypted)   succeeded   -
+3    1m ago    schedule   39.1 MB   local, s3 (encrypted)   succeeded   1m ago
+```
+
+`shipwick backups run postgres` takes one now, the way the schedule would. `shipwick backups verify postgres` proves that the latest one restores: it restores the backup into scratch volumes, starts one container of the current image on them, holds it to the health check, and removes both. The running database is not touched:
+
+```text
+✓ Backup #5 of postgres restores: a container of the current version came up on its data
+```
+
+`shipwick backups restore postgres 5` puts a backup back into the stopped application. A scheduled backup that fails is posted to the webhook as `backup.failed`.
+
+The other way is by hand. `shipwick backup` downloads every volume of the application as a tar archive, named `<application>-<volume>-<UTC timestamp>.tar`, into the current directory or the one given with `-o`, and the server keeps nothing:
 
 ```bash
 shipwick backup postgres
@@ -133,7 +165,7 @@ shipwick backup postgres
 ✓ postgres-data-20260927-153000.tar (412 MB)
 ```
 
-The copy is taken while the application runs, unless it is stopped, and the warning says why that matters: a database that is being written to may not be consistent in the copy. Stop the application first, or take a logical dump with the database's own tool through `shipwick run postgres -- pg_dump …`. Existing files are never overwritten.
+The copy is taken while the application runs, unless it is stopped; `before` and `stop` do not apply to it. Stop the application first, or let the server take the backup with `shipwick backups run` and fetch it with `shipwick backups download`. Existing files are never overwritten.
 
 A restore replaces *everything* in the volume with the archive's contents, so the application must be stopped, and it stays stopped afterwards:
 
@@ -149,7 +181,7 @@ Continue? [y/N] y
 Start it with: shipwick start postgres
 ```
 
-A restore of a running application is refused: `The application is running, and a restore replaces the files under it.` The archives are plain tar files holding the volume's contents relative to the mount point; anything that can write such a tar can be restored. Both commands need the `admin` role. The whole of it, including scheduling and what is and is not consistent, is in [Back up and restore volumes](/docs/tasks/backups).
+A restore of a running application is refused: `The application is running, and a restore replaces the files under it.` The archives are plain tar files holding the volume's contents relative to the mount point; anything that can write such a tar can be restored. `shipwick backup`, `shipwick restore` and `shipwick backups restore` need the `admin` role; taking and verifying a backup on the server need `deploy`. The whole of it, including the bucket, encryption and what is and is not consistent, is in [Back up and restore volumes](/docs/tasks/backups).
 
 ## What survives what
 
@@ -161,8 +193,11 @@ A restore of a running application is refused: `The application is running, and 
 | A failed deployment | Kept. The new containers are removed before the old ones are started again. |
 | `shipwick stop`, `shipwick start` | Kept. |
 | `shipwick backup` | Kept. It is read, not changed. |
-| `shipwick restore` | **Replaced.** Everything in the volume is removed and the archive's contents put in its place. The one Shipwick operation that changes a volume's contents. |
-| `shipwick delete postgres` | Kept. The containers and the history go; the volume stays, and `shipwick volumes` lists it as `application deleted`. |
+| A scheduled backup, `shipwick backups run` | Kept. It is read, not changed, apart from what a `before` command writes into it, such as a dump. With `stop: true` the application is stopped for the archive and started again. |
+| `shipwick backups verify` | Kept. The backup is restored into scratch volumes, which are removed afterwards. |
+| `shipwick restore`, `shipwick backups restore` | **Replaced.** Everything in the volume is removed and the archive's or the backup's contents put in its place. The Shipwick operations that change a volume's contents. |
+| `shipwick delete postgres` | Kept. The containers and the history go; the volume stays, and `shipwick volumes` lists it as `application deleted`. The backups the server took are kept as well. |
+| `shipwick import --overwrite` | **Replaced**, together with the application of the same name. Without `--overwrite` an existing application is skipped. See [Move to a new server](/docs/tasks/move-to-a-new-server). |
 | `shipwick volumes rm shipwick_postgres_data` | Removed, after `delete`. Refused while the application exists: its data belongs to it, and a restore is the way to replace it. `docker volume rm` on the server does the same by hand. |
 
 ## Deploying a new version
@@ -180,6 +215,8 @@ Deploying postgres...
 ✓ Replica 1/1 is serving 17.1; its 17 predecessor is retired
 ✓ Deployment successful
 ```
+
+The running version is sent `SIGTERM` and has `deploy.stop_timeout` to shut down before it is killed: 10 seconds unless you set it, up to 10 minutes. The same grace period applies to `shipwick stop` and `delete`.
 
 The database is down from `Stopped` to `passed health checks`: the time the new version takes to start and accept connections on port 5432. Applications that use it see connection failures during that time, and should reconnect; a connection pool does.
 
@@ -270,4 +307,5 @@ The full picture, including which ports are refused, is in [Expose a service tha
 - [Back up and restore volumes](/docs/tasks/backups).
 - [Expose a service that is not HTTP](/docs/tasks/non-http-services).
 - [Recreate](/docs/concepts/deployments#recreate) and [Rolling back a recreate deployment](/docs/concepts/rollback#rolling-back-a-recreate-deployment).
-- The [`volumes`](/docs/reference/deploy-yaml#volumes) and [`deploy`](/docs/reference/deploy-yaml#deploy) fields in the deploy.yaml reference.
+- [Move to a new server](/docs/tasks/move-to-a-new-server), with the data.
+- The [`volumes`](/docs/reference/deploy-yaml#volumes), [`backups`](/docs/reference/deploy-yaml#backups) and [`deploy`](/docs/reference/deploy-yaml#deploy) fields in the deploy.yaml reference.

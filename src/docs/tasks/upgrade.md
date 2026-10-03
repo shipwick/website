@@ -5,7 +5,7 @@ description: Upgrade the agent, Caddy setup and dashboard by running the install
 
 # Upgrade Shipwick
 
-You upgrade a Shipwick server by running the installer again, on the server or from your laptop over SSH, and a CLI elsewhere with `shipwick upgrade`. This page covers what the installer changes, what it leaves alone, how to choose a version, what happens to your applications while the agent restarts, what the upgrades to 0.4.0 and 0.3.0 do on first start, and how to upgrade the CLI on laptops and in CI.
+You upgrade a Shipwick server by running the installer again, on the server or from your laptop over SSH, and a CLI elsewhere with `shipwick upgrade`. This page covers what the installer changes, what it leaves alone, how to choose a version, what happens to your applications and to a running deployment while the agent restarts, what the upgrades to 0.5, 0.4 and 0.3 do on first start, and how to upgrade the CLI on laptops and in CI.
 
 ## Read the changelog first
 
@@ -25,19 +25,24 @@ curl -fsSL https://get.shipwick.com | sh
 ✓ Keeping the existing /opt/shipwick/.env (your API token is unchanged)
 ✓ Started the Shipwick services
 ✓ The agent is healthy
-✓ Installed the shipwick CLI to /usr/local/bin/shipwick
 ✓ Removed 2 image(s) of earlier Shipwick releases
+✓ Installed the shipwick CLI to /usr/local/bin/shipwick
+✓ shipwick on this server is signed in
 
 Shipwick is running.
 
   Your API token is unchanged: SHIPWICK_AGENT_TOKEN in /opt/shipwick/.env
   From your laptop or CI:   shipwick login --url https://agent.example.com
+  On this server:           shipwick ps
   Dashboard:                https://dashboard.example.com
   Open ports 80 and 443 (and 443/udp) — and nothing else — in your firewall.
+  DNS records must point straight at this server (at Cloudflare: DNS only). To keep
+  Cloudflare's proxy on, add SHIPWICK_CLOUDFLARE_API_TOKEN to /opt/shipwick/.env
+  and run:   cd /opt/shipwick && docker compose up -d
   Upgrade later by running this installer again.
 ```
 
-A server does not upgrade by itself. The compose file of each release pins both Shipwick images to that release's version, so a server runs the version it installed until you run the installer again.
+A server does not upgrade by itself. The compose file of each release pins the Shipwick images — the agent, the dashboard and, since 0.5, the proxy — to that release's version, so a server runs the version it installed until you run the installer again.
 
 From your laptop, the same over SSH:
 
@@ -53,11 +58,12 @@ What the installer does on an upgrade:
 2. Keeps `/opt/shipwick/.env` exactly as it is. The root token does not change, and it is not printed again. The hostnames do not change, and the installer does not ask for them. Anything else you put there — `SHIPWICK_WEBHOOK_URL`, a mount for images built from source — stays too.
 3. Pulls the images that the new compose file names, and recreates the containers whose definition changed.
 4. Waits for the agent to report healthy.
-5. Replaces `shipwick` on the server with the release's version, verified the same way.
-6. Removes the agent and dashboard images of earlier releases, which used to stay behind, a few hundred megabytes per release.
+5. Removes the agent, dashboard and proxy images of earlier releases, up to a few hundred megabytes each. The images that are running, and anything else on the server, are kept. This step exists since 0.5; see [Upgrading from 0.4 to 0.5](#upgrading-from-0-4-to-0-5).
+6. Replaces `shipwick` on the server with the release's version, verified the same way.
+7. With a hostname for the API, puts the token from `.env` back into the CLI context that points at this server, and leaves every other context, and which one is current, as they were. See [The CLI on the server](/docs/getting-started/install#the-cli-on-the-server).
 
 ::: info compose.yml is the installer's, compose.override.yml is yours
-The installer writes a fresh `/opt/shipwick/compose.yml` on every run. Keep your own changes — [publishing the API on loopback](/docs/tasks/access-without-a-hostname), [mounting registry credentials](/docs/tasks/private-registries) — in `/opt/shipwick/compose.override.yml`. Compose merges the two files, and the installer never touches the override or `.env`.
+The installer writes a fresh `/opt/shipwick/compose.yml` on every run. Keep your own changes — [publishing the API on loopback](/docs/tasks/access-without-a-hostname), [mounting `docker login` credentials](/docs/tasks/private-registries) — in `/opt/shipwick/compose.override.yml`. Compose merges the two files, and the installer never touches the override or `.env`.
 :::
 
 ## Choose a version
@@ -77,12 +83,12 @@ Running applications do not depend on the agent being up. Restarting or upgradin
 While the agent is down:
 
 - Nothing supervises the applications. A replica that crashes during that time is not restarted until the agent is back.
-- The API does not answer, so `shipwick` and the dashboard cannot show or do anything. A `shipwick` command that is waiting on a deployment rides out a short outage before it gives up.
+- The API does not answer, so `shipwick` and the dashboard cannot show or do anything. A `shipwick deploy` that is waiting on a deployment reports that the agent is not responding, and goes on when it is back.
 
 When the new agent starts, before it serves requests, it reconciles what it finds:
 
-1. A deployment that was in flight when the old agent stopped is marked `FAILED`, and its leftover containers are removed. Do not upgrade in the middle of a deployment; if you did, deploy again afterwards.
-2. Containers that belong to a known application but not to its active deployment are removed.
+1. A deployment that was in flight when the old agent stopped is resumed, since 0.5. The agent picks it up where it was: containers it had created are kept, replicas that were already serving keep serving, and only what was not done is done. The deployment's events say `Resumed after the agent restarted`. The exception is a `pre_deploy` command that was running when the agent stopped: it is not run a second time, the deployment fails and says so, nothing of the running version has been touched, and you deploy again once you have looked at what the command left behind. An agent before 0.5 marked every such deployment `FAILED`. See [Architecture](/docs/concepts/overview#agent-restarts-and-crashes).
+2. Containers that belong to a known application but neither to its active deployment nor to one that resumes are removed.
 3. Containers of applications the agent's database does not know are never touched.
 
 Supervision then resumes. The supervisor's state is held in memory, so every replica starts with a clean slate: its backoff history is gone, and its health is unknown until it has been probed again. `shipwick status` shows such a replica as `checking`. Unknown counts as healthy, so an application does not flap to `DOWN` because the agent was restarted. Only the restart counter is kept, for display.
@@ -91,13 +97,31 @@ A job that was running when the old agent stopped is marked `interrupted` and it
 
 After a server reboot, the agent brings every application back up according to its restart policy.
 
+### Upgrading from 0.4 to 0.5
+
+0.5 changes the proxy's image and adds to what the agent stores; applications run as before. All three containers are recreated. The agent and the dashboard because their images changed, and the Caddy container because it is replaced with Shipwick's own build of Caddy, `ghcr.io/shipwick/caddy`: Caddy with the Cloudflare DNS module and nothing else added, pinned to the release like the other two. The proxy is away for the moment that takes, and established connections through it are cut; certificates and configuration are on volumes and stay, and the applications behind the proxy keep running.
+On its first start, before it serves requests, the new agent applies four schema migrations to `shipwick.db`, numbers 10 to 13: the registry credentials, the supplied certificates, the traffic samples, and the backups the agent takes. An older agent refuses a database whose schema is newer than it supports, so do not downgrade afterwards. Nothing is encrypted anew; registry passwords and certificate keys are encrypted with the same `encryption.key` as the environment values, and the key can now be [rotated](/docs/tasks/rotate-the-encryption-key).
+
+Two things the upgrade itself does differently from this release on:
+
+- **A deployment that is running while the agent restarts is resumed**, not failed, as described above. The agent that is stopped must already be 0.5 to leave it that way: during the upgrade from 0.4 itself, the old agent still marks a deployment in flight as `FAILED` when it shuts down, so do not start this upgrade in the middle of a deployment.
+- **The installer removes the images of earlier releases.** The removal was added in 0.4 and repaired in 0.4.1, but nothing called it; it now runs once the upgraded agent is healthy. Run the installer again on a server that is up to date to reclaim the space; it changes nothing else there.
+
+With a hostname for the API, the installer also signs in the `shipwick` on the server: it saves the URL and the token as a context of the user who runs it, when no other server is saved there. See [The CLI on the server](/docs/getting-started/install#the-cli-on-the-server).
+
+Nothing changes for a `deploy.yaml` that worked before, with one difference in timing: replacing a replica no longer waits for the old one to exit, so a deployment is done when every new replica serves, and the replaced containers get their `SIGTERM` and their grace period in the background. What is new is opt-in. In `deploy.yaml`: `path`, `proxy`, `static.fallback`, `backups`, `deploy.stop_timeout`, wildcard hostnames. On the agent, each a variable in `/opt/shipwick/.env` that the new compose file passes through and that is empty until you set it: `SHIPWICK_CLOUDFLARE_API_TOKEN`, the `SHIPWICK_BACKUP_*` variables, `SHIPWICK_EXPORT_SCHEDULE` and `SHIPWICK_STANDBY_SCHEDULE`, and the two alert thresholds. See [Agent configuration](/docs/reference/agent-configuration). Until `SHIPWICK_BACKUP_PASSPHRASE` is set, the agent's own state is not backed up, and `shipwick doctor` says so.
+
+Private images keep working as they did: a mount of the server's `docker login` credentials in `compose.override.yml` is still read for a registry without a stored credential. `shipwick registry login` stores the credential on the agent instead, and the mount is then no longer needed; see [Pull from private registries](/docs/tasks/private-registries).
+
+On laptops and in CI, upgrade the CLI as described below; the new commands need it. A 0.5 CLI against a 0.4 agent deploys as before: it asks the agent about the domain only before it builds, and sends the whole image; `shipwick server rotate-key` answers `the agent is older than this shipwick and cannot rotate its key`.
+
 ### Upgrading from 0.3 to 0.4
 
 0.4 adds to what the agent stores and to what the proxy mounts; applications run as before. The agent and dashboard containers are recreated because their images changed. The Caddy container is recreated once as well, because the new compose file gives it the `caddy-static` volume for the folders of static applications: established connections through the proxy are cut at that moment, and the applications behind it keep running.
 
 On its first start, before it serves requests, the new agent applies two schema migrations to `shipwick.db`, numbers 8 and 9: the `secrets` table, and what a static deployment serves (its digest, file count and size) on every deployment. An older agent refuses a database whose schema is newer than it supports, so do not downgrade afterwards. Nothing is encrypted anew; the stored secrets are encrypted with the same `encryption.key` as the environment values.
 
-Nothing changes for a `deploy.yaml` that worked before. What is new is opt-in: `build: .`, `static:`, `health.start_period`, `shipwick.yaml`, secrets on the server, and the API's rate limit on failed authentications, which a valid token never meets. Old agent and dashboard images are removed by the installer from this upgrade on. A 0.3 `shipwick` keeps working against a 0.4 agent for everything it knows; `build`, `static`, `shipwick.yaml`, `secret`, `volumes`, `server install`, `doctor` and `open` need the new CLI, and a 0.4 CLI against a 0.3 agent says `The agent does not know this operation` when it asks for one of them. The [GitHub Action](/docs/tasks/deploy-from-ci) follows the latest release by default.
+Nothing changes for a `deploy.yaml` that worked before. What is new is opt-in: `build: .`, `static:`, `health.start_period`, `shipwick.yaml`, secrets on the server, and the API's rate limit on failed authentications, which a valid token never meets. A 0.3 `shipwick` keeps working against a 0.4 agent for everything it knows; `build`, `static`, `shipwick.yaml`, `secret`, `volumes`, `server install`, `doctor` and `open` need the new CLI, and a 0.4 CLI against a 0.3 agent says `The agent does not know this operation` when it asks for one of them. The [GitHub Action](/docs/tasks/deploy-from-ci) follows the latest release by default.
 
 ### Upgrading from 0.2 to 0.3
 
@@ -110,7 +134,7 @@ On its first start, before it serves requests, the new agent:
 3. Finds the running replicas, gives them their names and reconciles them, as after every restart.
 
 ::: warning Back up encryption.key
-Add `encryption.key` to whatever backs up `shipwick.db`. A copy of the database without the key reveals no secrets, which is the point, but the agent cannot read it either: started against a database whose values were encrypted with another key, it refuses to start, names the deployment and variable it could not read, and asks you to restore the key file from your backup or to set `SHIPWICK_ENCRYPTION_KEY` to the key the database was written with. Rotating the key is not supported yet.
+Add `encryption.key` to whatever backs up `shipwick.db`. A copy of the database without the key reveals no secrets, which is the point, but the agent cannot read it either: started against a database whose values were encrypted with another key, it refuses to start, names the deployment and variable it could not read, and asks you to restore the key file from your backup or to set `SHIPWICK_ENCRYPTION_KEY` to the key the database was written with. Since 0.5 the agent backs up both itself once `SHIPWICK_BACKUP_PASSPHRASE` is set, and the key can be [rotated](/docs/tasks/rotate-the-encryption-key).
 :::
 
 The root token does not change; the token in `/opt/shipwick/.env` is the same one, now with the name `root` and the `admin` role. Tokens for CI and teammates are created from it afterwards, and can be given less: see [Create tokens for CI and teammates](/docs/tasks/tokens). The new compose file passes `SHIPWICK_WEBHOOK_URL` and `SHIPWICK_WEBHOOK_SECRET` from `.env` to the agent, both empty until you set them; see [Get notified](/docs/tasks/notifications). The dashboard's History charts start filling as soon as the new agent samples; there is no history from before the upgrade.
@@ -150,16 +174,16 @@ The [GitHub Action](/docs/tasks/deploy-from-ci) takes the same pin as `version: 
 
 ## If you installed without the installer
 
-If you run the compose file by hand, replace it with the `compose.production.yml` attached to the new [release](https://github.com/shipwick/shipwick/releases), which pins the images to that version and passes the two webhook variables through, keep your `.env`, and run:
+If you run the compose file by hand, replace it with the `compose.production.yml` attached to the new [release](https://github.com/shipwick/shipwick/releases), which pins the images to that version — since 0.5 the proxy's too, Shipwick's own build of Caddy — and passes the optional variables through, keep your `.env`, and run:
 
 ```bash
 docker compose -f compose.production.yml pull
 docker compose -f compose.production.yml up -d
 ```
 
-If you built the images from source, rebuild them from the new checkout and run `sh scripts/install.sh` from it again.
+If you built the images from source, rebuild them from the new checkout — since 0.5 there are three, the proxy's with `docker build -t ghcr.io/shipwick/caddy -f Dockerfile.caddy .` — and run `sh scripts/install.sh` from it again.
 
-If the agent runs as a plain binary, replace it with the new build and restart it. The first start of 0.3.0 creates `encryption.key` in `SHIPWICK_DATA_DIR`, or reads `SHIPWICK_ENCRYPTION_KEY` if you set it; the first start of 0.4.0 applies the two migrations described above.
+If the agent runs as a plain binary, replace it with the new build and restart it. The first start of 0.3.0 creates `encryption.key` in `SHIPWICK_DATA_DIR`, or reads `SHIPWICK_ENCRYPTION_KEY` if you set it; the first starts of 0.4.0 and 0.5 apply the migrations described above. A Caddy on the host that is the official build obtains certificates as before; the Cloudflare DNS challenge needs a Caddy with the Cloudflare DNS module.
 
 ## What's next
 

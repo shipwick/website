@@ -5,7 +5,7 @@ description: Enable the Shipwick dashboard on a hostname, sign in with an API to
 
 # Use the dashboard
 
-The dashboard shows in a browser what `shipwick` shows in a terminal, and offers the everyday actions: deploy another image, roll back, stop, start, delete, run a job or a command, restore a backup, store a secret, remove a deleted application's volume, manage tokens. This page covers enabling it, signing in, what each page shows, what each role can do, and how it handles the API token.
+The dashboard shows in a browser what `shipwick` shows in a terminal, and offers the everyday actions: deploy another image, roll back, stop, start, delete, run a job or a command, take, verify and restore a backup, store a secret, log the server in to a registry, supply a certificate, remove a deleted application's volume, manage tokens, rotate the encryption key, and promote a standby. This page covers enabling it, signing in, what each page shows, what each role can do, and how it handles the API token.
 
 The dashboard is a client of the agent's HTTP API and nothing more. It has no database and keeps no state of its own. Anything it does, `shipwick` and `curl` can do too.
 
@@ -39,9 +39,9 @@ What you see and may do follows the token's role, which the dashboard learns fro
 
 | Role | In the dashboard |
 |---|---|
-| `read` | Sees everything: applications, replicas, metrics and their history, deployments, events, logs, jobs and their runs, volumes, the names of the secrets. Every action is disabled, with the reason |
-| `deploy` | Also deploys another image, rolls back, stops, starts, runs a job and runs a command |
-| `admin` | Also deletes applications, downloads and restores backups, stores and removes secrets, removes the volumes of deleted applications, and gets the Tokens page |
+| `read` | Sees everything: applications, replicas, metrics and their history, traffic, deployments, events, logs, jobs and their runs, volumes, backups, the names of the secrets, the registries and supplied certificates without their passwords and keys, the server with its disk and alerts, and what a standby holds. Every action is disabled, with the reason |
+| `deploy` | Also deploys another image, rolls back, stops, starts, runs a job, runs a command, takes a backup and verifies one |
+| `admin` | Also deletes applications, downloads, restores and removes backups, stores and removes secrets, logs the server in to a registry and out of it, adds and removes certificates, removes the volumes of deleted applications, backs up the agent's state, writes an export to the backups, imports the newest export on a standby and promotes it, rotates the encryption key, and gets the Tokens page |
 
 A session lasts 7 days. If the agent rejects the token at any point — it was revoked, or the agent's token changed — the session ends and the dashboard returns to the sign-in page. See [Create tokens for CI and teammates](/docs/tasks/tokens).
 
@@ -49,21 +49,29 @@ A session lasts 7 days. If the agent rejects the token at any point — it was r
 
 | Page | |
 |---|---|
-| Overview | All applications with their status, the ones that need attention, recent deployments, and the state of the reverse proxy |
-| Applications | Every application. An application's page shows its status, live CPU and memory against its limits with their history, each replica with its state, health, restart count and usage, the configuration as deployed, its volumes, its scheduled jobs and their runs, the deployment history, the supervisor's event feed, and its logs. A static application shows what it serves instead (`42 files, 3.1 MB, served by the proxy`); an application with `build` says its image is built by `shipwick deploy` |
+| Overview | All applications with their status, the ones that need attention, the alerts that hold right now, recent deployments, and the state of the reverse proxy |
+| Applications | Every application. An application's page shows its status, its hostnames with the certificate of each when it is not in order, the alerts about it, live CPU and memory against its limits with their history, the traffic the proxy saw, each replica with its state, health, restart count and usage, the configuration as deployed, its `proxy` block, its volumes and the backups the server took of them, its scheduled jobs and their runs, the deployment history, the supervisor's event feed, and its logs. A static application shows what it serves instead (`42 files, 3.1 MB, served by the proxy`); an application with `build` says its image is built by `shipwick deploy` |
 | Deployments | The deployment history across applications, or of one. A deployment's page shows its progress step by step, its outcome, where it came from and which token made it |
-| Servers | The server the agent runs on, whether the agent reaches Caddy, whether a notification webhook is configured, and the token you are signed in with |
-| Logs | Followed logs of one application. Replicas are tailed together and merged by time |
+| Servers | The server the agent runs on, how full its disk is, whether the agent reaches Caddy, whether a notification webhook is configured, the token you are signed in with and the dashboard's address; the active alerts; where backups are kept and whether the agent's own state is backed up; the exports kept with the backups; on a standby, what waits to be started; and the encryption key's rotation |
+| Logs | Followed logs of one application. Replicas are tailed together and merged by time. Static applications have no logs and are not offered |
 | Secrets | The secrets kept on the server for `${NAME}` in `env`: names and dates, never values. An admin stores, replaces or removes one here |
+| Registries | The registries the server holds a credential for: name, username and dates, never passwords. An admin logs the server in to a registry, replaces a credential or logs out here |
+| Certificates | The certificates you supplied: the name each is stored under, the hostnames it covers, its issuer and its expiry, marked in its last 30 days. Never the key. An admin adds, replaces or removes one here |
 | Volumes | Every volume on the server with its application and size, `in use` or `application deleted`. An admin removes the volume of a deleted application here |
 | Tokens | Admin only. The tokens with their roles and when each was last used; create and revoke them here |
 
 A few things to know when reading it:
 
 - **A deployment has three possible outcomes.** `ACTIVE` is the only success. `FAILED` means the previous version was never touched. `ROLLED_BACK` means the deployment failed part-way and the previous version was restored; it is shown as a handled failure, never as a success.
-- **Every history entry shows its origin**, such as "rollback to #3 1.4.0" or "redeploy of #6", linked to the deployment it came from, and the name of the token that made it. Deployments made before tokens had names show none.
-- **The configuration is shown by kind.** A health check reads `GET /health`, `TCP :5432` or `command pg_isready -U postgres`, `after a 2m start period` when `start_period` is set; hostnames as the domain, its aliases and `www.example.com → example.com` redirects; published ports as `5432/tcp → server port 15432 on 10.0.0.5`; `entrypoint` and `command` joined with spaces; `logging` as its driver with the options collapsed; an image built by the CLI as `built by shipwick deploy from . (Dockerfile)`.
-- **Static applications** are folders the proxy serves itself. The list shows `static` in place of the replica count, the version is the folder's digest, and the application's page has no replicas, logs, jobs or metrics; it says what is served instead. Stop, start, rollback, redeploy and delete work; the deploy dialog offers no image field, nor for an application with `build`, whose image is built and sent by `shipwick deploy`.
+- **Every history entry shows its origin**, such as "rollback to #3 1.4.0" or "redeploy of #6", linked to the deployment it came from, and the name of the token that made it. Deployments made before tokens had names show none. A deployment made by `shipwick import` reads "imported", and one a standby holds until it is promoted "imported, stopped".
+- **An application's address is its domain and its `path`**, wherever it is shown: `example.com/api` for an application that serves only that part of the hostname.
+- **The configuration is shown by kind.** A health check reads `GET /health`, `TCP :5432` or `command pg_isready -U postgres`, `after a 2m start period` when `start_period` is set; hostnames as the domain, its aliases and `www.example.com → example.com` redirects; published ports as `5432/tcp → server port 15432 on 10.0.0.5`; `entrypoint` and `command` joined with spaces; `logging` as its driver with the options collapsed; an image built by the CLI as `built by shipwick deploy from . (Dockerfile)`; `deploy.stop_timeout` next to the strategy; the `backups` schedule as `shipwick validate` words it.
+- **The Proxy panel is the `proxy` block of `deploy.yaml`**, read-only: the path and whether it is removed before a request reaches the application, the response headers, the redirects from one path to another, and under Password protection which path asks for the password of which account. Accounts are shown by name; passwords are stored encrypted and never returned.
+- **Certificates are shown when they are not in order.** A hostname whose certificate is still being obtained, waits for DNS, is about to expire or has expired carries a badge — "Obtaining certificate", "Waiting for DNS", "Certificate expiring", "Certificate expired" — and the agent's own sentence about it.
+- **Traffic is what the proxy saw.** The Traffic panel shows, for the last 1h, 24h or 7d, the totals — requests, 5xx, 4xx, the 50th, 95th and 99th percentile of their durations, bytes sent — and two charts: requests per step with the 5xx among them, and the 95th percentile. Recent requests opens the last 200 one by one, newest first, as the proxy logged them: paths without their query string, no headers. The agent keeps those in memory, so the list starts empty when the agent starts. A static application has traffic like any other; an application without a domain has none.
+- **Alerts are marked on every page.** While an alert holds, the Servers entry in the navigation carries their number. They are listed on the Overview and the Servers page, worst first, each with the agent's sentence and since when, and the page of an application shows the ones about it.
+- **Static applications** are folders the proxy serves itself. The list shows `static` in place of the replica count, the version is the folder's digest, and the application's page has no replicas, logs, jobs or metrics; it says what is served instead, with the fallback page when `static.fallback` is set. Stop, start, rollback, redeploy and delete work; the deploy dialog offers no image field, nor for an application with `build`, whose image is built and sent by `shipwick deploy`.
+- **A replaced replica that is still stopping reads "Stopping".** After a deployment, a container that was sent `SIGTERM` and still has its `deploy.stop_timeout` to exit is listed as such, and no longer counts as a replica.
 - **CPU is in percent of one core**, with the application's limit as the ceiling. An application without a CPU limit has no ceiling.
 - **Two kinds of metrics.** The sparklines next to the live numbers are built in your browser while the page is open. The History charts below them come from the agent, which records every running replica's CPU and memory every 30 seconds and keeps 7 days: one line per replica for the last hour, day or week, a dashed line at the per-replica limit, and a gap wherever nothing was sampled — while the agent was down, for instance. Nothing is interpolated. The charts refresh every 30 seconds.
 - **Jobs are in UTC.** The Jobs section lists each job's schedule, its last run with outcome and exit code, and its next run relative to now; a stopped application reads "Not while stopped". The run history covers scheduled runs, one-off commands and pre-deploy commands alike, and a run opens to show its output.
@@ -81,17 +89,42 @@ From an application's page:
 | Stop, start | `shipwick stop`, `shipwick start` | `deploy` |
 | Run a job now | `shipwick jobs run <app> <job>` | `deploy` |
 | Run a command | `shipwick run <app> -- <command>` | `deploy` |
+| Back up now | `shipwick backups run` | `deploy` |
+| Verify a backup | `shipwick backups verify` | `deploy` |
+| Download a volume of a backup | `shipwick backups download` | `admin` |
+| Restore a backup | `shipwick backups restore` | `admin` |
+| Remove a backup | `shipwick backups rm` | `admin` |
 | Download a volume as a tar archive | `shipwick backup` | `admin` |
 | Restore a volume from an archive | `shipwick restore` | `admin` |
 | Delete | `shipwick delete` | `admin` |
 
-From the Secrets page: store or replace a secret from a password field, whose value is cleared from the page as soon as the request is sent, and remove one — `shipwick secret set`, `shipwick secret rm`; both `admin`. From the Volumes page: remove the volume of a deleted application — `shipwick volumes rm`, `admin`. And from the Tokens page, for admins: create a token, whose value is shown once, in the page, and never stored; and revoke one — `shipwick token create`, `shipwick token revoke`.
+From the Servers page:
 
-The rollback dialog lists exactly the deployments that are valid targets: the ones that once served successfully and were replaced. "Run command" takes the command one argument per field, because the agent takes a list and never a shell string; the run is followed until it finishes and its output shown. A restore is offered only while the application is stopped, checks that the file is a tar archive before uploading, and offers Start when the agent reports the volume restored.
+| Action | Equivalent | Needs |
+|---|---|---|
+| Back up state now | `shipwick server backup` | `admin` |
+| Export to backups | `shipwick export --to-backups` | `admin` |
+| Import newest now, on a standby | `shipwick standby pull` | `admin` |
+| Promote, on a standby | `shipwick standby promote` | `admin` |
+| Rotate encryption key | `shipwick server rotate-key` | `admin` |
+
+From the Secrets page: store or replace a secret from a password field, whose value is cleared from the page as soon as the request is sent, and remove one — `shipwick secret set`, `shipwick secret rm`; both `admin`. From the Registries page: log the server in to a registry with a username and a password or token, which the agent checks against the registry before it stores anything, and log out — `shipwick registry login`, `shipwick registry logout`; both `admin`. From the Certificates page: add or replace a certificate by pasting its chain and its private key, which is cleared from the page as soon as it is sent, and remove one — `shipwick cert set`, `shipwick cert rm`; both `admin`. From the Volumes page: remove the volume of a deleted application — `shipwick volumes rm`, `admin`. And from the Tokens page, for admins: create a token, whose value is shown once, in the page, and never stored; and revoke one — `shipwick token create`, `shipwick token revoke`.
+
+The rollback dialog lists exactly the deployments that are valid targets: the ones that once served successfully and were replaced. "Run command" takes the command one argument per field, because the agent takes a list and never a shell string; the run is followed until it finishes and its output shown. A restore from a file is offered only while the application is stopped, checks that the file is a tar archive before uploading, and offers Start when the agent reports the volume restored.
+
+The Backups panel of an application with volumes lists the backups the server took, with the schedule and how the last one went. Verify restores a backup into scratch volumes and starts one container on them, beside the application; opening the backup shows the verdict and the container's output. From there an admin downloads a volume of it, removes it, or restores it, which is offered only while the application is stopped and is confirmed by typing the application's name. See [Back up and restore volumes](/docs/tasks/backups).
+
+On the Servers page, the Backups panel says where backups are kept, whether they are encrypted, and how the agent's own state is backed up; without `SHIPWICK_BACKUP_PASSPHRASE` it reads "Not backed up", and Back up state now is disabled. Export to backups writes an export of every application to where backups are kept and lists the ones kept there. A server that holds stopped applications from an export, or fetches exports on a schedule, has a Standby panel: the applications that wait, the scheduled fetch and how its last attempt went, Import newest now, and Promote, which asks you to type `promote` and answers with what was started and the DNS records to change. An import that is running is shown while it runs, with each application's outcome afterwards. See [Move to a new server](/docs/tasks/move-to-a-new-server).
+
+Rotate encryption key has the agent generate a new key and re-encrypt everything stored under it; nothing is deployed and nothing restarts. Where the key is set in the agent's environment, the new key is shown once, with the line to put into `/opt/shipwick/.env`. See [Rotate the encryption key](/docs/tasks/rotate-the-encryption-key).
+
+A deployment refused because a secret is not stored links to the Secrets page with the name filled in, and one whose image a registry refused links to the Registries page with the registry filled in.
 
 Controls the role does not cover are disabled with the reason. The roles are enforced by the agent, not by the page: a request the role does not cover is answered `403` whatever the browser sends, and the dashboard shows the agent's own explanation, such as "This token has the read role; deploying needs deploy or admin".
 
-The dashboard never submits a `deploy.yaml`, and uploads neither images nor static folders. An application's first deployment, and any change to its configuration other than the image, goes through `shipwick deploy`.
+Stopping or deleting an application waits as long as the agent does, which with a long `deploy.stop_timeout` can be minutes.
+
+The dashboard never submits a `deploy.yaml`, and uploads neither images nor static folders. An application's first deployment, and any change to its configuration other than the image, goes through `shipwick deploy`. What needs a file or a passphrase of your own stays with the CLI as well: `shipwick export` to a file, and `shipwick import`.
 
 ## How the dashboard handles the token
 
@@ -138,4 +171,5 @@ Behind your own reverse proxy, make sure it forwards `X-Forwarded-Proto`, so the
 - [Create tokens for CI and teammates](/docs/tasks/tokens): a `read` token for whoever only needs to look.
 - [Security](/docs/security) explains what a token is worth and how to protect it.
 - [Inspect applications and read logs](/docs/tasks/inspect-and-logs) covers the same ground from the terminal.
-- [Back up and restore volumes](/docs/tasks/backups), from the dashboard or with `shipwick backup`.
+- [Back up and restore volumes](/docs/tasks/backups), from the dashboard or with `shipwick backups` and `shipwick backup`.
+- [See what the proxy saw](/docs/tasks/traffic), [alerts and metrics](/docs/tasks/alerts-and-metrics), [certificates](/docs/tasks/certificates) and [private registries](/docs/tasks/private-registries): the same from the terminal.

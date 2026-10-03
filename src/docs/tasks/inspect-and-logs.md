@@ -1,13 +1,19 @@
 ---
 title: Inspect applications and read logs
-description: List applications, read an application's status, follow its logs, check the server, and stop, start or delete an application with shipwick.
+description: List applications, read an application's status with its certificates and backups, follow its logs, check the server, its disk and its alerts, open an application or the dashboard, and stop, start or delete an application with shipwick.
 ---
 
 # Inspect applications and read logs
 
-This page covers the `shipwick` commands that show what is running on a server — `ps`, `status`, `logs` and `server status` — and the ones that stop, start and delete an application.
+This page covers the `shipwick` commands that show what is running on a server — `ps`, `status`, `logs`, `server status` and `open` — and the ones that stop, start and delete an application. What the proxy served, as opposed to what the application printed, is on a page of its own: [See what the proxy served](/docs/tasks/traffic).
 
-Commands that take `[app]` default to the application named in `./deploy.yaml`. Outside that directory, name the application, or select another file with `--file`.
+Commands that take `[app]` default to the application named in `./deploy.yaml`. Outside that directory, name the application, or select another file with `--file`. In a directory with a `shipwick.yaml` and no `deploy.yaml`, `status`, `logs`, `stop`, `start`, `rollback`, `redeploy`, `run`, `jobs`, `open`, `backup` and `restore` take the name from that file when it describes one application. When it describes several, the command lists them and shows itself with a name:
+
+```text
+shipwick.yaml describes 2 applications: api, web
+
+Say which one, e.g.: shipwick status api
+```
 
 ## List applications
 
@@ -25,7 +31,7 @@ my-api   HEALTHY   1.4.2     2/2        api.example.com   2h ago
 | `STATUS` | The application's status, see below. `(deploying)` is appended while a deployment is in flight |
 | `VERSION` | The tag of the active deployment's image; the build's timestamp for an image built by `shipwick deploy`; the folder's digest for a static application |
 | `REPLICAS` | Healthy replicas / desired replicas; `static` for a folder the proxy serves itself |
-| `DOMAIN` | The public hostname, or `-` if the application has none |
+| `DOMAIN` | The public hostname, with the application's `path` when it serves only one part of it (`example.com/api`), or `-` if the application has none |
 
 ## Application status
 
@@ -48,21 +54,36 @@ An application that is being upgraded reads `HEALTHY`, not `DEGRADED`: during a 
 ```bash
 shipwick status            # the application in ./deploy.yaml
 shipwick status my-api
+shipwick status my-api --verbose   # also the certificates that are in order
 ```
 
-The output has four parts.
+The output has five parts.
 
-**Summary.** The status, the active version with its deployment number, the image, the URL, healthy replicas, live CPU and memory, the health check and the limits. An excerpt:
+**Summary.** The status, the active version with its deployment number, the image, the URL, healthy replicas, live CPU and memory, the health check, the limits and, for an application with volumes, its backups. An excerpt:
 
 ```text
 my-api  ● HEALTHY
 
+URL        https://api.example.com
 Replicas   2/2 healthy
 CPU        42% / 400%
 Memory     412 MB / 2 GB
 ```
 
-CPU is in percent of one core, as in `docker stats`: two replicas limited to `cpu: 2` each may use up to 400%. Memory is the working set, which is what the limit is enforced against. Without limits, only the usage is shown. See [Resources](/docs/concepts/resources). A static application has no containers: its summary reads `Files  42 files, 3.1 MB, served by the proxy` instead, and the parts below are left out.
+The URL is the domain with the application's `path` when it has one, `https://example.com/api`. CPU is in percent of one core, as in `docker stats`: two replicas limited to `cpu: 2` each may use up to 400%. Memory is the working set, which is what the limit is enforced against. Without limits, only the usage is shown. See [Resources](/docs/concepts/resources). A static application has no containers: its summary reads `Files  42 files, 3.1 MB, served by the proxy` instead, and the replicas are left out.
+
+An application with volumes has a `Backups` line: the schedule from `backups` in `deploy.yaml`, when the last backup was taken, its size and how many are kept, such as `daily at 03:00 UTC, last 2h ago (412 MB), 7 kept`. When the last one failed, the line says so with the reason and names the last good one; without a schedule and without a backup it reads `none`, with the command that takes one. See [Back up and restore volumes](/docs/tasks/backups).
+
+**Certificates.** One line for every hostname whose certificate is not in order, and why:
+
+```text
+HOSTNAME            CERTIFICATE
+www.example.com     waiting for DNS: does not resolve yet; add an A record: www.example.com → 62.238.109.115 (DNS only, not proxied)
+new.example.com     being obtained: the proxy has no certificate for it yet; HTTPS connections to it fail until it does
+old.example.com     expires in 9 days, on 2026-03-10 (Let's Encrypt E7)
+```
+
+When every certificate is in order there is no such table. `--verbose` (`-v`) lists those too, as `valid until 2026-06-01 (Let's Encrypt E7)`. What the three states mean, and what to do about each, is in [Use a certificate of your own](/docs/tasks/certificates#certificate-status).
 
 **Replicas.** One row per container.
 
@@ -84,7 +105,7 @@ DEPLOY   VERSION   STATUS       VIA      WHEN
 
 `VIA` says how the deployment came to be: `deploy`, `redeploy` or `rollback`. `ACTIVE` is the deployment that is running. `SUPERSEDED` deployments ran successfully and were replaced; they are the valid [rollback](/docs/tasks/roll-back) targets. `FAILED` attempts never touched the running version. `ROLLED_BACK` attempts failed part-way, and the previous version was restored. The last column holds the reason a deployment failed. The API and the [dashboard](/docs/tasks/dashboard) also record which token made each deployment, as `by`.
 
-**Events.** What the supervisor did recently, and why. This is the difference between "it is healthy" and "it is healthy now, after restarting four times tonight". The feed also holds what happened to the application by other hands: `Application stopped by ci` when a token other than the root token stops or starts it, `Volume data restored from a backup (412 MB)` after a [restore](/docs/tasks/backups), and the runs of [scheduled jobs](/docs/tasks/jobs) that went wrong — `Job nightly-report failed (exit 1)`, `Job cleanup timed out after 15m`, `Command rails could not run: …`. Runs that succeed record no event, since jobs run often; they are in `shipwick jobs`.
+**Events.** What the supervisor did recently, and why. This is the difference between "it is healthy" and "it is healthy now, after restarting four times tonight". The feed also holds what happened to the application by other hands: `Application stopped by ci` when a token other than the root token stops or starts it, `Volume data restored from a backup (412 MB)` after a [restore](/docs/tasks/backups), a certificate that was obtained or is running out, an [alert](/docs/tasks/alerts-and-metrics) raised or cleared, and the runs of [scheduled jobs](/docs/tasks/jobs) that went wrong — `Job nightly-report failed (exit 1)`, `Job cleanup timed out after 15m`, `Command rails could not run: …`. Runs that succeed record no event, since jobs run often; they are in `shipwick jobs`.
 
 ```text
 my-api  ● CRASH_LOOP
@@ -118,6 +139,14 @@ shipwick logs -f -t        # follow, with timestamps
 
 Logs are merged across replicas. When an application has more than one replica, each line is prefixed with its replica number, such as `[2]`. When following, each replica starts with its last `--tail` lines.
 
+An application that has printed nothing leaves the screen empty, which reads as a hang. In a terminal, `logs -f` therefore says once, after two seconds without a line, that it is following:
+
+```text
+Following my-api; nothing printed yet. Ctrl-C stops.
+```
+
+The note goes to standard error, so it does not end up in a file the logs are redirected to.
+
 `logs -f` ends by itself when the containers it follows are stopped or replaced, which is what a new deployment does:
 
 ```text
@@ -134,12 +163,16 @@ An application whose `deploy.yaml` ships its logs elsewhere with `logging` — `
 shipwick server status
 ```
 
-The command first checks that the agent is reachable. That check needs no token, so a wrong URL and a wrong token produce different errors. When more than one server is saved, the first line names the context the command used. It then prints the agent and CLI versions, the server's hostname, operating system, kernel and architecture, the Docker version, CPUs and memory, the number of applications and running containers, the state of the reverse proxy, whether notifications are configured, and which token you are using:
+The command first checks that the agent is reachable. That check needs no token, so a wrong URL and a wrong token produce different errors. When more than one server is saved, the first line names the context the command used. It then prints the agent and CLI versions, the server's hostname, operating system, kernel and architecture, the Docker version, CPUs and memory, the number of applications and running containers, the state of the reverse proxy, whether notifications are configured, which token you are using, the dashboard's address, how full the server's disk is, and the alerts that are active:
 
 ```text
 Proxy           ok  serving 3 domains
 Notifications   webhook configured
 Token           ci (deploy)
+Dashboard       https://dashboard.example.com
+Disk            35 GB of 40 GB used (87%)
+
+! The server's disk is 87% full (5 GB of 40 GB free). See what takes the space with: docker system df
 ```
 
 | `Proxy` | Meaning |
@@ -150,17 +183,26 @@ Token           ci (deploy)
 
 `Notifications` is `webhook configured` when `SHIPWICK_WEBHOOK_URL` is set on the agent and `none` otherwise; see [Get notified](/docs/tasks/notifications). `Token` is the name and role of the token the command was made with — `root (admin)` for the token the installer printed. It is the line to read when a command is refused for lack of a role; see [Create tokens for CI and teammates](/docs/tasks/tokens).
 
+`Dashboard` is the address the dashboard is served at, or `no hostname` when `SHIPWICK_DASHBOARD_DOMAIN` is not set on the agent. `Disk` is the server's disk as the agent measures it; the line is absent where it cannot. Below the fields, every active alert has a line of its own, `!` for a warning and `✗` for a critical one, in the agent's words: a replica close to its memory limit, a disk filling up, a replica that keeps restarting, an application that has not been healthy for a while. See [Alerts and metrics](/docs/tasks/alerts-and-metrics).
+
 If a command fails with "The agent does not know this operation", the agent is probably older than your `shipwick`. Compare the two versions here, or run `shipwick upgrade --check`, which compares them for you.
 
-`shipwick doctor` goes further: the versions against the latest release, the token, Docker on the server, the proxy, ports 80 and 443, and for every application's domain whether DNS points at the server and `https://` answers, one line each with what to do about it. See [Your first deployment](/docs/getting-started/first-deployment#when-the-domain-is-not-ready).
+`shipwick doctor` goes further: the versions against the latest release, the token, Docker on the server, the proxy, the active alerts, certificates you supplied that have expired or will within 30 days, whether the agent's own state is backed up, ports 80 and 443, and for every application's domain whether DNS points at the server and `https://` answers, one line each with what to do about it. A critical alert and an expired certificate count as problems. See [Your first deployment](/docs/getting-started/first-deployment#when-the-domain-is-not-ready).
 
 ## Open it in the browser
 
 ```bash
 shipwick open my-api
+shipwick open --dashboard
 ```
 
-Prints `Opening https://api.example.com` and hands the address to your default browser. An application without a domain is told where it can be reached instead: by name, from the other applications on the server.
+`shipwick open my-api` prints `Opening https://api.example.com` and hands the address to your default browser; an application with a `path` is opened at it, `https://example.com/api`. An application without a domain is told where it can be reached instead: by name, from the other applications on the server. One whose domain is a wildcard has no address of its own to open, and the command says so.
+
+`--dashboard` opens the dashboard, at the address `shipwick server status` shows. So does `shipwick open` without a name in a directory that has neither a `deploy.yaml` nor a `shipwick.yaml`. A server without a dashboard hostname answers:
+
+```text
+This server has no dashboard hostname. Set SHIPWICK_DASHBOARD_DOMAIN in /opt/shipwick/.env and run the installer again
+```
 
 ## Stop and start an application
 
@@ -191,5 +233,7 @@ It always wants the name spelled out and never reads it from `deploy.yaml`, so t
 ## What's next
 
 - The same information is in the [dashboard](/docs/tasks/dashboard), with CPU and memory updating live and a week of history behind them.
+- [See what the proxy served](/docs/tasks/traffic): `shipwick traffic`, for request rates, errors and durations.
+- [Use a certificate of your own](/docs/tasks/certificates): what the certificate lines of `shipwick status` mean.
 - [Run scheduled jobs and one-off commands](/docs/tasks/jobs): `shipwick jobs`, `shipwick run`, and where their output goes.
 - All flags are in the [shipwick reference](/docs/reference/cli).

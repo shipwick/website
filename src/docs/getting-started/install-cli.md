@@ -12,7 +12,7 @@ description: Install the Shipwick command-line client on a laptop or in CI, and 
 
 </div>
 
-The server installer already puts `shipwick` on the server. You only need this page for other machines. With the CLI on your laptop, the server itself can be installed from there: `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` runs the installer over SSH and logs you in; see [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
+The server installer already puts `shipwick` on the server, and since 0.5 signs it in to its own agent when the API has a hostname; see [On the server](#on-the-server). You only need this page for other machines. With the CLI on your laptop, the server itself can be installed from there: `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` runs the installer over SSH and logs you in; see [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
 
 ## Homebrew
 
@@ -136,6 +136,17 @@ In a script, pipe the token in:
 printf %s "$TOKEN" | shipwick login --url https://agent.example.com --token-stdin
 ```
 
+For a hostname whose DNS record or certificate does not exist yet, `--no-check` (since 0.5) saves the URL and the token as given, without a request to the agent:
+
+```bash
+printf %s "$TOKEN" | shipwick login --url https://agent.example.com --token-stdin --no-check
+```
+
+```text
+✓ Saved https://agent.example.com as context default in /home/you/.config/shipwick/config.yaml
+  not checked against the agent; try it with: shipwick server status
+```
+
 The config file is `<user config dir>/shipwick/config.yaml` — `~/.config/shipwick/config.yaml` on Linux. `login` prints the path it wrote. Set `SHIPWICK_CONFIG` to use another location.
 
 To confirm that the CLI reaches the agent:
@@ -153,6 +164,25 @@ shipwick doctor
 It prints one line per check with what to do about it, and exits non-zero when something is broken; see [Your first deployment](/docs/getting-started/first-deployment#when-the-domain-is-not-ready).
 
 CI jobs usually need no login at all: they set two environment variables instead. See [Deploy from CI](/docs/tasks/deploy-from-ci).
+
+## On the server
+
+Since 0.5 there is nothing to set up on the server itself when the API has a hostname. The installer saves `https://<agent hostname>` and the token as a context of the user who runs it, through `shipwick login --token-stdin --no-check`, and `shipwick ps` works there as it does on a laptop. The login is not checked against the agent because, on a new server, the hostname may have neither a DNS record nor a certificate yet; the commands work once it has both.
+
+- With no server saved for that user yet, the context is named `default`.
+- Run again, the installer puts the current token back into the context that points at this server, and leaves every other context, and which one is current, as they were. When another context is current, its summary shows the command with the context's name: `shipwick --context <name> ps`.
+- When the user has other servers saved and none of them is this one, nothing is changed, and the installer prints the command that adds it: `shipwick login --context here --url https://agent.example.com`.
+
+Without a hostname for the API nothing is saved: the agent publishes no port, so there is no address on the server to log in to. A command run there then says so instead of suggesting an SSH tunnel, which would lead nowhere on the server itself:
+
+```text
+cannot reach the Shipwick agent at http://127.0.0.1:9000
+  …
+
+The agent on this server publishes no port. Give it a hostname (SHIPWICK_AGENT_DOMAIN in /opt/shipwick/.env, then run the installer again), or see "Reach the API without a hostname" in the handbook, Installation.
+```
+
+The ways in without a hostname are in [Reach the API without a hostname](/docs/tasks/access-without-a-hostname).
 
 ## Several servers
 

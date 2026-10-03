@@ -1,11 +1,11 @@
 ---
 title: Health checks and supervision
-description: How the HTTP, TCP and command health checks work during and after a deployment, how the supervisor restarts replicas with backoff, what CRASH_LOOP means, how missing containers are reconciled, and when an application is reported down.
+description: How the HTTP, TCP and command health checks work during and after a deployment, how the supervisor restarts replicas with backoff, what CRASH_LOOP means, how missing containers are reconciled, when an application is reported down, and which alerts follow from what the supervisor sees.
 ---
 
 # Health checks and supervision
 
-Shipwick checks replicas while they are deployed and for as long as they run, over HTTP, over TCP or with a command inside the container, and restarts those that exit or stop answering. This page describes the three kinds of health check, the supervisor's restart and backoff rules, reconciliation of missing containers, the notifications an outage produces, and the application statuses that result.
+Shipwick checks replicas while they are deployed and for as long as they run, over HTTP, over TCP or with a command inside the container, and restarts those that exit or stop answering. This page describes the three kinds of health check, the supervisor's restart and backoff rules, reconciliation of missing containers, the notifications and alerts an outage produces, and the application statuses that result.
 
 ## The health check
 
@@ -97,7 +97,7 @@ After deployment, such a replica is healthy for as long as it runs. The supervis
 
 ### After deployment: continuous checking
 
-The supervisor probes every running replica every `interval`. A single failed probe changes nothing. After `retries` consecutive failures the replica is marked `unhealthy`, leaves the proxy's rotation, and is restarted. This is the classic cure for a deadlocked process. One passing probe resets the failure count.
+The supervisor probes every running replica every `interval`. A single failed probe changes nothing. After `retries` consecutive failures the replica is marked `unhealthy`, leaves the proxy's rotation, and is restarted. This is the classic cure for a deadlocked process. The restart stops the replica gracefully: `SIGTERM`, then its grace period, 10 seconds or the application's [`deploy.stop_timeout`](/docs/concepts/deployments#time-to-finish-the-grace-period), before it is killed. One passing probe resets the failure count.
 
 A replica that the supervisor has just restarted, or that was started with `shipwick start`, is `starting`. It gets its startup budget again, `start_period` included, before failures count, is probed every second meanwhile, and receives no traffic until its first passing check; a passed check counts at once. If the budget runs out, it becomes `unhealthy`.
 
@@ -208,15 +208,15 @@ A replica whose container no longer exists (removed with `docker rm`, by `docker
 - A recreated replica with a health check is `starting`: it receives no traffic until it has passed its check.
 - If recreation fails, for example because the image is gone and cannot be pulled again, the attempts back off on the same schedule as restarts.
 - If the image was pruned from the server, it is pulled again before the container is created.
-- Containers of the application that belong to any other deployment are leftovers, of an interrupted cleanup for instance, and are removed in the same pass. Job containers are not replicas and are left alone; they are removed when their run ends.
+- Containers of the application that belong to any other deployment are leftovers, of an interrupted cleanup for instance, and are removed in the same pass. A container that a deployment replaced and that is still using its grace period is not a leftover and is skipped. Job containers are not replicas and are left alone; they are removed when their run ends.
 
-Reconciliation is also what completes an application after an interrupted deployment or a failed rollback: the active deployment in the database says how many replicas there should be, and the supervisor makes it so.
+Reconciliation is also what completes an application after a failed rollback, or after a deployment that an agent restart interrupted and that could not be resumed: the active deployment in the database says how many replicas there should be, and the supervisor makes it so.
 
 ### What the supervisor remembers
 
-Health, backoff position and crash-loop flags live in the agent's memory. After an agent restart every replica starts with a clean slate and its health is `unknown` until probed. Only the restart counter is persisted, for display.
+Health, backoff position, crash-loop flags and the active [alerts](#alerts) live in the agent's memory. After an agent restart every replica starts with a clean slate and its health is `unknown` until probed, and an alert whose condition still holds is raised again. Only the restart counter is persisted, for display.
 
-Applications keep running while the agent is down or being upgraded, but nothing restarts them during that time. After a server reboot, the agent brings every application back up according to its restart policy.
+Applications keep running while the agent is down or being upgraded, but nothing restarts them during that time. After a server reboot, the agent brings every application back up according to its restart policy, and goes on with a deployment that the reboot interrupted; see [Agent restarts during a deployment](/docs/concepts/deployments#agent-restarts-during-a-deployment).
 
 ### Events
 
@@ -232,11 +232,11 @@ Replica 3's container shipwick_my-api_7_3 has disappeared
 Recreated replica 3
 ```
 
-Only the newest 500 events per application are kept. A stop or start made with a token other than root names it: `Application stopped by ci`. A scheduled job or one-off command that failed or timed out adds an event of type `job`; successful runs record nothing, since jobs run often.
+Only the newest 500 events per application are kept. A stop or start made with a token other than root names it: `Application stopped by ci`. A scheduled job or one-off command that failed or timed out adds an event of type `job`; successful runs record nothing, since jobs run often. An alert about the application adds an event of type `alert` when it is raised and when it is cleared, and a replaced container that had to be killed at the end of its grace period is reported here too.
 
 ### Notifications
 
-With `SHIPWICK_WEBHOOK_URL` set on the agent, the supervisor reports two things about an application, and nothing else:
+With `SHIPWICK_WEBHOOK_URL` set on the agent, the supervisor reports two things about an application at once:
 
 | Event | When |
 |---|---|
@@ -244,6 +244,19 @@ With `SHIPWICK_WEBHOOK_URL` set on the agent, the supervisor reports two things 
 | `application.recovered` | Every desired replica is ready and none has a restart still held against it. The message reads `my-api is healthy again: 2/2 replicas running 1.4.2`. |
 
 *Recovered* is stricter than *not down* on purpose. A crash-looping replica runs for a moment between crashes; if that counted as a recovery, every restart would produce one outage and one recovery. The restarts are forgiven after the stable run of 60 seconds described above, and that is when the recovery is reported: one outage and one recovery per incident. A single replica restarting is in the event feed, not in the webhook. Failed jobs are reported as `job.failed`. See [Get notified](/docs/tasks/notifications).
+
+### Alerts
+
+A notification says that something happened. An alert says that something is the case and, left alone, ends badly. Since 0.5 two alerts are raised from what the supervisor sees in its tick:
+
+| Alert | Raised when | Cleared when |
+|---|---|---|
+| `restarts` | The supervisor has restarted the same replica three times within ten minutes. Held back, neither raised nor cleared, while the application is down or the replica crash-looping: the outage has been reported, and three restarts are how every outage begins. | Fewer than three restarts in the last ten minutes. |
+| `unhealthy` | An application has had fewer healthy replicas than it should for five minutes: a warning. After an hour: critical. | Every replica is healthy and has stayed up for a minute. |
+
+Healthy here is the definition *recovered* uses: every replica ready and none with a restart still held against it. A crash-looping replica, up for a moment between crashes, therefore neither ends the unhealthy period nor restarts its five minutes. `application.down` and `application.recovered` are sent at once, as before; `unhealthy` is what follows when the outage lasts, and it also covers an application that is only degraded, which nothing else reports.
+
+Each alert is raised once and cleared once, however long it lasts; a warning that turns critical is told a second time. Alerts go to the webhook as `alert.raised` and `alert.cleared`, into the application's events, and into `alerts` of `GET /server`. Stopping or deleting an application drops its alerts without a message. The other two alerts, a replica close to its memory limit and the server's disk filling up, are read from the metric samples; all four, with their thresholds and where they show, are in [Alerts and metrics](/docs/tasks/alerts-and-metrics).
 
 ## Application status
 

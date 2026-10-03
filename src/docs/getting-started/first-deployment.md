@@ -1,6 +1,6 @@
 ---
 title: Your first deployment
-description: Let shipwick init write a Dockerfile and a deploy.yaml, deploy with the image built on your machine, watch a rolling update, and see what a failed deployment looks like.
+description: Let shipwick init write a Dockerfile and a deploy.yaml, deploy with the image built on your machine, watch a rolling update that sends only the layers that changed, and see what a failed deployment looks like.
 ---
 
 # Your first deployment
@@ -17,16 +17,24 @@ In your application's repository:
 shipwick init
 ```
 
-`init` looks at the directory first. A Nuxt or Next application, a Node server (Express, Fastify, Koa, Hono, or a `start` script), a .NET project, a Go program or a Python application gets a multi-stage `Dockerfile` on a small runtime image with a non-root user and the port exposed, a `.dockerignore`, and a `deploy.yaml` with `build: .`:
+`init` looks at the directory first. A Nuxt or Next application, a SvelteKit application with `adapter-node`, a Remix application, an Astro application with the Node adapter, a Node server (Express, Fastify, Koa, Hono, or a `start` script), a .NET project, a Go program or a Python application gets a multi-stage `Dockerfile` on a small runtime image with a non-root user and the port exposed, a `.dockerignore`, and a `deploy.yaml` with `build: .`:
 
 ```text
-✓ Recognised a Node application
+✓ Recognised a Node.js application
 ✓ Wrote Dockerfile, .dockerignore and deploy.yaml
 
 Review them, then run: shipwick deploy
 ```
 
-A `Dockerfile` or `.dockerignore` you already have is kept and said so: `Kept the existing Dockerfile; build: . will use it`. A folder of static files, or a Vite or Astro project that builds one, gets `static: dist/` and no Dockerfile, since the proxy serves the files itself; a static site needs `--domain`, because the folder is served at that hostname and nothing else describes it. Nothing recognised: `init` asks for a name (the default is the directory name), an image, a port and a domain.
+The Dockerfile installs from the lock file it finds: npm, pnpm or yarn for a Node project, `uv sync --frozen` for a Python project with a `uv.lock`. A Node project without a lock file gets `npm install` and a warning:
+
+```text
+! no lock file: the Dockerfile installs with npm install, and the build is not reproducible until package-lock.json is committed
+```
+
+A `Dockerfile` or `.dockerignore` you already have is kept and said so: `Kept the existing Dockerfile; build: . will use it`. A folder of static files — an `index.html` at the root or in `dist/`, `build/`, `out/` or `public/` — and a project whose build writes one — Vite, Astro without an adapter, SvelteKit with `adapter-static`, Next with `output: "export"` — gets `static` and no Dockerfile, since the proxy serves the files itself; see [A folder instead of a container](#a-folder-instead-of-a-container). A static site needs `--domain`, because the folder is served at that hostname and nothing else describes it. A SvelteKit project with neither adapter is refused, with the two adapters to choose from. Nothing recognised: `init` asks for a name (the default is the directory name), an image, a port and a domain.
+
+SvelteKit, Remix, Astro with the Node adapter, the exported Next site and uv are recognised since 0.5.
 
 Two flags skip the detection. `--image` writes a `deploy.yaml` for an image that exists already and never prompts, which suits scripts; `--static <dir>` names the folder to serve:
 
@@ -35,7 +43,7 @@ shipwick init --name my-api --image ghcr.io/company/my-api:1.4.1 --port 8080 --d
 shipwick init --static dist --domain example.com
 ```
 
-`init` refuses to overwrite an existing `deploy.yaml` unless you pass `--force`; a Dockerfile is never overwritten. In a directory without a `deploy.yaml`, `shipwick deploy` runs `init` first when a terminal is attached, so the first deployment is one command.
+`init` refuses to overwrite an existing `deploy.yaml` unless you pass `--force`; a Dockerfile is never overwritten. In a directory without a `deploy.yaml`, `shipwick deploy` runs `init` first when a terminal is attached, so the first deployment is one command. In a directory that has a `shipwick.yaml` instead, `init` adds an entry to that file; see [`shipwick init`](/docs/reference/cli#init).
 
 ## Review deploy.yaml
 
@@ -107,9 +115,9 @@ restart:
 
 Only `name` and `image`, or `build` in its place, are required. With `build: .`, every deployment builds the image afresh and its version is the build's timestamp; with `image:`, the tag is the version, so pin a version tag rather than `latest`. A value that must not be in the file, such as a password, is written as `${NAME}` and filled in when you deploy: by `shipwick` from its environment or an `--env-file`, or by the server from a secret stored once with `shipwick secret set NAME`.
 
-For this walk-through, set `domain: api.example.com`, `replicas: 2`, and uncomment the `health` block with `path: /health`. Two replicas make the rolling update visible, and a health check is what lets Shipwick tell a working version from a broken one. Without a `health` block, a deployment only verifies that replicas start and stay up for a few seconds. For a Nuxt or Next application `init` writes `health: {path: /}` live, since those answer their root. Leave the rest commented out; migrations, scheduled jobs and the other options have pages of their own.
+For this walk-through, set `domain: api.example.com`, `replicas: 2`, and uncomment the `health` block with `path: /health`. Two replicas make the rolling update visible, and a health check is what lets Shipwick tell a working version from a broken one. Without a `health` block, a deployment only verifies that replicas start and stay up for a few seconds. For a Nuxt, Next, SvelteKit, Remix or Astro application `init` writes `health` with `path: /` live, since those answer their root. Leave the rest commented out; migrations, scheduled jobs and the other options have pages of their own.
 
-The DNS record for `domain` should point at the server: an `A` record with the server's address, DNS only, not proxied. If it does not yet, the deployment still succeeds and tells you which record to create, as shown below. Every field is described in the [deploy.yaml reference](/docs/reference/deploy-yaml).
+The DNS record for `domain` should point at the server: an `A` record with the server's address, DNS only, not proxied, unless the agent has a Cloudflare API token; see [Put Cloudflare in front of the server](/docs/tasks/cloudflare). If it does not yet, the deployment still succeeds and tells you which record to create, as shown below. Every field is described in the [deploy.yaml reference](/docs/reference/deploy-yaml).
 
 ## Validate
 
@@ -154,15 +162,26 @@ resources.memory:
 shipwick deploy
 ```
 
-With `build: .`, `deploy` runs `docker build` on your machine, for the server's architecture, tags the result `shipwick.local/<name>:<timestamp>`, sends it to the agent and deploys it. Docker must be installed where you run the command; the server never builds. The build's own output is shown dimmed. On a first deployment there is nothing to replace, so all replicas start together:
+With `build: .`, `deploy` runs `docker build` on your machine, for the server's architecture, tags the result `shipwick.local/<name>:<timestamp>`, sends it to the agent and deploys it. Docker must be installed where you run the command; the server never builds.
+
+Before it builds, `deploy` has the agent validate the file, so that what only the server can know — a domain another application serves, a port already published, a secret that is not stored — is said before the build and the upload, not after them.
+
+In a terminal the build is one line that moves, with the time and the last line `docker build` printed:
+
+```text
+… Building the image (12s) — #9 [build 4/6] RUN npm ci
+```
+
+Its whole output appears only when the build fails. `shipwick deploy --verbose` shows the command and every line as it is printed, dimmed, and so does a run whose output is not a terminal, such as a pipeline.
+
+On a first deployment there is nothing to replace, so all replicas start together:
 
 ```text
 Deploying my-api...
 
 ✓ Validated deploy.yaml
-$ docker build --platform linux/amd64 -f Dockerfile -t shipwick.local/my-api:20260927-153000-a1b2 .
 ✓ Built shipwick.local/my-api:20260927-153000-a1b2 for linux/amd64
-✓ Sent image to the server (68.8 MB)
+✓ Sent image to the server (57.9 MB)
 ✓ Using image shipwick.local/my-api:20260927-153000-a1b2, sent from a developer's machine
 ✓ Started 2 containers
 ✓ 2 replicas passed health checks
@@ -174,20 +193,21 @@ my-api 20260927-153000-a1b2  deployed in 8.2s
 https://api.example.com
 
 Next:
-  shipwick logs -f my-api      follow the logs
-  shipwick status my-api       replicas, health, history
+  shipwick logs -f my-api          follow the logs
+  shipwick status my-api           replicas, health, history
+  https://dashboard.example.com    the dashboard
 ```
 
 <div class="wick-note">
 <img src="/img/wick-check.svg" alt="Wick, the Shipwick flame, with a green check: the deployment succeeded" width="64" height="64">
 
-<p>With <code>image:</code> the build lines are one <code>✓ Pulled image ghcr.io/company/my-api:1.4.1</code>. Either way a summary follows: the version, how long the deployment took, how many replicas are healthy, and the URL; a first deployment ends with the two commands to run next. Caddy obtains the certificate for the domain on the first request.</p>
+<p>With <code>image:</code> the build lines are one <code>✓ Pulled image ghcr.io/company/my-api:1.4.1</code>. Either way a summary follows: the version, how long the deployment took, how many replicas are healthy, and the URL; a first deployment ends with the two commands to run next, and with the dashboard's address when the server has one. Caddy obtains the certificate for the domain on the first request.</p>
 
 </div>
 
 Pressing Ctrl+C while `deploy` waits stops the waiting, not the deployment.
 
-`shipwick.local` is a host that does not exist, on purpose: nothing can pull such an image, so it is either on the server or it is not. The whole image is sent each time.
+`shipwick.local` is a host that does not exist, on purpose: nothing can pull such an image, so it is either on the server or it is not. The first deployment sends the whole image; later ones send only the layers the server does not have, as shown under [Deploy a new version](#deploy-a-new-version).
 
 ## When the domain is not ready
 
@@ -197,7 +217,7 @@ Deploying before the DNS record exists is fine. The deployment succeeds, and ins
 ! Routing https://api.example.com is waiting for DNS: does not resolve yet; add an A record: api.example.com → 203.0.113.10 (DNS only, not proxied). It is served, and its certificate obtained, once the record points at this server
 ```
 
-When the server has an IPv6 address, an `AAAA` record is named too. A record that points at another server is told to change; one that points at Cloudflare's proxy is told to turn the proxy off for the record (`DNS only`), because the record itself is right and the orange cloud is what breaks the certificate. The agent checks again every 10 seconds and starts serving the hostname as soon as the record is right. See [DNS first](/docs/concepts/routing-and-https#dns-first) for why.
+When the server has an IPv6 address, an `AAAA` record is named too. A record that points at another server is told to change; one that points at Cloudflare's proxy is told to turn the proxy off for the record (`DNS only`) or to set `SHIPWICK_CLOUDFLARE_API_TOKEN` on the agent to keep it on. With that token Caddy obtains certificates through a DNS record, and a proxied hostname is served instead of held back; see [Put Cloudflare in front of the server](/docs/tasks/cloudflare). The agent checks again every 10 seconds and starts serving the hostname as soon as the record is right. See [DNS first](/docs/concepts/routing-and-https#dns-first) for why.
 
 When something is not right — no certificate arrives, a domain shows someone else's page — `shipwick doctor` checks the whole path in one screen, each line with what to do about it, and exits non-zero when something is broken:
 
@@ -214,13 +234,13 @@ shipwick doctor
 ✓ agent.example.com → 203.0.113.10
 ✓ Port 80 open on 203.0.113.10
 ✗ Port 443 is not reachable on 203.0.113.10: open it in the server's firewall; certificates are issued and renewed through ports 80 and 443
-✗ api.example.com → 104.16.0.1, which is not the server (203.0.113.10). Point the record at the server; if it is proxied through a CDN, turn the proxy off (DNS only)
+✗ api.example.com resolves to Cloudflare's proxy (104.16.0.1), not to the server: turn the proxy off for this record (DNS only), or set SHIPWICK_CLOUDFLARE_API_TOKEN on the agent to keep it on
 ✓ https://api.example.com/ answers HTTP 200
 
 2 problems found.
 ```
 
-Hostnames are resolved through public resolvers, as the agent does; the server's address is the one the agent's own hostname resolves to, so through an SSH tunnel the ports and the records' targets are not checked.
+Hostnames are resolved through public resolvers, as the agent does; the server's address is the one the agent's own hostname resolves to, so through an SSH tunnel the ports and the records' targets are not checked. `doctor` also prints the server's active [alerts](/docs/tasks/alerts-and-metrics), a disk that is filling up for one; a critical alert counts as a problem.
 
 ## Look at what is running
 
@@ -233,7 +253,7 @@ shipwick open       # open https://api.example.com in the browser
 
 Run in the directory that holds `deploy.yaml`, these commands act on the application named in it. Elsewhere, name the application: `shipwick status my-api`. More in [Inspect applications and read logs](/docs/tasks/inspect-and-logs).
 
-The same is in the [dashboard](/docs/tasks/dashboard), if the server has one: the application's page follows a deployment live, whether it was started from `shipwick`, from CI or from the dashboard itself, and its history shows which token made each deployment. An application with `build:` says there that its image is built by `shipwick deploy`.
+The same is in the [dashboard](/docs/tasks/dashboard), if the server has one; `shipwick open --dashboard` opens it, and `shipwick server status` shows its address. The application's page follows a deployment live, whether it was started from `shipwick`, from CI or from the dashboard itself, and its history shows which token made each deployment. An application with `build:` says there that its image is built by `shipwick deploy`.
 
 ## Deploy a new version
 
@@ -248,7 +268,7 @@ Deploying my-api...
 
 ✓ Validated deploy.yaml
 ✓ Built shipwick.local/my-api:20260927-160512-c3d4 for linux/amd64
-✓ Sent image to the server (68.8 MB)
+✓ Sent image to the server (22 KB; the server had the rest of 57.9 MB)
 ✓ Using image shipwick.local/my-api:20260927-160512-c3d4, sent from a developer's machine
 ✓ Started 1 container
 ✓ Replica 1 passed health checks
@@ -263,7 +283,9 @@ my-api 20260927-160512-c3d4  deployed in 15.0s
 https://api.example.com
 ```
 
-This is a rolling update. Replicas are replaced one at a time. Each new replica must pass its health check before it joins the rotation, and the old replica it replaces leaves the rotation before it is stopped. There is never more than one container above the desired count, and serving capacity never drops below it.
+Only the layers the server does not have were sent: the CLI asks the agent which of the image's layers it lacks and leaves the others out, so a change to your code costs the size of the layer that holds it, not of the base image beneath it. If that cannot be done, with an agent older than 0.5 for instance, the whole image is sent as before.
+
+This is a rolling update. Replicas are replaced one at a time. Each new replica must pass its health check before it joins the rotation, and the old replica it replaces is sent `SIGTERM` only after that and gets a grace period to finish its requests. There is never more than one container above the desired count, and serving capacity never drops below it. The deployment is done when every new replica serves; it does not wait for the last replaced container to exit.
 
 For a moment both versions serve side by side, so the two must be able to coexist. Database migrations, above all, must be backward compatible. [Deployments](/docs/concepts/deployments) explains the mechanism in full.
 
@@ -305,17 +327,23 @@ Every attempt, failed or not, is kept in the history that `shipwick status` show
 
 ## A folder instead of a container
 
-A built frontend — the `dist/` of a Vite or Nuxt site, the `out/` of a Next export, any folder of HTML, CSS and JavaScript — needs no container. `shipwick init --domain example.com` in such a project writes:
+A built frontend — the `dist/` of a Vite or Nuxt site, the `out/` of a Next export, any folder of HTML, CSS and JavaScript — needs no container. `shipwick init --domain example.com` in a project built by Vite writes:
 
 ```yaml
 name: web
+
 # A folder served by the proxy as it is: no image, no container, no port.
 # It is what `npm run build` produces; run that before `shipwick deploy`.
-static: dist/
+# A single-page application: a path that names no file gets index.html.
+static: {dir: dist/, fallback: index.html}
+
+# Served over HTTPS automatically.
 domain: example.com
 ```
 
-`shipwick deploy` uploads the folder as it is and the proxy serves it:
+Vite alone builds one page and routes in the browser, so `init` writes the `fallback`: every path that names no file is answered with that page and status 200. A project that builds a file for every page, such as Astro, gets the plain `static: dist/`, and a path that names no file is a `404`.
+
+`shipwick deploy` uploads the folder as it is, after the agent has validated the file, and the proxy serves it:
 
 ```text
 ✓ Validated deploy.yaml
@@ -327,7 +355,7 @@ domain: example.com
 ✓ Deployment successful
 ```
 
-The folder must hold an `index.html`; a request for a path that names no file is a `404`. The version of a static deployment is the first twelve characters of the folder's digest, so the same files make the same version on any machine, and a rollback re-uses the kept folder without an upload. See [`static`](/docs/reference/deploy-yaml#static) in the reference.
+The folder must hold an `index.html`, and the `fallback` page when one is named. A first deployment of a folder ends with `shipwick open web` in place of the logs command, since a static application has no logs. The version of a static deployment is the first twelve characters of the folder's digest, so the same files make the same version on any machine, and a rollback re-uses the kept folder without an upload. See [`static`](/docs/reference/deploy-yaml#static) in the reference.
 
 ## What's next
 

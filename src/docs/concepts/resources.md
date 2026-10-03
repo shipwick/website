@@ -1,11 +1,11 @@
 ---
 title: Resource limits and metrics
-description: How cpu and memory limits are written, parsed and applied to containers, what happens at the limit, how CPU and memory usage are measured and reported, and how a week of history is sampled and served.
+description: How cpu and memory limits are written, parsed and applied to containers, what happens at the limit and what is said before it, how CPU and memory usage are measured and reported, how a week of history is sampled and served, and what the agent exposes to Prometheus.
 ---
 
 # Resource limits and metrics
 
-`resources` in `deploy.yaml` sets CPU and memory limits per replica, and the agent reports usage against them, live and over the last week. This page describes the units and parsing rules, the Docker settings the limits become, what happens at the limit, how metrics are measured, and how the history is sampled, stored and served.
+`resources` in `deploy.yaml` sets CPU and memory limits per replica, and the agent reports usage against them, live and over the last week. This page describes the units and parsing rules, the Docker settings the limits become, what happens at the limit and the alert that comes before it, how metrics are measured, how the history is sampled, stored and served, and the same numbers in the Prometheus format.
 
 ## Limits
 
@@ -70,6 +70,16 @@ resources.memory:
 - `shipwick status` shows the container's state as `out of memory`, and the API reports `oom_killed: true` for it.
 
 A replica that is killed repeatedly goes through the usual backoff and ends in `CRASH_LOOP`. See [Health checks and supervision](/docs/concepts/health-and-supervision).
+
+### Before the limit is hit
+
+Since 0.5 a replica that stays at or above 90% of its `resources.memory` for three samples in a row, a minute and a half, raises the `memory` alert, and clears it below 80%:
+
+```text
+my-api replica 1 is at 93% of its memory limit (240 MB of 256 MB). At the limit it is killed and restarted; raise resources.memory in deploy.yaml, or watch it with: shipwick status my-api
+```
+
+The alert goes to the webhook, into the application's events and into `shipwick server status`. It is decided from the samples of the [history](#history), not from a second reading, and an application without a memory limit has no such alert. The threshold is `SHIPWICK_ALERT_MEMORY_PERCENT` on the agent. The same samples watch the server's disk, which `GET /server` and `shipwick server status` report. See [Alerts and metrics](/docs/tasks/alerts-and-metrics).
 
 ## Metrics
 
@@ -166,3 +176,15 @@ The rows are raw and aggregation happens on read, in SQL. A week of 30-second sa
 Each point aggregates the samples of one step: `cpu_percent` is their average, `memory_bytes` their peak, `at` is the start of the step. A step in which a replica has no sample, because it was not running or the agent was down, has no point: the series are sparse, never zero-filled or interpolated, so a gap in the chart is a gap in the record. Any other value of `since` is `400 INVALID_REQUEST`; an application with no active deployment answers `409 NOT_DEPLOYED`.
 
 `limits` are the active deployment's per-replica limits as written in `deploy.yaml`, `cpu` in cores and `memory_bytes` in bytes, `0` when unlimited. The dashboard draws the CPU limit line at `cpu × 100`, in the same unit as the points, one line per replica, and refreshes every 30 seconds, the sampling interval. Replica *n* keeps series color *n*, as in the log viewer.
+
+## Prometheus
+
+Since 0.5 the agent serves what it knows at `GET /metrics`, in the Prometheus text format, to a token of the `read` role: each application's status and replica counts, each replica's CPU, memory, memory limit and restarts, deployments by outcome and the duration of the last one, the disk, and the active alerts.
+
+```text
+shipwick_replica_cpu_ratio{application="my-api",replica="1"} 0.21
+shipwick_replica_memory_bytes{application="my-api",replica="1"} 2.16006656e+08
+shipwick_replica_memory_limit_bytes{application="my-api",replica="1"} 1.073741824e+09
+```
+
+A scrape costs the server next to nothing: it reads the agent's database and what the supervisor and the sampler last saw, and never asks Docker. CPU and memory are therefore those of the last 30-second sample, not a live reading, and the units differ from the JSON endpoints above: `shipwick_replica_cpu_ratio` is in cores, where 1 is one core kept busy and `cpu_percent` would read 100. `shipwick_replica_memory_limit_bytes` is absent for a replica without a limit, and a replica without a sample in the last 75 seconds, stopped or started less than a minute ago, has no CPU and memory series. The scrape configuration and every series are in [Alerts and metrics](/docs/tasks/alerts-and-metrics#scrape-the-agent-with-prometheus) and under [`GET /metrics`](/docs/reference/api#get-metrics) in the API reference.

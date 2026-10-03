@@ -1,11 +1,11 @@
 ---
 title: Get notified
-description: Post the outcome of every deployment, an application that goes down or recovers, and a job that fails to Slack, Discord or your own HTTPS endpoint, with a signed payload and retries that never hold up a deployment.
+description: Post the outcome of every deployment, an application that goes down or recovers, a job or a scheduled backup that fails, a certificate that is running out, and alerts raised and cleared to Slack, Discord or your own HTTPS endpoint, with a signed payload and retries that never hold up a deployment.
 ---
 
 # Get notified
 
-The agent can tell you when something happened that you would act on: a deployment succeeded, failed or was rolled back, an application stopped serving or came back, a job failed. This page shows how to point the agent at a webhook, what Slack and Discord receive, what any other endpoint receives, when each of the six events fires and what does not notify, how to verify the signature, and how delivery behaves when the endpoint is slow or down.
+The agent can tell you when something happened that you would act on: a deployment succeeded, failed or was rolled back, an application stopped serving or came back, a job or a scheduled backup failed, a certificate is running out, an alert was raised or cleared. This page shows how to point the agent at a webhook, what Slack and Discord receive, what any other endpoint receives, when each of the ten events fires and what does not notify, how to verify the signature, and how delivery behaves when the endpoint is slow or down.
 
 ## Before you begin
 
@@ -74,13 +74,14 @@ Every other URL receives the same sentence with the facts beside it, as JSON:
 
 | Field | |
 |---|---|
-| `event` | One of the six kinds below |
-| `application` | The application's name |
-| `deployment_id` | The deployment the event is about; `null` for `job.failed`, which is not about one |
-| `version` | The version concerned: the one deployed, failed, restored, running or whose job failed |
+| `event` | One of the ten kinds below |
+| `application` | The application's name. Empty when the event is about the server: a `disk` alert, or a failed backup of the agent's own state |
+| `deployment_id` | The deployment the event is about; `null` for the events that are not about one: `job.failed`, `backup.failed`, `certificate.expiring` and the two alert events |
+| `version` | The version concerned: the one deployed, failed, restored, running, or whose job or backup failed. Empty for alerts and `certificate.expiring` |
 | `message` | The sentence a chat destination would get |
 | `at` | When it happened, UTC, to the second |
 | `server` | The hostname of the server the agent runs on |
+| `alert` | On `alert.raised` and `alert.cleared` only, absent from every other event: which condition it is about. See [Alerts](#alerts) |
 
 The request is a `POST` with `Content-Type: application/json` and `User-Agent: shipwick-agent/<version>`. Any `2xx` counts as delivered.
 
@@ -94,10 +95,47 @@ The request is a `POST` with `Content-Type: application/json` and `User-Agent: s
 | `application.down` | Not one replica of a running application is ready: none running, or all failing the health check | `my-api is down: none of its 2 replicas is running. Shipwick restarts it as restart.policy allows; see why with: shipwick logs my-api` |
 | `application.recovered` | After `application.down`, every desired replica is ready again and none has a restart still held against it, which takes a minute of running | `my-api is healthy again: 2/2 replicas running 1.4.2` |
 | `job.failed` | A scheduled job, a one-off command or a pre-deploy hook failed or timed out | `my-api: Job nightly-report failed (exit 1). Its output: shipwick jobs logs my-api nightly-report` |
+| `backup.failed` | A scheduled backup did not succeed: one of an application's volumes, under [`backups`](/docs/reference/deploy-yaml#backups) in `deploy.yaml`, or the daily one of the agent's own state. A backup taken by hand that fails tells the person who asked, and nobody else | `postgres: the scheduled backup failed: <why>. See its backups with: shipwick backups postgres`, or `The backup of the agent's own state failed: <why>. The encryption key exists only on the server until one succeeds; see: shipwick doctor` |
+| `certificate.expiring` | A hostname's certificate has 14 days left, and once more at 3. The proxy renews long before that, so this means renewal is failing, or the certificate is one you supplied | `my-api: the certificate for api.example.com expires in 13 days, on 2026-03-15. The proxy renews certificates by itself, so renewal is failing; its log says why: docker logs shipwick-caddy-1` |
+| `alert.raised` | A condition that, left alone, ends badly has become true: a replica close to its memory limit, the server's disk filling up, a replica that keeps being restarted, an application that stays unhealthy. Sent once, and once more when a warning turns critical | `my-api replica 1 is at 93% of its memory limit (240 MB of 256 MB). At the limit it is killed and restarted; raise resources.memory in deploy.yaml, or watch it with: shipwick status my-api` |
+| `alert.cleared` | The condition no longer holds. Sent once | `my-api replica 1 is back at 71% of its memory limit (182 MB of 256 MB)` |
 
-Nothing else is ever sent. A single replica restarting, one failed health check, a crash loop that has not taken the last replica down, `shipwick stop` and `start`, a successful job: all of it is in the application's event feed and in `shipwick status`, not in your chat. An application stopped on request is not down; it is stopped, and the supervisor does not watch it until it is started again.
+The last four exist since 0.5. Nothing else is ever sent. A single replica restarting, one failed health check, a crash loop that has not taken the last replica down, `shipwick stop` and `start`, a successful job or backup: all of it is in the application's event feed and in `shipwick status`, not in your chat. An application stopped on request is not down; it is stopped, and the supervisor does not watch it until it is started again.
 
 The recovery rule is strict on purpose. A replica that crash-loops runs for a moment between crashes; reporting that moment as a recovery would produce a recovery and a new outage at every restart. The recovery is reported once the replicas have run long enough for their restarts to be forgiven, as described in [Health checks and supervision](/docs/concepts/health-and-supervision#the-stable-run-rule).
+
+`certificate.expiring` is told when the state is entered and once more at 3 days. For a certificate that lives less than 56 days the state is entered in the last quarter of its lifetime instead. A certificate supplied with `shipwick cert set` is not renewed by the proxy, and its message ends with the command that replaces it. The agent keeps what it has warned about in memory, so an agent restart warns again. See [Use a certificate of your own](/docs/tasks/certificates).
+
+### Alerts
+
+An alert is a condition with a beginning and an end, not an occurrence: it is told once when it becomes true and once when it stops, and never in between. There are four kinds, described with their thresholds in [Alerts and metrics](/docs/tasks/alerts-and-metrics). In the JSON form the two events carry one more field:
+
+```json
+{
+  "event": "alert.raised",
+  "application": "my-api",
+  "deployment_id": null,
+  "version": "",
+  "message": "my-api replica 1 is at 93% of its memory limit (240 MB of 256 MB). …",
+  "at": "2026-03-01T09:58:00Z",
+  "server": "vps-1",
+  "alert": { "kind": "memory", "severity": "warning", "replica": 1 }
+}
+```
+
+| Field | |
+|---|---|
+| `alert.kind` | `memory`, `disk`, `restarts` or `unhealthy` |
+| `alert.severity` | `warning` or `critical`; only `disk` and `unhealthy` become critical. `alert.cleared` carries the severity the alert had |
+| `alert.replica` | The replica a `memory` or `restarts` alert is about; `0` for `unhealthy` and `disk` |
+
+`application` is empty for a `disk` alert, which is about the server. Three rules keep alerts from repeating what was already said:
+
+- **A warning that turns critical is raised a second time; stepping back down a level tells nobody.** Only raising, turning critical and clearing are sent.
+- **The `restarts` alert is held while the application is down or the replica crash-looping.** The outage has been reported as `application.down`, and three restarts are how every outage begins.
+- **When an application that was reported down recovers, its `unhealthy` alert is cleared in the event feed only.** `application.recovered` is sent at the same moment and says the same thing.
+
+Stopping or deleting an application drops its alerts without a message. Active alerts are kept in the agent's memory: after the agent restarts, one whose condition still holds is raised again.
 
 ## Verify the signature
 
@@ -120,4 +158,6 @@ where `<hex>` is the HMAC-SHA256 of the request body, keyed with the secret, in 
 
 - [`SHIPWICK_WEBHOOK_URL` and `SHIPWICK_WEBHOOK_SECRET`](/docs/reference/agent-configuration#environment-variables) in the agent configuration reference.
 - [Health checks and supervision](/docs/concepts/health-and-supervision): what the supervisor does between `application.down` and `application.recovered`.
+- [Alerts and metrics](/docs/tasks/alerts-and-metrics): the four alerts, their thresholds, and where else they show.
 - [Run scheduled jobs and one-off commands](/docs/tasks/jobs): where `job.failed` comes from.
+- [Back up and restore volumes](/docs/tasks/backups): where `backup.failed` comes from.

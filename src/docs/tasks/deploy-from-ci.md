@@ -5,12 +5,12 @@ description: Deploy from a pipeline with the shipwick/deploy GitHub Action or th
 
 # Deploy from CI
 
-This page shows how to deploy from a pipeline: create a token for it, keep `deploy.yaml` in the repository, pass the image the pipeline built, supply secrets, run migrations before the new version starts, and let the outcome of the deployment decide whether the job passes. On GitHub, the `shipwick/deploy` action does it in one step; anywhere else, the CLI does the same in two lines.
+This page shows how to deploy from a pipeline: create a token for it, keep `deploy.yaml` in the repository, pass the image the pipeline built or build it on the runner, supply secrets, run migrations before the new version starts, and let the outcome of the deployment decide whether the job passes. On GitHub, the `shipwick/deploy` action does it in one step; anywhere else, the CLI does the same in two lines.
 
 ## Before you begin
 
 - The agent's API must be reachable from the CI runner. The usual way is to serve it over HTTPS by giving the agent a hostname (`SHIPWICK_AGENT_DOMAIN`), as described in [Install Shipwick on a server](/docs/getting-started/install).
-- The image comes from a registry the server can pull from, which the pipeline pushed to; for private registries, see [Pull from private registries](/docs/tasks/private-registries). A registry stays the right tool for CI. Building on the runner instead also works: with `build: .` in `deploy.yaml`, `shipwick deploy` runs `docker build` on the runner and sends the image to the server, which needs Docker on the runner and nothing else.
+- The image comes from a registry the server can pull from, which the pipeline pushed to; for private registries, see [Pull from private registries](/docs/tasks/private-registries). A registry stays the right tool for CI. Building on the runner instead also works: with `build: .` in `deploy.yaml`, `shipwick deploy` runs `docker build` on the runner and sends the image to the server, which needs Docker on the runner and nothing else; see [Build on the runner instead](#build-on-the-runner-instead).
 - Store the agent URL and a token as secrets in your CI system. Give the pipeline a token of its own, with the `deploy` role, as described next.
 
 ## Create a token for the pipeline
@@ -193,6 +193,22 @@ shipwick deploy --image ghcr.io/company/my-api:$GIT_SHA
 
 The override is applied to the YAML document in memory. The agent still receives one plain `deploy.yaml`, and the file on disk is untouched. The image's tag becomes the deployment's version, so tagging images with the commit SHA makes every entry in the history traceable to a commit. `--image` does not apply to an application with `build:`; such a `deploy.yaml` builds on the runner instead.
 
+## Build on the runner instead
+
+With `build: .` in `deploy.yaml` there is no registry: `shipwick deploy` runs `docker build` on the runner, for the server's architecture, and sends the image to the agent. Three things about it matter in a pipeline:
+
+- **The agent validates before the runner builds.** `deploy` first has the agent check the file, with the checks of a deployment and without the deployment. What only the server can know — a domain another application serves, a port already published, a `${NAME}` that is not stored — fails the job before the minutes of a build and an upload are spent, not after them. The agent checks again when the deployment starts. An agent older than 0.5 is asked whether the domain is free, as before. A static folder is validated the same way before it is uploaded.
+- **Only the layers the server lacks are sent.** The first deployment sends the whole image. After that the CLI asks the agent which of the image's layers it does not have and leaves the others out of the archive, so a change to the code costs its own layer:
+
+  ```text
+  ✓ Sent image to the server (22 KB; the server had the rest of 57.9 MB)
+  ```
+
+  This needs nothing from the pipeline. When it cannot be done — an agent older than 0.5, a Docker on the runner older than 25, a server that lost a layer in the meantime — the whole image is sent as before, and the line reads `✓ Sent image to the server (57.9 MB)`.
+- **The build's output is in the log, as before.** The single progress line that replaces `docker build`'s output is for a terminal. Off a terminal nothing changes: the command and every line it prints are written as they come, which is where a pipeline's build is read. `--verbose` is for a person at a terminal who wants the same.
+
+A deployment that fails removes the image it was sent, unless a running version or the rollback target still needs it, so failed pipeline runs do not fill the server's disk.
+
 ## Supply secrets with ${NAME}
 
 A value that must not be in the repository, such as a database password, is written as `${NAME}` in `deploy.yaml`:
@@ -298,11 +314,11 @@ A failed deployment is undone by the agent. The job fails; the application keeps
 
 ## Behavior in a pipeline
 
-- **Output is plain when piped.** No colors and no progress line. `NO_COLOR` is honored too. Warnings go to standard error, so standard output stays parseable.
+- **Output is plain when piped.** No colors and no progress line; a `docker build` run by `deploy` prints every line. `NO_COLOR` is honored too. Warnings go to standard error, so standard output stays parseable.
 - **`deploy` returns when the deployment is complete**, not at the first sign of success. When it returns, the next `deploy` for the same application will not be refused with "operation in progress".
 - **One deployment per application at a time.** A second one is refused, not queued, and `shipwick` exits 1 with `Another operation is already in progress for this application.` If two pipeline runs can overlap, serialize the deploy job.
 - **Cancelling the job does not cancel the deployment.** Interrupting `shipwick deploy` stops the waiting; the deployment continues on the server.
-- **Short agent outages are tolerated.** While waiting, `shipwick` rides out connection failures for a limited number of polls before it gives up.
+- **Short agent outages are tolerated.** While waiting, `shipwick` rides out connection failures for a limited number of polls before it gives up. Since 0.5 that covers a restart of the agent, an upgrade of Shipwick for one: the deployment is not failed by it, the agent resumes it when it starts again, and `deploy` goes on waiting and reports the outcome. The exception is a `pre_deploy` command that was running at that moment, which is not run a second time: that deployment fails and says so. See [Agent restarts during a deployment](/docs/concepts/deployments#agent-restarts-during-a-deployment).
 - **Wrong tokens are slowed down.** After 20 failed authentications within a minute from one address, the agent answers wrong tokens from it with `429` for a minute. A valid token is never refused, so a correct secret is not affected.
 
 ## Return immediately with --no-wait

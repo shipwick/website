@@ -1,11 +1,11 @@
 ---
 title: shipwick CLI
-description: Complete reference of the shipwick command-line client, covering how it finds the agent, contexts and the configuration file, environment variables, exit codes, and every command with its flags.
+description: Complete reference of the shipwick command-line client, covering how it finds the agent, contexts and the configuration file, environment variables, exit codes, and every command with its flags, from deploy and status to traffic, backups, certificates, registry credentials, export and import.
 ---
 
 # shipwick CLI
 
-`shipwick` is the command-line client of a Shipwick agent. This page describes how it finds the agent and its token, saved servers (contexts) and the configuration file, environment variables and exit codes, and then every command with its flags.
+`shipwick` is the command-line client of a Shipwick agent. This page describes how it finds the agent and its token, saved servers (contexts) and the configuration file, environment variables and exit codes, and then every command with its flags and output: deploying and inspecting applications, traffic, backups, registry credentials and certificates, moving a server with `export` and `import`, and the messages the agent's error codes are turned into.
 
 ```text
 shipwick [command] [flags]
@@ -13,7 +13,7 @@ shipwick [command] [flags]
 
 | Command | |
 |---|---|
-| [`init`](#init) | Recognise the project and write a `Dockerfile`, a `.dockerignore` and a `deploy.yaml` |
+| [`init`](#init) | Recognise the project and write a `Dockerfile`, a `.dockerignore` and a `deploy.yaml`, or add an entry to a `shipwick.yaml` |
 | [`validate`](#validate) | Check `deploy.yaml` or `shipwick.yaml` without deploying, placeholders filled in |
 | [`deploy`](#deploy) | Deploy the application described by `deploy.yaml`, building the image here with `build:`, or the applications of a `shipwick.yaml` |
 | [`redeploy`](#redeploy) | Deploy the running configuration again, optionally with another image |
@@ -21,22 +21,31 @@ shipwick [command] [flags]
 | [`status`](#status) | Show the state of an application |
 | [`ps`](#ps) | List the applications on the server |
 | [`logs`](#logs) | Show the logs of an application |
+| [`traffic`](#traffic) | Show the requests the proxy served: rates, errors, latency |
 | [`run`](#run) | Run a one-off command in a container of the application |
 | [`jobs`](#jobs) | List the scheduled jobs of an application; `jobs run` starts one, `jobs logs` shows a run's output |
 | [`stop`](#stop) | Stop an application |
 | [`start`](#start) | Start a stopped application |
 | [`delete`](#delete) | Remove an application, its containers and its deployment history |
 | [`backup`](#backup) | Download the volumes of an application as tar archives |
-| [`restore`](#restore) | Replace the data of a volume with a backup |
+| [`restore`](#restore) | Replace the data of a volume with an archive from this machine |
+| [`backups`](#backups) | List the backups the server keeps of an application; `run`, `verify`, `restore`, `download`, `rm`, `decrypt` |
 | [`volumes`](#volumes) | List every volume on the server; `volumes rm` removes one of a deleted application |
-| [`server status`](#server-status) | Show whether the agent is reachable, what it runs on, and which token you are using |
+| [`export`](#export) | Write everything the server runs into one encrypted file |
+| [`import`](#import) | Deploy what an export holds on this server, and restore its data |
+| [`standby`](#standby) | A second server kept ready: what it holds; `pull` imports the newest export, `promote` takes over |
+| [`server status`](#server-status) | Show whether the agent is reachable, what it runs on, how full its disk is, which token you are using, and the active alerts |
 | [`server install`](#server-install) | Install or upgrade the server over SSH, from here |
+| [`server rotate-key`](#server-rotate-key) | Replace the key the server encrypts stored secrets with |
+| [`server backup`](#server-backup) | Back up the agent's own state now: its database and encryption key |
 | [`doctor`](#doctor) | Check the setup end to end and say what to fix |
-| [`open`](#open) | Open the application in the browser |
+| [`open`](#open) | Open the application, or the dashboard, in the browser |
 | [`login`](#login) | Save the agent URL and API token for later commands |
 | [`context`](#context) | Switch between saved servers: `ls`, `use`, `rm`, `current` |
 | [`token`](#token) | Manage API tokens and their roles: `create`, `ls`, `revoke` |
 | [`secret`](#secret) | Manage the secrets kept on the server for `${NAME}`: `set`, `ls`, `rm` |
+| [`registry`](#registry) | Store the credentials the server pulls private images with: `login`, `ls`, `logout` |
+| [`cert`](#cert) | Serve a hostname with a certificate of your own: `set`, `ls`, `rm` |
 | [`upgrade`](#upgrade) | Replace this `shipwick` with the latest release, and report whether the server is behind |
 
 ## Global behavior
@@ -124,16 +133,30 @@ A missing file is an empty configuration, not an error. A file from before conte
 | `SHIPWICK_AGENT_TOKEN` | API token. |
 | `SHIPWICK_CONTEXT` | Name of the saved server to use, like `--context`. |
 | `SHIPWICK_CONFIG` | Path of the configuration file. |
+| `SHIPWICK_EXPORT_PASSPHRASE` | Passphrase of an export file, for [`export`](#export) and [`import`](#import). Without it, the passphrase is asked for without echo. |
+| `SHIPWICK_BACKUP_PASSPHRASE` | Passphrase for [`backups decrypt`](#backups-decrypt): the value the variable has on the agent. Without it, the passphrase is asked for without echo. |
 | `NO_COLOR` | When set to any value, output is not colored. |
 | `TERM` | `dumb` disables colors. |
 
 ### Which application a command targets
 
-Commands that take `[app]` use the application named in `./deploy.yaml` when no argument is given. `-f` / `--file` selects another file. `delete` is the deliberate exception: it always wants the name spelled out, and so do `jobs run` and `jobs logs`, which take the application and the job as two arguments. For `logs`, `-f` means `--follow`, and the file is selected with `--file` only. For `deploy` and `validate`, `-f` can be repeated to name several files, and both look for `shipwick.yaml`, several applications in one file, when there is no `deploy.yaml`.
+Commands that take `[app]` use the application named in `./deploy.yaml` when no argument is given. `-f` / `--file` selects another file. For `logs`, `-f` means `--follow`, and the file is selected with `--file` only. For `deploy` and `validate`, `-f` can be repeated to name several files, and both look for `shipwick.yaml`, several applications in one file, when there is no `deploy.yaml`.
+
+Since 0.5, the other commands that take `[app]` (`status`, `logs`, `stop`, `start`, `rollback`, `redeploy`, `run`, `jobs`, `open`, `backup`, `restore` and `backups`) also look at a `shipwick.yaml` when there is no `deploy.yaml` in the directory. One that describes a single application names it. One that describes several is an error that lists them and shows the command with a name:
+
+```text
+Error: shipwick.yaml describes 3 applications: postgres, api, web
+
+Say which one, e.g.: shipwick status postgres
+```
+
+With neither file: `no application given, and deploy.yaml was not found here`, followed by the command with an example name. Only the name is read from the file; a `${NAME}` placeholder that is not set in the environment does not get in the way.
+
+Some commands always want the name spelled out: `delete`, deliberately; `jobs run` and `jobs logs`, which take the application and the job as two arguments; and the subcommands of `backups` (`run`, `verify`, `restore`, `download`, `rm`). `traffic` is the exception the other way round: without a name it lists every application. In a directory with neither file, `open` opens the dashboard.
 
 ### Placeholders
 
-A `deploy.yaml` may refer to values it must not contain, such as passwords and API keys, as `${NAME}`. `deploy` and `validate` fill them in before the file is validated or sent, from the environment and `--env-file`, so that secrets stay out of the file and the repository. An `env` value whose name is set nowhere here is left to the server, which fills it in from the secrets stored with [`shipwick secret set`](#secret).
+A `deploy.yaml` may refer to values it must not contain, such as passwords and API keys, as `${NAME}`. `deploy` and `validate` fill them in before the file is validated or sent, from the environment and `--env-file`, so that secrets stay out of the file and the repository. An `env` value, or a `proxy.basic_auth` password, whose name is set nowhere here is left to the server, which fills it in from the secrets stored with [`shipwick secret set`](#secret).
 
 | Rule | |
 |---|---|
@@ -167,21 +190,21 @@ One `NAME=value` per line; a leading `export ` and surrounding single or double 
 | Code | Meaning |
 |---|---|
 | `0` | Success. |
-| `1` | Anything else, including a deployment that was accepted but failed or was rolled back, a `shipwick.yaml` of which an application failed or was skipped, and a `doctor` that found a problem. |
+| `1` | Anything else, including a deployment that was accepted but failed or was rolled back, a `shipwick.yaml` of which an application failed or was skipped, a backup that failed or did not verify, an `import` or a `standby promote` of which an application failed, and a `doctor` that found a problem. |
 | The command's own | `shipwick run` and `shipwick jobs run` exit with the exit code of the command that ran on the server. A command that could not be started, timed out or was interrupted exits with `1`. |
 
 This makes `deploy`, `redeploy`, `rollback`, `run` and `doctor` usable as a CI gate.
 
 ### Timeouts
 
-Regular requests time out after 90 seconds. The limit is sized for the slowest regular call: stopping an application waits for every replica's graceful shutdown. Log streams, backup downloads and restore uploads have no timeout. While waiting for a deployment or a run, `shipwick` polls the agent every 500 milliseconds and rides out up to 20 consecutive connection failures, such as an agent restart or a network blip, before it gives up.
+Regular requests time out after 90 seconds. Stopping and deleting an application are not regular: they wait for every replica's graceful shutdown, which [`deploy.stop_timeout`](/docs/reference/deploy-yaml#deploy) may set to minutes, and have no timeout. Neither have log streams, image and folder uploads, backup downloads and restore uploads, `export`, `import` and `standby promote`. While waiting for a deployment, a run or a backup, `shipwick` polls the agent every 500 milliseconds and rides out up to 20 consecutive connection failures, such as an agent restart or a network blip, before it gives up. A deployment that is running when the agent restarts is resumed by the agent, and `deploy` waits through the restart.
 
 ## init
 
-Recognise the project in the current directory and write a `Dockerfile`, a `.dockerignore` and a `deploy.yaml` for it.
+Recognise the project in the current directory and write a `Dockerfile`, a `.dockerignore` and a `deploy.yaml` for it. In a directory with a `shipwick.yaml` and no `deploy.yaml`, add an entry to that file instead; see [init next to a shipwick.yaml](#init-next-to-a-shipwick-yaml).
 
 ```text
-shipwick init [flags]
+shipwick init [dir] [flags]
 ```
 
 | Flag | Default | |
@@ -198,8 +221,8 @@ shipwick init [flags]
 
 | Found | Written |
 |---|---|
-| A Nuxt or Next application; a Node server (Express, Fastify, Koa, Hono, or a `start` script); a .NET project (`*.csproj`); a Go program (`go.mod` with a `main` package at the root or under `cmd/`); a Python application (`pyproject.toml` or `requirements.txt`; uvicorn or gunicorn when they are listed) | A multi-stage `Dockerfile` on a small runtime image with a non-root user and the port exposed, a `.dockerignore`, and a `deploy.yaml` with `build: .`. Lock files decide between npm, pnpm and yarn |
-| An `index.html` at the root or in `dist/`, `build/`, `out/` or `public/`; a Vite or Astro project that builds one | A `deploy.yaml` with `static: <dir>` and no Dockerfile: the proxy serves the files, there is no container |
+| A Nuxt or Next.js application; a SvelteKit application with `@sveltejs/adapter-node`; a Remix application; an Astro application with the Node adapter (`@astrojs/node`); a Node server (Express, Fastify, Koa, Hono, or a `start` script); a .NET project (`*.csproj`); a Go program (`go.mod` with a `main` package at the root or under `cmd/`); a Python application (`pyproject.toml` or `requirements.txt`; uvicorn or gunicorn when they are listed; `uv sync --frozen` when the project is locked with uv, a `uv.lock` next to `pyproject.toml`) | A multi-stage `Dockerfile` on a small runtime image with a non-root user and the port exposed, a `.dockerignore`, and a `deploy.yaml` with `build: .`. Lock files decide between npm, pnpm and yarn |
+| An `index.html` at the root or in `dist/`, `build/`, `out/` or `public/`; a Vite or Astro project that builds one (`dist/`); a SvelteKit project with `@sveltejs/adapter-static` (`build/`); a Next.js project with `output: "export"` in its `next.config` file (`out/`) | A `deploy.yaml` with `static: <dir>` and no Dockerfile: the proxy serves the files, there is no container. A project built by Vite alone gets `static: {dir: dist/, fallback: index.html}`, as a single-page application needs |
 | Nothing recognised | In a terminal, `init` asks for the name, the image, the port and, if a port was given, the domain, and writes a `deploy.yaml` with `image:`. Outside a terminal, `--image` is required |
 
 ```text
@@ -209,7 +232,17 @@ shipwick init [flags]
 Review them, then run: shipwick deploy
 ```
 
-An existing `Dockerfile` or `.dockerignore` is kept: `Kept the existing Dockerfile; build: . will use it`. A health check at `/` is written live for a Nuxt or Next application, which answers its root; for the other kinds it is left commented at the path the framework's community uses, with a hint on adding it. A .NET project gets a commented `start_period: 60s`.
+The first line names what was found: `a Next.js application`, `a SvelteKit application`, `a Remix application`, `an Astro application`, `a Node.js application`, `a Go program`, `a Python application`, `a static site (dist/)`, or, for a project whose build writes the folder, `a site built by npm run build`, `a SvelteKit site built by npm run build`, `a Next.js site exported by npm run build`, with the project's package manager in place of `npm run`.
+
+An existing `Dockerfile` or `.dockerignore` is kept: `Kept the existing Dockerfile; build: . will use it`. A health check at `/` is written live for a Nuxt, Next.js, SvelteKit, Remix or Astro application, which answers its root; for the other kinds it is left commented at the path the framework's community uses, with a hint on adding it. A .NET project gets a commented `start_period: 60s`.
+
+A Node project without a lock file gets a Dockerfile that installs with `npm install`, and a warning:
+
+```text
+! no lock file: the Dockerfile installs with npm install, and the build is not reproducible until package-lock.json is committed
+```
+
+A SvelteKit project with neither adapter is not guessed at: `this SvelteKit project has no adapter that Shipwick can deploy`, followed by which to install, `@sveltejs/adapter-node` for a server or `@sveltejs/adapter-static` for files the proxy serves.
 
 The default name is derived from the current directory's name: lowercased, with other characters replaced by dashes. If that does not give a valid name, `my-app` is used.
 
@@ -285,9 +318,31 @@ restart:
   policy: always # always | on-failure | never
 ```
 
-For a recognised project the `image` lines read `build: .` with a comment saying the image is built by `shipwick deploy`. A static site's file is three lines: `name`, `static` and `domain`, with a comment naming the build command to run first.
+For a recognised project the `image` lines read `build: .` with a comment saying the image is built by `shipwick deploy`. A static site's file is three lines: `name`, `static` and `domain`, with a comment naming the build command to run first; with a fallback page, `static` is written as `static: {dir: dist/, fallback: index.html}`.
 
-`init` refuses to overwrite an existing `deploy.yaml` without `--force`. It does not contact the agent. `shipwick deploy` in a directory without a `deploy.yaml` runs `init` first when a terminal is attached (`No deploy.yaml here. Let's write one.`), then deploys: `Deploying now. Change them later and deploy again.`
+`init` refuses to overwrite an existing `deploy.yaml` without `--force`. It does not contact the agent. `shipwick deploy` in a directory with neither a `deploy.yaml` nor a `shipwick.yaml` runs `init` first when a terminal is attached (`No deploy.yaml here. Let's write one.`), then deploys: `Deploying now. Change them later and deploy again.`
+
+### init next to a shipwick.yaml
+
+Since 0.5, where there is a `shipwick.yaml` and no `deploy.yaml`, `init` adds an entry to the file's `apps` list instead of writing a `deploy.yaml` that would take its place. The entry is for the project in the current directory, or in the directory given:
+
+```bash
+shipwick init web
+```
+
+```text
+✓ Recognised a Nuxt application
+✓ Wrote web/Dockerfile and web/.dockerignore
+✓ Added web to shipwick.yaml
+
+Review them, then run: shipwick deploy
+```
+
+- The Dockerfile and the `.dockerignore` are written into `dir`; the entry gets `build: ./<dir>`, or `static: <dir>/dist/` for a folder the proxy serves, and the name of the directory unless `--name` gives another. It carries `port`, `domain` and a live health check where `init` knows them, and no commented-out examples.
+- The entry is appended as text at the end of the `apps` list, indented like the entry before it. Nothing else in the file changes: its comments, its order and its line endings stay.
+- Where the entry cannot be placed with certainty, because `apps` is not the last key of the file or the list is not written one entry per dash, the file is left alone, the entry is printed to add by hand, and the command exits with `1`: `✗ Left shipwick.yaml as it is: apps is not its last key, so the end of the file is not the end of the list`.
+- A name the file already has is refused: `shipwick.yaml already has an application named web`, with `shipwick init --name <name>` as the way to add it under another.
+- `dir` must be a directory under the current one, since `build` and `static` paths may not leave it. It cannot be combined with `--image` or `--static`, and without a `shipwick.yaml` it is an error that says to run `shipwick init` inside the directory instead.
 
 ## validate
 
@@ -317,14 +372,16 @@ Restart        always
 Environment    2 variables
 ```
 
-The first line is `<file> is valid`, with `(N variables substituted)` when placeholders were filled in; the `env` names left to the server's secrets are listed after the summary. Environment values are not printed, only their count. `Name`, `Image`, `Version`, `Replicas`, `Resources` and `Restart` always appear; `Resources` reads `unlimited CPU, unlimited memory` without limits. With `build:`, a `Build` line (`./ (Dockerfile)`) replaces `Image` and `Version`, and a note says that `validate` does not run the build. For a static application the second line is `Folder` (`dist/ — served by the proxy, no container`), and `Replicas`, `Resources` and `Restart` are left out. The other lines appear when the file sets them, in this order:
+The first line is `<file> is valid`, with `(N variables substituted)` when placeholders were filled in; the `env` names left to the server's secrets are listed after the summary. Environment values are not printed, only their count. `Name`, `Image`, `Version`, `Replicas`, `Resources` and `Restart` always appear; `Resources` reads `unlimited CPU, unlimited memory` without limits. With `build:`, a `Build` line (`./ (Dockerfile)`) replaces `Image` and `Version`, and a note says that `validate` does not run the build. For a static application the second line is `Folder` (`dist/ — served by the proxy, no container`), followed by `Fallback` (`index.html for paths that name no file`) when `static.fallback` is set, and `Replicas`, `Resources` and `Restart` are left out. The other lines appear when the file sets them, in this order:
 
 | Line | Example | |
 |---|---|---|
 | `Port` | `8080` | |
 | `Domain` | `example.com` | |
+| `Path` | `/api` | The [`path`](/docs/reference/deploy-yaml#path) of the domain the application serves |
 | `Aliases` | `api.example.com, app.example.com` | The `aliases` list, comma-separated |
 | `Redirects` | `www.example.com → https://example.com` | The `redirects` list, then the target every one of them redirects to |
+| `Proxy` | `strips /api; 2 response headers; a password for /admin; 1 redirect` | What the [`proxy`](/docs/reference/deploy-yaml#proxy) block asks for, never its values: `a password for everything` when basic authentication covers the whole application |
 | `Health check` | `GET /health every 10s (timeout 3s, 3 retries)` | `GET <path>` for an HTTP check, `TCP :5432` for `health.tcp`, `command pg_isready -U postgres` for `health.command`; `, after a 1m start period` when `start_period` is set |
 | `Volume` | `data at /var/lib/postgresql/data` | One line per volume |
 | `Publish` | `5432/tcp → server port 15432 on 10.0.0.5` | One line per published port; `on <address>` only when `address` is set |
@@ -336,6 +393,7 @@ The first line is `<file> is valid`, with `(N variables substituted)` when place
 | `Logging` | `gelf (2 options)` | The driver, and the number of options when there are any: `(1 option)`, `(2 options)` |
 | `Pre-deploy` | `dotnet Migrate.dll` | The `pre_deploy` command |
 | `Job` | `nightly-report at 0 3 * * * UTC: node report.js` | One line per job: its name, schedule and command |
+| `Backups` | `daily at 03:00 UTC, 7 kept, after pg_dump -f /data/dump.sql, with the application stopped` | The [`backups`](/docs/reference/deploy-yaml#backups) block: the schedule (`daily at …`, `hourly at :15`, or `on <expression> (UTC)`), how many are kept, the `before` command and `stop: true` when they are set |
 
 With several files, each is validated and described in turn. An invalid file, or an unset placeholder, prints the report and exits with `1`. See [Placeholders](#placeholders).
 
@@ -354,6 +412,7 @@ shipwick deploy [flags]
 | `--image <ref>` | | Deploy this image instead of the one in the configuration. One application only; not with `build:` |
 | `--parallel <n>` | `4` | How many applications of a `shipwick.yaml` deploy at the same time |
 | `--no-wait` | | Start the deployment and return immediately |
+| `--verbose` | | Show everything `docker build` prints, instead of one progress line |
 
 ```text
 Deploying my-api...
@@ -376,11 +435,22 @@ https://api.example.com
 Behavior:
 
 - The file is read, its `${NAME}` placeholders are filled in from the environment and `--env-file`, and it is validated locally before anything is sent. The agent validates it again, and fills in the `env` values that were left to it from the server's secrets. See [Placeholders](#placeholders).
-- **With `build:`**, `docker build` runs on this machine, as an argv, in the directory of the `deploy.yaml`, for the architecture the agent reports (`--platform`). The image is tagged `shipwick.local/<app>:<UTC stamp>-<4 hex>`, saved through the Docker API and streamed to the agent, which loads it; the deployment then names that image. The build's output is shown dimmed under the `docker build` command line, then `✓ Built shipwick.local/my-api:20260927-153000-a1b2 for linux/amd64` and `✓ Sent image to the server (267 MB)`. `docker` must be installed here; the server never builds. Without it: `docker is not installed on this machine, and build: needs it here (the server never builds); install Docker Desktop or set image: instead`.
+- **The agent is asked before anything is built or uploaded.** Since 0.5, with `build:` or `static:`, `deploy` has the agent validate the file first, so that what only the server knows (a hostname another application serves, a port already published, a secret that is not stored) stops the command before the build and the upload, with the message a refused deployment has. An older agent is asked about the domain only: `api.example.com is already served by application "web"; nothing was built`, or `nothing was uploaded`. The agent checks again when the deployment starts.
+- **With `build:`**, `docker build` runs on this machine, as an argv, in the directory of the `deploy.yaml`, for the architecture the agent reports (`--platform`). The image is tagged `shipwick.local/<app>:<UTC stamp>-<4 hex>`, saved through the Docker API and streamed to the agent, which loads it; the deployment then names that image. Then come `✓ Built shipwick.local/my-api:20260927-153000-a1b2 for linux/amd64` and `✓ Sent image to the server (267 MB)`. `docker` must be installed here; the server never builds. Without it: `docker is not installed on this machine, and build: needs it here (the server never builds); install Docker Desktop or set image: instead`.
+- **The build is one progress line in a terminal**: `Building the image (12s) — #9 [build 4/6] RUN npm ci`, the time it has been running and the last line `docker build` printed. Its whole output is shown, dimmed under the `docker build` command line, only when it fails. `--verbose` shows every line as it is printed, and so does any run whose output is not a terminal, such as a pipeline's log. Several applications of a `shipwick.yaml` building at once in a terminal are silent until each build ends.
+- **Only the layers the server does not have are sent.** The first deployment sends the whole image. After that `deploy` asks the agent which of the image's layers the server lacks and leaves the others out of the archive, so a change to the application costs its own layer: `✓ Sent image to the server (22 KB; the server had the rest of 57.9 MB)`. With an agent older than 0.5, or whenever the reduced archive cannot be built or is refused, the whole image is sent as before.
 - **With `static:`**, the folder is sent as it is, up to 512 MB, as a tar archive with fixed metadata, so the same files make the same digest and the same version everywhere: `✓ Uploaded dist/: 42 files, 3.1 MB`. Run the build first; a folder without an `index.html` is refused before anything is sent. A symbolic link that leads out of the folder is skipped, with a warning. `deploy.yaml`, `shipwick.yaml`, `.git` and `.env` files are never sent: everything in the archive is served. The progress line then reads `Checking the uploaded files`, `Copying the files to the proxy`, `Looking for index.html`, `Switching over`.
 - **`deploy` waits for `completed_at`**, not for the first `ACTIVE`. When it returns, the next operation on the application is guaranteed not to be rejected as busy.
 - `--image` edits the YAML document in memory. The agent still receives one plain `deploy.yaml`, and the file on disk is untouched. This is the form for CI: keep `deploy.yaml` in the repository and pass the image that was just built. It is refused for an application with `build:`.
-- A first deployment ends with the two commands to run next, `shipwick logs -f <app>` and `shipwick status <app>`.
+- The last line is the application's address, with its `path` when it has one: `https://example.com/api`.
+- A first deployment ends with the two commands to run next, `shipwick logs -f <app>` and `shipwick status <app>`, and with the dashboard's address when the server has one:
+
+  ```text
+  Next:
+    shipwick logs -f my-api          follow the logs
+    shipwick status my-api           replicas, health, history
+    https://dashboard.example.com    the dashboard
+  ```
 - **Ctrl+C stops the waiting, not the deployment.** The deployment continues on the server; follow it with `shipwick status`.
 - With `--no-wait`, the command prints `Deployment #N started` and exits with `0` without knowing the outcome.
 - In a terminal, a transient progress line shows what the agent is busy with: pulling the image, starting containers, checking health, switching over, retiring the previous version.
@@ -420,7 +490,7 @@ shipwick deploy --parallel 2
 - The file is validated as a whole before anything starts. The command then prints `Deploying 3 applications...` and runs the applications whose dependencies are done at the same time, up to `--parallel` at once, four by default.
 - Every line of output carries the name of the application it belongs to.
 - An application starts when every name in its `after` has completed a successful deployment in this run. One that waits for an application that failed, or was itself skipped, is skipped: `Skipped api: postgres did not deploy`. The others finish.
-- The last line is `3 of 3 applications deployed.`, or the count with what happened to the rest: `1 of 3 applications deployed (1 failed, 1 skipped)`. The command exits with `1` if any failed or was skipped. With `--no-wait` it reads `3 of 3 applications started.`
+- The last line is `3 of 3 applications deployed.`, or the count with what happened to the rest: `Stopped: 1 of 3 applications deployed, 1 failed, 1 skipped.` The command exits with `1` if any failed or was skipped. With `--no-wait` it reads `3 of 3 applications started.`
 - `--image` does not apply: `--image applies to one application, and shipwick.yaml describes several`.
 
 `-f` repeated deploys several `deploy.yaml` files, in the order given, one after the other:
@@ -492,7 +562,7 @@ See [Rollback](/docs/concepts/rollback) and [Roll back and redeploy](/docs/tasks
 
 ## status
 
-Show the state of an application: its version, resource usage, replicas, recent deployments and recent events.
+Show the state of an application: its version, resource usage, replicas, backups, certificates, recent deployments and recent events.
 
 ```text
 shipwick status [app] [flags]
@@ -501,6 +571,7 @@ shipwick status [app] [flags]
 | Flag | Default | |
 |---|---|---|
 | `-f`, `--file <path>` | `deploy.yaml` | Configuration file used to find the application name when `[app]` is omitted |
+| `-v`, `--verbose` | | Also list the certificates that are in order |
 
 ```text
 my-api  ● HEALTHY
@@ -510,12 +581,13 @@ CPU        42% / 400%
 Memory     412 MB / 2 GB
 ```
 
-The output has up to four parts:
+The output has up to five parts:
 
-1. **Summary.** Status, with `(deployment in progress)` while one is in flight. Then `Version` (with the deployment number and when it was deployed), `Image`, `URL` if there is a domain, `Replicas`, `CPU` and `Memory` if anything is running, `Health` if a health check is configured, and `Limits`. CPU is in percent of one core; with a limit it is shown as `used / limit`. For a static application a `Files` line (`42 files, 3.1 MB, served by the proxy`) replaces the image, replicas and usage, and the parts below are left out.
-2. **Containers.** Columns `REPLICA`, `CONTAINER`, `STATE`, `HEALTH`, `RESTARTS`, `STARTED`. `STATE` is `running`, `exited (<code>)`, `out of memory`, or another Docker state. `HEALTH` is `healthy`, `unhealthy`, `starting`, `checking` (not probed yet), or `-` without a health check. `RESTARTS` shows `N (crash loop)` while restarts are rate-limited.
-3. **Deployments.** The 5 most recent, with columns `DEPLOY` (the `#number`), `VERSION`, `STATUS`, `VIA` (`deploy`, `redeploy` or `rollback`), `WHEN`, and the error of a failed deployment, truncated to 90 characters.
-4. **Events.** The 8 most recent application events: what the supervisor has been doing, stops and starts (`Application stopped by ci` when a token other than root did it), restored backups, and scheduled jobs or one-off commands that failed or timed out.
+1. **Summary.** Status, with `(deployment in progress)` while one is in flight. Then `Version` (with the deployment number and when it was deployed), `Image`, `URL` if there is a domain (with the application's `path`: `https://example.com/api`), `Replicas`, `CPU` and `Memory` if anything is running, `Health` if a health check is configured, `Limits`, and `Backups` for an application with volumes. CPU is in percent of one core; with a limit it is shown as `used / limit`. For a static application a `Files` line (`42 files, 3.1 MB, served by the proxy`) replaces the image, replicas and usage, and there are no containers to list.
+2. **Certificates.** One line per hostname whose certificate is not in order, and why; nothing when all are. See below.
+3. **Containers.** Columns `REPLICA`, `CONTAINER`, `STATE`, `HEALTH`, `RESTARTS`, `STARTED`. `STATE` is `running`, `exited (<code>)`, `out of memory`, or another Docker state. `HEALTH` is `healthy`, `unhealthy`, `starting`, `checking` (not probed yet), or `-` without a health check. `RESTARTS` shows `N (crash loop)` while restarts are rate-limited.
+4. **Deployments.** The 5 most recent, with columns `DEPLOY` (the `#number`), `VERSION`, `STATUS`, `VIA` (`deploy`, `redeploy`, `rollback`, or `import` and `standby` for a deployment made by [`import`](#import)), `WHEN`, and the error of a failed deployment, truncated to 90 characters.
+5. **Events.** The 8 most recent application events: what the supervisor has been doing, stops and starts (`Application stopped by ci` when a token other than root did it), restored backups, scheduled jobs or one-off commands that failed or timed out, alerts raised and cleared, and certificates being obtained or running out.
 
 ```text
 my-api  ● CRASH_LOOP
@@ -529,6 +601,29 @@ WHEN      EVENT
 34s ago   Replica 2 is crash-looping: 5 restarts without staying up. Retrying every 5m
 ```
 
+**The `Backups` line** (since 0.5) appears for an application with volumes and sums up the backups the server keeps of it; see [`backups`](#backups):
+
+| Situation | Line |
+|---|---|
+| A schedule, and a backup that succeeded | `daily at 03:00 UTC, last 5h ago (2.1 GB), 7 kept` |
+| A schedule, nothing taken yet | `daily at 03:00 UTC, none taken yet` |
+| The last backup failed | `daily at 03:00 UTC, last one failed 2h ago: ` and the error, truncated to 80 characters, then `(last good one 1d ago)` when there is one |
+| No `backups` block, but backups taken by hand | The same lines, starting with `none scheduled` |
+| No `backups` block and no backup | ``none  (add `backups` to deploy.yaml, or take one with: shipwick backups run my-db)`` |
+
+The schedule reads `daily at 03:00 UTC` or `hourly at :15` for those shapes, and `on <expression> (UTC)` for any other.
+
+**Certificates** (since 0.5). A hostname whose certificate is still being obtained, is waiting for DNS, or has 14 days or less to go gets a line that says so, in the agent's words:
+
+```text
+HOSTNAME            CERTIFICATE
+www.example.com     waiting for DNS: does not resolve yet; add an A record: www.example.com → 62.238.109.115 (DNS only, not proxied)
+new.example.com     being obtained: the proxy has no certificate for it yet; HTTPS connections to it fail until it does
+old.example.com     expires in 9 days, on 2026-03-10 (Let's Encrypt E7)
+```
+
+With `--verbose`, the hostnames whose certificate is in order are listed too: `valid until 2026-06-01 (Let's Encrypt E7)`, the certificate's last day and its issuer. See [Certificates](/docs/tasks/certificates).
+
 See [See what is running](/docs/tasks/inspect-and-logs).
 
 ## ps
@@ -539,7 +634,7 @@ List the applications on the server.
 shipwick ps
 ```
 
-Columns: `NAME`, `STATUS`, `VERSION`, `REPLICAS` (healthy/desired; `static` for a folder the proxy serves), `DOMAIN`, `UPDATED`. `(deploying)` is appended to the status while a deployment is in flight. With no applications, the command prints `No applications yet. Deploy one with: shipwick deploy`.
+Columns: `NAME`, `STATUS`, `VERSION`, `REPLICAS` (healthy/desired; `static` for a folder the proxy serves), `DOMAIN` (with the application's `path` when it has one: `example.com/api`), `UPDATED`. `(deploying)` is appended to the status while a deployment is in flight. With no applications, the command prints `No applications yet. Deploy one with: shipwick deploy`.
 
 ## logs
 
@@ -559,9 +654,76 @@ shipwick logs [app] [flags]
 - Logs come from the replicas of the active deployment.
 - When the application has more than one replica, each line is prefixed with the replica number: `[1]`, `[2]`.
 - Without `--follow`, `--tail` is the merged total: the last N lines across all replicas. With `--follow` it applies per replica: each replica's stream starts with its own last N lines. `--tail 0` with `--follow` shows only what is logged from now on.
+- **`logs -f` says that it is following.** In a terminal, when no line has arrived after two seconds, it prints once, on standard error: `Following my-api; nothing printed yet. Ctrl-C stops.` An application that has printed nothing is then not taken for a hang.
 - **`logs -f` ends by itself** when the containers are stopped or replaced by a new deployment, with a warning saying so. Run it again to follow the new ones. Ctrl+C is the normal way out and prints nothing.
 - With a `logging` driver in `deploy.yaml`, the lines come from the local copy Docker keeps next to the remote driver.
 - A static application has no containers and no logs; the command says so (see [Error messages](#error-messages), `STATIC_APPLICATION`). The same goes for `run`, `jobs` and the metrics in `status`.
+
+## traffic
+
+Show what the proxy saw: how many requests each application got, how many failed, how long they took and how much was sent. Since 0.5.
+
+```text
+shipwick traffic [app] [flags]
+```
+
+| Flag | Default | |
+|---|---|---|
+| `--since <window>` | `1h` | How far back to look: `1h`, `24h` or `7d` |
+| `--requests` | | List the most recent requests instead of the totals. Needs an application |
+| `-f`, `--follow` | | With `--requests`: keep printing new requests |
+| `-n`, `--tail <n>` | `50` | With `--requests`: how many to show, 1 to 200 |
+
+Without an application, every application is listed, one row each:
+
+```text
+$ shipwick traffic
+Requests through the proxy over the last hour
+APP      REQ/MIN   5XX          P95     BYTES
+my-api   208       20 (0.2%)    48ms    118 MB
+web      12.4      0            2.1ms   3.2 MB
+```
+
+`REQ/MIN` is the window's requests per minute, `5XX` the responses with a 5xx status and their share of all requests, `P95` the 95th percentile of the durations (`-` when there was no request), `BYTES` what was sent.
+
+With an application, the command prints its totals for the window, then the slowest and the failing paths among the requests the agent still remembers:
+
+```text
+$ shipwick traffic my-api --since 24h
+my-api  requests through the proxy over the last 24 hours
+
+Requests   299520  (208/min)
+Status     298100 2xx · 240 3xx · 580 4xx · 600 5xx (0.2%)
+Latency    p50 12ms · p95 48ms · p99 210ms
+Sent       118 MB
+
+Slowest paths among the last 200 requests
+PATH            REQUESTS   SLOWEST
+/checkout       14         1.2s
+/api/users      92         48ms
+
+Failing paths among the last 200 requests
+PATH            5XX   LAST STATUS
+/checkout       3     502
+```
+
+Up to five paths are shown in each table; the second is left out when no recent request failed. A window without requests prints `No requests over the last 24 hours.`
+
+`--requests` lists the most recent requests, one per line: the time (local), the status, the method and the path, the duration, the bytes sent and the client's address. `-f` asks the agent again every two seconds and prints the new ones until Ctrl+C:
+
+```text
+$ shipwick traffic my-api --requests -f
+15:04:05  200  GET /api/users  12ms  2 KB  203.0.113.7
+15:04:06  502  POST /checkout  1.2s  45 B  203.0.113.9
+```
+
+- Counts are kept per minute for seven days. The requests themselves, the last 200 of each application, are kept in the agent's memory only: after an agent restart, `--requests` prints `No requests yet since the agent started.`
+- Neither holds a query string or a header: a path is all that is kept of a URL.
+- A static application has traffic like any other; redirects and the `503` of a stopped application count for the application whose hostname was asked.
+- `-f` without `--requests`, and `--requests` without an application, are errors that show the full command.
+- On a server whose agent has no Caddy access log to read, the agent answers `TRAFFIC_UNAVAILABLE`; see [Error messages](#error-messages).
+
+Needs a token with the `read` role. See [what the proxy saw](/docs/tasks/traffic).
 
 ## run
 
@@ -694,7 +856,7 @@ Deletion cannot be undone. The history goes with the application, and with it ev
 
 ## backup
 
-Download the volumes of an application, one tar archive each.
+Download the volumes of an application as they are right now, one tar archive each, to this machine. The server keeps nothing. The backups the server takes and keeps itself, on a schedule or by hand, are the other kind: [`backups`](#backups).
 
 ```text
 shipwick backup [app] [flags]
@@ -721,7 +883,7 @@ The application must have an active deployment. Needs a token with the `admin` r
 
 ## restore
 
-Replace everything in a volume with the contents of a tar archive, as written by `shipwick backup`.
+Replace everything in a volume with the contents of a tar archive on this machine, as written by `shipwick backup` or [`shipwick backups download`](#backups-download). To put back a backup the server keeps, without downloading it, use [`backups restore`](#backups-restore).
 
 ```text
 shipwick restore [app] <archive.tar> [flags]
@@ -749,6 +911,125 @@ Start it with: shipwick start postgres
 - In a terminal, the confirmation is `y` or `yes`; anything else prints `cancelled`. Outside a terminal, `--yes` is required. A progress line shows the upload as a percentage. The upload has no timeout; the agent accepts up to 10 GB.
 
 Needs a token with the `admin` role. See [Back up and restore volumes](/docs/tasks/backups).
+
+## backups
+
+List the backups the server took of an application's volumes: on the schedule under [`backups`](/docs/reference/deploy-yaml#backups) in `deploy.yaml`, or by hand with `backups run`. Since 0.5.
+
+```text
+shipwick backups [app] [flags]
+shipwick backups run <app>
+shipwick backups verify <app> [id]
+shipwick backups restore <app> <id> [flags]
+shipwick backups download <app> <id> [flags]
+shipwick backups rm <app> <id>
+shipwick backups decrypt <file> [flags]
+```
+
+| Flag | Default | |
+|---|---|---|
+| `-f`, `--file <path>` | `deploy.yaml` | Configuration file used to find the application name when `[app]` is omitted |
+
+```text
+$ shipwick backups postgres
+ID   WHEN      TRIGGER    SIZE      WHERE                   STATUS      VERIFIED
+5    25s ago   schedule   39 MB     local, s3 (encrypted)   succeeded   -
+4    42s ago   manual     39 MB     local, s3 (encrypted)   succeeded   -
+3    1m ago    schedule   39.1 MB   local, s3 (encrypted)   succeeded   1m ago
+```
+
+These backups are kept on the server and, when the agent has a bucket, in the bucket; the agent removes the oldest beyond `backups.keep`. This is how they differ from [`backup`](#backup) and [`restore`](#restore), which move an archive between the server and your machine and leave nothing on the server.
+
+- `TRIGGER` is `schedule` or `manual`. `SIZE` is the total of the backup's volume archives. `WHERE` names the places it was written to, `local` for the server's disk and `s3` for the bucket, with `(encrypted)` when the agent has a passphrase. `STATUS` is `running`, `succeeded` or `failed`, and `verifying` or `restoring` while that happens. `VERIFIED` says when a verification last passed, or `failed`.
+- When a backup in the list failed, the error of the most recent failure follows the table: `Backup #6 failed: …`.
+- The newest 50 are listed. With none: `The server keeps no backups of postgres. Take one with: shipwick backups run postgres`, and a line on adding `backups` to `deploy.yaml`.
+- The `id` the subcommands take is the first column; `#5` is accepted too. The subcommands always want the application's name.
+
+Listing needs the `read` role. Where backups go, the bucket and the passphrase are set on the agent; see the [agent configuration](/docs/reference/agent-configuration#backups) and [Back up and restore volumes](/docs/tasks/backups).
+
+### backups run
+
+Take a backup now and wait for it, the way the schedule would: `backups.before` runs first, the application is stopped for the archive when `backups.stop` says so, and the result is kept on the server and in the bucket. An application without `backups` in its `deploy.yaml` is archived as it runs.
+
+```text
+$ shipwick backups run postgres
+✓ Backup #6 of postgres: 39 MB to local, s3 (encrypted)
+  prove that it restores with: shipwick backups verify postgres
+```
+
+A backup that fails prints `✗ Backup #6 of postgres failed: ` with the reason and exits with `1`. Ctrl+C stops the waiting, not the backup: `Stopped waiting. The backup continues on the server; see it with: shipwick backups postgres`. Needs the `deploy` role.
+
+### backups verify
+
+Prove that a backup restores into a working application: the latest successful one, unless an id is given.
+
+The agent restores the backup into scratch volumes, starts one container of the application's current image on them, and holds it to the application's health check. The container gets no route and no name other applications could find it under; it and the volumes are removed afterwards, whatever happened. The application itself keeps running and is not touched.
+
+```text
+$ shipwick backups verify postgres
+✓ Backup #5 of postgres restores: a container of the current version came up on its data
+```
+
+When it does not, the last output of the container is printed, then `✗ Backup #5 of postgres did not verify: ` with the reason, and the command exits with `1`. The verdict is kept with the backup and shown in the `VERIFIED` column.
+
+The container runs with the application's environment: an application that writes somewhere other than its volumes when it starts, such as another database or a queue, does so here too. Needs the `deploy` role.
+
+### backups restore
+
+Replace everything in the application's volumes with what a backup holds.
+
+| Flag | |
+|---|---|
+| `-y`, `--yes` | Do not ask for confirmation |
+
+```text
+$ shipwick stop postgres
+✓ Stopped postgres
+$ shipwick backups restore postgres 5
+This replaces the data in the volumes of postgres with backup #5. What they hold now is lost.
+Type the application name to confirm: postgres
+✓ Restored backup #5 into postgres
+Start it with: shipwick start postgres
+```
+
+The application must be stopped, and stays stopped afterwards: look at it, then `shipwick start`. In a terminal the confirmation is the application's name; outside one, `--yes` is required. A restore that fails prints `✗ Backup #5 was not restored into postgres: ` with the reason. When the server's copy is gone and the agent has a bucket, the backup is restored from there. Needs the `admin` role.
+
+### backups download
+
+Download a backup's archives to this machine, one tar archive per volume.
+
+| Flag | Default | |
+|---|---|---|
+| `-o`, `--output <dir>` | `.` | Directory to write the archives to |
+
+```text
+$ shipwick backups download postgres 5
+✓ postgres-data-backup-5.tar (39 MB)
+```
+
+The archives are named `<app>-<volume>-backup-<id>.tar` and created with mode `0600`. They arrive decrypted, as [`shipwick restore`](#restore) takes them. An existing file is never overwritten, and a download that breaks off is deleted. A backup that did not succeed has nothing to download. Needs the `admin` role.
+
+### backups rm
+
+Remove a backup from the server and the bucket. Prints `✓ Removed backup #5 of postgres`. There is no confirmation. Needs the `admin` role.
+
+### backups decrypt
+
+Decrypt a file the agent wrote with `SHIPWICK_BACKUP_PASSPHRASE` set, taken from the server's disk or from the bucket: an application's `<volume>.tar.enc`, or `shipwick.db.enc` and `encryption.key.enc` of the agent's own state. It runs on this machine and talks to no server.
+
+| Flag | Default | |
+|---|---|---|
+| `-o`, `--output <file>` | the input without `.enc` | File to write |
+
+```bash
+SHIPWICK_BACKUP_PASSPHRASE=… shipwick backups decrypt data.tar.enc
+```
+
+```text
+✓ data.tar (39 MB)
+```
+
+The passphrase is read from `SHIPWICK_BACKUP_PASSPHRASE`, the value it has on the server, or asked for without echo in a terminal. The result is written next to the file, without the `.enc` ending, with mode `0600`; a file that does not end in `.enc` needs `-o`. An existing file is never overwritten, and a file that fails its check is not kept. A file that is not encrypted is refused: `data.tar is not an encrypted Shipwick backup; if it is a tar archive already, restore it with: shipwick restore`.
 
 ## volumes
 
@@ -778,9 +1059,152 @@ Remove a volume of a deleted application, with everything in it.
 
 In a terminal, `rm` asks first; outside one it refuses without `--yes`. Prints `✓ Removed volume shipwick_pgtest_data (13.0 MB)`. A volume whose application still exists is refused by the agent with `VOLUME_IN_USE` (see [Error messages](#error-messages)): its data belongs to the application, and [`restore`](#restore) is the way to replace it. Needs the `admin` role.
 
+## export
+
+Write everything the server runs into one encrypted file, for [`import`](#import) on another server. Since 0.5.
+
+```text
+shipwick export [flags]
+```
+
+| Flag | Default | |
+|---|---|---|
+| `-o`, `--output <file>` | `shipwick-export-<time>.swexport` | File to write. The time is UTC, in the form `yyyymmdd-hhmmss` |
+| `--app <name>` | every application | Export only this application; repeat for several |
+| `--to-backups` | | Write the export on the server, to where its backups go, encrypted with the server's passphrase. Takes neither `-o` nor `--app` |
+| `--list` | | List the exports the server keeps with its backups |
+
+```text
+$ shipwick export -o move.swexport
+Passphrase:
+Once more:
+✓ move.swexport (2.4 GB)
+3 applications (postgres, api, web), 4 secrets, 1 registry credential, 1 certificate
+
+On the new server: shipwick import move.swexport
+The file holds every secret of the server. Keep the passphrase: without it the file cannot be read.
+```
+
+- The file holds every application's configuration and secrets, the stored secrets, registry credentials and certificates, the images built by `shipwick deploy`, the folders of static applications and an archive of every volume. With `--app`, the secrets, credentials and certificates come along either way.
+- **The passphrase** is read from `SHIPWICK_EXPORT_PASSPHRASE`, or asked for twice without echo; outside a terminal the variable is required. It must be at least 12 characters long. Without it the file cannot be read by anyone, including you.
+- Each application is held while its volumes are read, as for a backup; an application with `backups.before` or `backups.stop` in its `deploy.yaml` gets the same treatment here. A running database without either is copied as it is. An application that is being deployed or backed up cannot be exported at the same time; run the export again when it is done.
+- The file is created with mode `0600`, and an existing file is never overwritten. It is read back to its end before it is called an export; a file that did not arrive whole is deleted: `the file that arrived is not a whole export (…); nothing was kept. Run the export again`.
+
+`--to-backups` has the agent write the export itself, as `SHIPWICK_EXPORT_SCHEDULE` does on a schedule, and waits for it: `✓ Export #3 written to local and s3 (2.4 GB)`. `--list` shows those exports:
+
+```text
+$ shipwick export --list
+EXPORT   WHEN     TRIGGER    SIZE     WHERE       STATUS
+#3       2m ago   manual     2.4 GB   local, s3   succeeded
+#2       1h ago   schedule   2.4 GB   local, s3   succeeded
+```
+
+With none: `The server keeps no export. Write one with: shipwick export --to-backups, or on a schedule with SHIPWICK_EXPORT_SCHEDULE`.
+
+The agent's own database and key are a different thing, for restoring this same server: [`server backup`](#server-backup). Needs a token with the `admin` role. See [Move to a new server](/docs/tasks/move-to-a-new-server).
+
+## import
+
+Take in a file written by [`export`](#export), on the server the current context points at: store its secrets, registry credentials and certificates, then deploy its applications one after the other and wait for each. An application's volumes are restored before it first starts. Since 0.5.
+
+```text
+shipwick import <file> [flags]
+shipwick import --status
+```
+
+| Flag | |
+|---|---|
+| `--overwrite` | Replace what exists under the same name, volumes included |
+| `--stopped` | Deploy the applications without starting them |
+| `-y`, `--yes` | Do not ask before overwriting |
+| `--status` | Show the import that is running, or ran last. Takes no file |
+
+```text
+$ shipwick --context new import move.swexport
+Passphrase:
+Export of 2026-10-03 14:05: 3 applications (postgres, api, web), 4 secrets, 1 registry credential, 1 certificate
+✓ postgres 16.4 (1 volume restored: data)
+✓ api 1.4.2
+✓ web 2.0.1
+✓ 4 secrets, 1 registry credential, 1 certificate stored
+
+Point the DNS records of the applications' hostnames at this server: each is served once its record does. shipwick status <app> names the ones that wait.
+```
+
+- **The passphrase** is read from `SHIPWICK_EXPORT_PASSPHRASE`, or asked for without echo. The file is looked at on this machine first, so a wrong passphrase or a wrong file is found before a byte is sent: `the passphrase does not match this export, or the file is damaged`, `it is not a file shipwick export wrote`.
+- **The order** is the export's: applications without a domain first (what others reach by name, such as a database), then the rest, each group oldest first. In a terminal, a progress line names the application the server is at: `Importing api (2 of 3)`.
+- **What exists is left alone.** What exists on this server under the same name is left as it is, and said so (`! api was not imported: …`), unless `--overwrite` is given; then applications are replaced together with their volumes. In a terminal, `--overwrite` asks for the word `overwrite` to be typed; outside one it needs `--yes`.
+- **Images** from a registry are pulled on the new server, with the credentials the export brought. Images built by `shipwick deploy` travel in the file.
+- **`--stopped`** deploys everything without starting it, which is how a standby is kept; the lines then read `✓ api 1.4.2, stopped`, and the last one `Nothing was started. When this server is to take over: shipwick standby promote`. See [`standby`](#standby).
+- An application that fails is reported (`✗ api: …`) and the others go on. The command then ends with `Not everything was imported. What succeeded is in place; fix the rest and import again with --overwrite, or deploy it by hand.` and exits with `1`.
+- The import ends with the upload. If the connection breaks, see what it had finished with `shipwick import --status`, and run it again with `--overwrite`.
+- The server takes one import at a time; see `IMPORT_IN_PROGRESS` under [Error messages](#error-messages).
+
+`--status` prints where the import came from and when (`Import from move.swexport, finished 2m ago`), then the same lines.
+
+Needs a token with the `admin` role. See [Move to a new server](/docs/tasks/move-to-a-new-server).
+
+## standby
+
+Show what a second server holds for the day it has to take over: the applications that were imported stopped, and how its scheduled import from the bucket is doing. Since 0.5.
+
+```text
+shipwick standby
+shipwick standby pull
+shipwick standby promote [flags]
+```
+
+Shipwick does not fail over. The first server writes an export to its backup bucket on a schedule (`SHIPWICK_EXPORT_SCHEDULE`), the second imports the newest one on a schedule (`SHIPWICK_STANDBY_SCHEDULE`) with every application deployed and stopped, and when the first server is gone, a person runs `standby promote` on the second and changes the DNS records it prints. The data is as old as the last export.
+
+```text
+$ shipwick --context standby standby
+Imports the newest export from the bucket on schedule 15 * * * * (UTC); export #12 imported 8m ago
+
+APPLICATION   VERSION   IMPORTED   HOSTNAMES
+postgres      16.4      8m ago
+my-api        1.4.2     8m ago     api.example.com
+
+Deployed and stopped. Start them, in this order, with: shipwick standby promote
+```
+
+The first line appears on a server with `SHIPWICK_STANDBY_SCHEDULE`; it ends in `none imported since the agent started` before the first import, and is followed by `✗ The last import failed …` with the reason when it did. With nothing waiting: `No application is waiting for a promotion here.` Needs the `read` role.
+
+### standby pull
+
+Import the newest export from the bucket now, stopped: what the schedule does. The stopped applications that are there are replaced; applications that run on this server are never touched. The command waits and reports like [`import`](#import). On a server without a bucket the agent answers `STANDBY_NOT_CONFIGURED`; see [Error messages](#error-messages). Needs the `admin` role.
+
+### standby promote
+
+Start every application that was imported stopped, in the order they were imported, waiting for each to be ready, and print the DNS records that make their hostnames reach this server.
+
+| Flag | |
+|---|---|
+| `-y`, `--yes` | Do not ask for confirmation |
+
+```text
+$ shipwick --context standby standby promote
+This starts 2 applications on https://deploy2.example.com: postgres, my-api.
+The server they were exported from must no longer be serving.
+Type promote to confirm: promote
+✓ postgres is running
+✓ my-api is running
+
+Change these DNS records. Until they have changed, visitors still go to the old server:
+HOSTNAME          TYPE   VALUE
+api.example.com   A      203.0.113.77
+```
+
+- In a terminal the confirmation is the word `promote`; outside one, `--yes` is required.
+- An application that was started but is not ready within its startup budget is a warning with the agent's message; one that could not be started is `✗ my-api could not be started: …`, the rest are started regardless, and the command exits with `1`.
+- The records carry the server's own addresses, which the agent knows when `SHIPWICK_AGENT_DOMAIN` or `SHIPWICK_DASHBOARD_DOMAIN` is set. Otherwise the value reads `<this server's address>`.
+- Nothing checks that the first server is really gone: two servers running the same applications against the same outside services is yours to rule out.
+- After a promotion this server is the service. Remove `SHIPWICK_STANDBY_SCHEDULE` from its configuration and give its backups a bucket prefix of their own.
+
+Needs the `admin` role. See [Move to a new server](/docs/tasks/move-to-a-new-server) and the [agent configuration](/docs/reference/agent-configuration#shipwick-standby-schedule).
+
 ## server status
 
-Show whether the agent is reachable, what it runs on, and which token you are using.
+Show whether the agent is reachable, what it runs on, how full its disk is, which token you are using, and which alerts are active.
 
 ```text
 shipwick server status
@@ -801,6 +1225,8 @@ Containers      5 running
 Proxy           ok  serving 4 domains
 Notifications   webhook configured
 Token           ci (deploy)
+Dashboard       https://dashboard.example.com
+Disk            61 GB of 75 GB used (81%)
 ```
 
 The command first calls the health endpoint, which needs no token. This separates "cannot reach the agent" from "reached it, but the token is wrong". The first line is the agent's URL and `● reachable`, with `context <name>` after the URL when the configuration file holds several servers. Then:
@@ -818,6 +1244,10 @@ The command first calls the health endpoint, which needs no token. This separate
 | `Proxy` | `ok  serving N domains`, `unreachable` with the error, or `not configured` when `SHIPWICK_CADDY_ADMIN` is not set on the agent |
 | `Notifications` | `webhook configured`, or `none  (set SHIPWICK_WEBHOOK_URL on the agent)` |
 | `Token` | The name and role of the token this command used: `ci (deploy)`, or `root (admin)` for the token the agent is configured with. Omitted with an agent from before tokens had names |
+| `Dashboard` | The dashboard's address, which [`open --dashboard`](#open) opens, or `no hostname  (set SHIPWICK_DASHBOARD_DOMAIN on the agent)`. Since 0.5 |
+| `Disk` | How full the server's disk is: used, total and percent. Omitted with an older agent, and where the agent cannot measure it. Since 0.5 |
+
+The active alerts follow, one line each, in the agent's words: `!` for a warning, `✗` for a critical one. They are a replica close to its memory limit, a disk that is filling up, a replica that keeps restarting and an application that has not been healthy for a while; see [Alerts and metrics](/docs/tasks/alerts-and-metrics). Without alerts nothing is printed.
 
 If the token is rejected, the agent's version is still shown before the error.
 
@@ -864,6 +1294,52 @@ Next: in your project, run: shipwick init
 
 See [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
 
+## server rotate-key
+
+Replace the key the server encrypts stored secrets with. Since 0.5.
+
+```text
+shipwick server rotate-key
+```
+
+Environment values, secrets and registry passwords are encrypted in the agent's database with one key. This command has the running agent generate a new one and re-encrypt everything under it. Nothing is deployed and nothing restarts.
+
+```text
+$ shipwick server rotate-key
+✓ Rotated the encryption key: 14 stored values and 9 deployments re-encrypted
+  The new key is in /var/lib/shipwick/encryption.key on the server. Back it up: database backups made from now on need it, earlier ones the old key.
+```
+
+Where the agent keeps its key in the data directory (`encryption.key`, the default), it replaces the file; the path in the second line is the one the agent reports. Where the key is set as `SHIPWICK_ENCRYPTION_KEY`, the agent cannot change its own environment: the new key is shown once, with the line to put into `/opt/shipwick/.env` on the server before the agent restarts.
+
+```text
+The agent's key is set in its environment, which it cannot change. Put the new
+key in /opt/shipwick/.env on the server before the agent restarts:
+
+    SHIPWICK_ENCRYPTION_KEY=…
+```
+
+With the old key there the agent refuses to start. Until it has started with the new one it keeps a copy of the new key in a file the command names, and removes it then. Rotating again before that restart is refused with `KEY_ROTATION_PENDING`; see [Error messages](#error-messages).
+
+Back the new key up: backups of the database made before the rotation still need the old key. Needs a token with the `admin` role. See [Rotate the encryption key](/docs/tasks/rotate-the-encryption-key) and [Security](/docs/security#key-rotation).
+
+## server backup
+
+Back up the agent's own state now: its database and the key that encrypts the secrets in it. Since 0.5.
+
+```text
+shipwick server backup
+```
+
+```text
+$ shipwick server backup
+✓ Agent state backed up: 1.2 MB to local, s3 (encrypted) (backup #4)
+```
+
+The agent does this once a day by itself. The backups go where application backups go, under `_agent/`, and are only ever written encrypted: `SHIPWICK_BACKUP_PASSPHRASE` must be set on the agent, or the agent answers `BACKUPS_NOT_ENCRYPTED` (see [Error messages](#error-messages)). The files are `shipwick.db.enc` and `encryption.key.enc`; [`backups decrypt`](#backups-decrypt) reads them on your machine. [`doctor`](#doctor) says whether and when the state was last backed up.
+
+This is for restoring the same server. To take what a server runs to another one, use [`export`](#export). Needs a token with the `admin` role. See [Back up and restore volumes](/docs/tasks/backups) and the [agent configuration](/docs/reference/agent-configuration#backups).
+
 ## doctor
 
 Check the setup end to end and say what to fix.
@@ -881,19 +1357,29 @@ shipwick doctor
 ✓ agent.example.com → 203.0.113.10
 ✓ Port 80 open on 203.0.113.10
 ✗ Port 443 is not reachable on 203.0.113.10: open it in the server's firewall; certificates are issued and renewed through ports 80 and 443
-✗ api.example.com → 104.16.0.1, which is not the server (203.0.113.10). Point the record at the server; if it is proxied through a CDN, turn the proxy off (DNS only)
+✗ api.example.com → 198.51.100.7, which is not the server (203.0.113.10). Point the record at the server
 ✓ https://api.example.com/ answers HTTP 200
 
 2 problems found.
 ```
 
-One line per check: the CLI's and the agent's versions against the latest release (`!` and the upgrade command when one is behind), the token and its role, Docker on the server, the proxy and how many domains it serves, whether the agent's hostname resolves to the server, whether ports 80 and 443 answer there, and for every application's domain whether DNS points at the server and `https://` answers. The last line is `Everything checks out.`, `No problems; 1 thing worth a look.` or `2 problems found.`; the command exits non-zero when it found a problem.
+One line per check: the CLI's and the agent's versions against the latest release (`!` and the upgrade command when one is behind), the token and its role, Docker on the server, the proxy and how many domains it serves, the server's active alerts, the certificates you supplied, the backup of the agent's own state, whether the agent's hostname resolves to the server, whether ports 80 and 443 answer there, and for every application's domain, alias and redirect whether DNS points at the server, and whether `https://` answers at the application's address, its `path` included. The last line is `Everything checks out.`, `No problems; 1 thing worth a look.` or `2 problems found.`; the command exits non-zero when something is broken (`✗`), not for things merely worth a look (`!`).
 
-Hostnames are resolved through public resolvers (Cloudflare's, Google's and Quad9's) before this machine's, the same view of DNS the agent takes. The server's address is learned by resolving the agent's own hostname, so through a tunnel (`127.0.0.1`) ports and record targets are not checked.
+Since 0.5, `doctor` also reports:
+
+| Check | Lines |
+|---|---|
+| Alerts | Every active alert, in the agent's words: a critical one is a problem (`✗`), a warning something worth a look (`!`). See [Alerts and metrics](/docs/tasks/alerts-and-metrics) |
+| Supplied certificates | `✗ The certificate you supplied for example.com expired on 2026-03-10, and browsers refuse it. Replace it with: shipwick cert set example.com --cert <file> --key <file>`; `!` and `expires on …` when it has less than 30 days to go. See [`cert`](#cert) |
+| The agent's state | `✓ Agent state backed up 5h ago to s3`, or to `the server's own disk` with the variables that keep a copy elsewhere; `!` when the last backup failed, when none was taken yet, and when `SHIPWICK_BACKUP_PASSPHRASE` is not set: `The encryption key exists only on this server. …; losing it loses every secret`. See [`server backup`](#server-backup) |
+| Cloudflare | A hostname that resolves to Cloudflare's proxy is named as such. Without `SHIPWICK_CLOUDFLARE_API_TOKEN` on the agent it is a problem: `✗ api.example.com resolves to Cloudflare's proxy (104.16.0.1), not to the server: turn the proxy off for this record (DNS only), or set SHIPWICK_CLOUDFLARE_API_TOKEN on the agent to keep it on`. With the token it is in order: `✓ api.example.com → Cloudflare's proxy (104.16.0.1)`, and the advice to create records "DNS only" is dropped. See [Put Cloudflare in front of the server](/docs/tasks/cloudflare) |
+| Wildcards | `✓ *.example.com is a wildcard: it has no single record or address to check` |
+
+Hostnames are resolved through public resolvers (Cloudflare's, Google's and Quad9's) before this machine's, the same view of DNS the agent takes. The server's address is learned by resolving the agent's own hostname, so through a tunnel (`127.0.0.1`) ports and record targets are not checked. An agent whose own hostname is behind Cloudflare's proxy hides the server's address in the same way, and ports 80 and 443 and the records' targets are not checked then either.
 
 ## open
 
-Open the application in the browser.
+Open the application, or the server's dashboard, in the browser.
 
 ```text
 shipwick open [app] [flags]
@@ -902,8 +1388,11 @@ shipwick open [app] [flags]
 | Flag | Default | |
 |---|---|---|
 | `-f`, `--file <path>` | `deploy.yaml` | Configuration file used to find the application name when `[app]` is omitted |
+| `--dashboard` | | Open the server's dashboard. Takes no application |
 
-Prints `Opening https://api.example.com` and hands the URL to the platform's default browser (`xdg-open`, `open` or `rundll32`), as one argument, never through a shell. An application without a domain is told where it can be reached instead: `my-api has no domain; it is reachable from other applications at http://my-api:8080`, followed by `To serve it publicly, add domain: to deploy.yaml and deploy again`.
+Prints `Opening https://api.example.com` and hands the URL to the platform's default browser (`xdg-open`, `open` or `rundll32`), as one argument, never through a shell. The address is the application's domain with its `path`: `https://example.com/api`. An application without a domain is told where it can be reached instead: `my-api has no domain; it is reachable from other applications at http://my-api:8080`, followed by `To serve it publicly, add domain: to deploy.yaml and deploy again`. An application whose domain is a wildcard has no address of its own to open, and the command says so. When no browser can be started, the URL is printed to open yourself.
+
+Since 0.5, `--dashboard` opens the dashboard at the address the agent reports, wherever you are, and so does `shipwick open` without an argument in a directory with neither a `deploy.yaml` nor a `shipwick.yaml`. On a server without a dashboard hostname, `--dashboard` answers `This server has no dashboard hostname. Set SHIPWICK_DASHBOARD_DOMAIN in /opt/shipwick/.env and run the installer again`.
 
 ## login
 
@@ -916,6 +1405,7 @@ shipwick login [flags]
 | Flag | |
 |---|---|
 | `--token-stdin` | Read the token from standard input |
+| `--no-check` | Save without asking the agent whether the token is right. Since 0.5 |
 | `--context <name>` | Save the server under this name and make it the current context. Global flag; without it, the selected context is overwritten, or `default` is created |
 
 ```text
@@ -928,6 +1418,7 @@ API token:
 - In a terminal without `--url`, `login` asks for the agent URL, offering the currently resolved URL as the default: the context's saved URL if it exists, `SHIPWICK_AGENT_URL` if set, otherwise `http://127.0.0.1:9000`.
 - The token is asked for without echo. It is never taken from `SHIPWICK_AGENT_TOKEN` or from the saved configuration: giving it afresh is the point of logging in.
 - The token is verified against the agent before anything is saved. If the agent rejects it, `the agent rejected this token; nothing was saved`.
+- With `--no-check`, the URL and the token are saved as given, without a request to the agent: `✓ Saved https://agent.example.com as context default in /root/.config/shipwick/config.yaml`, then `not checked against the agent; try it with: shipwick server status`. It is for a hostname whose DNS record or certificate does not exist yet. The installer uses it on the server, where it saves the server's own URL and token as a context of the user who runs it; see [Install the CLI](/docs/getting-started/install-cli#on-the-server).
 - Outside a terminal, `--token-stdin` is required. At most 4096 bytes are read, and surrounding whitespace is trimmed.
 - The context the login saves to is `--context`, then `SHIPWICK_CONTEXT`, then the current context, then `default`. Whatever it is, it becomes the current context.
 
@@ -982,7 +1473,7 @@ Print the name of the current context, and nothing else, for scripts. Errors: `n
 
 ## token
 
-Manage API tokens and their roles. A token has one of three roles: `read` sees everything (status, logs, history, metrics, the names of secrets and volumes); `deploy` also changes what runs (deploy, redeploy, roll back, stop, start, run commands); `admin` also does the rest (delete applications, back up and restore volumes, remove volumes, manage tokens and secrets). Give CI a `deploy` token and keep `admin` tokens for people.
+Manage API tokens and their roles. A token has one of three roles: `read` sees everything (status, logs, history, metrics, traffic, the list of backups, the names of secrets, volumes, registries and supplied certificates); `deploy` also changes what runs (deploy, redeploy, roll back, stop, start, run commands, take and verify a backup); `admin` also does the rest (delete applications, back up and restore volumes, download and remove backups, remove volumes, manage tokens, secrets, registry credentials and certificates, rotate the encryption key, export, import and promote a standby). Give CI a `deploy` token and keep `admin` tokens for people.
 
 The token the agent is configured with, `SHIPWICK_AGENT_TOKEN` or the one it generated on first start, is `root`: it has the `admin` role, is not listed here and cannot be revoked here. Change it on the agent. Every `token` command needs the `admin` role.
 
@@ -1039,7 +1530,7 @@ See [Create tokens for CI and teammates](/docs/tasks/tokens).
 
 ## secret
 
-Manage the secrets kept on the server: values for `${NAME}` in the `env` values of a `deploy.yaml`, stored once so that no laptop or pipeline has to hold them. The agent fills them in when a deployment is recorded; see [Placeholders](#placeholders).
+Manage the secrets kept on the server: values for `${NAME}` in the `env` values and the `proxy.basic_auth` passwords of a `deploy.yaml`, stored once so that no laptop or pipeline has to hold them. The agent fills them in when a deployment is recorded; see [Placeholders](#placeholders).
 
 ```text
 shipwick secret set <NAME> [flags]
@@ -1085,6 +1576,120 @@ Remove a secret.
 | `-y`, `--yes` | Do not ask for confirmation |
 
 Prints `✓ Removed secret DATABASE_PASSWORD`. Deployments already made keep the value they were started with; the next `deploy` whose `env` refers to the name is refused with the command to store it again. Needs the `admin` role.
+
+## registry
+
+Store the credentials the server pulls private images with. Since 0.5.
+
+```text
+shipwick registry login <registry> --username <name> [flags]
+shipwick registry ls
+shipwick registry logout <registry>
+```
+
+An image in a private registry needs a credential on the server. `registry login` hands one to the agent, which checks it against the registry, keeps it encrypted like a secret and uses it for every image it pulls from there: deployments, rollbacks, jobs. Nobody reads the password back. Use a token that may only read: the server pulls, it never pushes. See [Pull from private registries](/docs/tasks/private-registries).
+
+### registry login
+
+Store the credential for a registry, creating or replacing it. The registry is named as image references name it: `ghcr.io`, `registry.example.com:5000`, `docker.io` for Docker Hub.
+
+| Flag | |
+|---|---|
+| `-u`, `--username <name>` | The account, or what the registry wants in its place for a token. Required |
+| `--password-stdin` | Read the password from standard input even in a terminal |
+
+```bash
+shipwick registry login ghcr.io --username octocat                               # asked without echo
+printf '%s' "$GHCR_TOKEN" | shipwick registry login ghcr.io --username octocat
+```
+
+```text
+Password or token for octocat at ghcr.io:
+✓ Logged in to ghcr.io as octocat
+  The server pulls images from ghcr.io with this credential from now on.
+```
+
+The password or token is never an argument: arguments leak through `ps` and shell history. In a terminal it is asked for without echo; otherwise it is read from standard input, and with nothing there the command says how to pipe it in. It is at most 16 KB. The agent checks the credential against the registry before it stores it, so a mistyped token is refused here and not by the next deployment; see `REGISTRY_LOGIN_FAILED` under [Error messages](#error-messages). Needs the `admin` role.
+
+### registry ls
+
+List the registries the server has a credential for: never passwords. `list` is an alias.
+
+```text
+$ shipwick registry ls
+REGISTRY   USERNAME   UPDATED
+ghcr.io    octocat    3d ago
+```
+
+Without any: `No registry credentials on the server. Store one with: shipwick registry login ghcr.io --username <name>`. Needs the `read` role.
+
+### registry logout
+
+Remove a registry's credential. Prints `✓ Logged out of ghcr.io`. Images already on the server stay and running applications are not affected; the server pulls from that registry without the credential from then on. A registry without a stored credential: `no credential is stored for ghcr.io`, then `List them with: shipwick registry ls`. Needs the `admin` role.
+
+## cert
+
+Serve a hostname with a certificate of your own. Since 0.5.
+
+```text
+shipwick cert set <hostname> --cert <file> --key <file>
+shipwick cert ls
+shipwick cert rm <hostname> [flags]
+```
+
+Certificates are obtained and renewed by the server on its own; nothing here is needed for that. These commands are for a hostname whose certificate comes from somewhere else: a corporate authority, a wildcard bought for the whole domain.
+
+A certificate belongs to the server, not to one application. Every hostname it covers, of any application, is served with it; the server asks no authority for those hostnames and does not wait for their DNS. Its key is encrypted at rest like secrets are, and nobody reads it back. Shipwick does not renew it: `cert ls` shows when it expires, and `cert set` replaces it. See [Use a certificate of your own](/docs/tasks/certificates).
+
+### cert set
+
+Store a certificate and its key for a hostname, or replace the ones stored.
+
+| Flag | |
+|---|---|
+| `--cert <file>` | The certificate chain in PEM: the hostname's certificate first, then the intermediates. Required |
+| `--key <file>` | The private key in PEM, without a passphrase. Required |
+
+```bash
+shipwick cert set example.com --cert fullchain.pem --key privkey.pem
+shipwick cert set '*.example.com' --cert wildcard.pem --key wildcard.key
+```
+
+```text
+✓ Stored the certificate for example.com
+Issuer    Let's Encrypt E7
+Expires   2027-01-15
+Covers    example.com, www.example.com
+  The hostnames it covers are served with it from now on. It is not renewed for you: replace it before it expires with the same command.
+```
+
+- The two files are read and sent as they are; each is at most 64 KB. The server checks that they belong together, that the certificate covers the hostname and that it has not expired, and refuses them otherwise with a sentence that says why: `INVALID_CERTIFICATE` under [Error messages](#error-messages). The key is never printed.
+- A wildcard certificate is stored under the wildcard. It covers every name one label below the domain, and lets `"*.example.com"` be used as a `domain` or an alias in `deploy.yaml`. Quote the wildcard, or the shell expands it.
+
+Needs the `admin` role.
+
+### cert ls
+
+List the certificates you supplied: issuer, expiry and what they cover. Never a key. `list` is an alias.
+
+```text
+$ shipwick cert ls
+HOSTNAME        ISSUER             EXPIRES                   COVERS
+example.com     Let's Encrypt E7   2026-10-24 (in 21 days)   example.com, www.example.com
+*.example.org   Example CA         2027-01-15                *.example.org
+```
+
+`EXPIRES` is the certificate's last day, with how far off it is once that is less than 30 days: `(in 21 days)`, `(today)`, `(expired)`. Without any: `No certificates of your own on the server; it obtains one for every hostname itself.`, with the command to supply one. Needs the `read` role.
+
+### cert rm
+
+Remove the certificate stored under a hostname. `remove` is an alias.
+
+| Flag | |
+|---|---|
+| `-y`, `--yes` | Do not ask for confirmation |
+
+In a terminal, `rm` asks `Remove the certificate for example.com? The server will obtain its own for the hostnames it covers. [y/N]`; outside one it refuses without `--yes`. Prints `✓ Removed the certificate for example.com`. The hostnames it covered go back to certificates the server obtains itself, which needs their DNS to point at the server. A wildcard hostname in a `deploy.yaml` is no longer served unless the agent has `SHIPWICK_CLOUDFLARE_API_TOKEN`. An unknown hostname: `there is no certificate stored under example.com`, then `List them with: shipwick cert ls`. Needs the `admin` role.
 
 ## upgrade
 
@@ -1135,10 +1740,11 @@ None of these fail the command. See [Upgrade Shipwick](/docs/tasks/upgrade).
 | Situation | Message |
 |---|---|
 | The agent cannot be reached | `cannot reach the Shipwick agent at <url>`, the cause, and a hint to open an SSH tunnel, to set `--url` / `SHIPWICK_AGENT_URL`, or to pick another saved server with `--context` |
+| The agent cannot be reached at a loopback address, on the server itself | Instead of the tunnel, which leads nowhere there: `The agent on this server publishes no port. Give it a hostname (SHIPWICK_AGENT_DOMAIN in /opt/shipwick/.env, then run the installer again), or see "Reach the API without a hostname" in the handbook, Installation.` The server is recognized by the installer's `.env` file; see [Reach the API without a hostname](/docs/tasks/access-without-a-hostname) |
 | `UNAUTHORIZED` | `The agent rejected the API token.` Set `SHIPWICK_AGENT_TOKEN`, or run `shipwick login` |
 | `FORBIDDEN` | `This token may not do that: it has the read role.` Then `Use a token with the deploy role, or create one with: shipwick token create <name> --role deploy`. The roles come from the agent's answer; an agent that sends none is quoted: `This token may not do that: <message>` |
 | `DEPLOYMENT_IN_PROGRESS` | `Another operation is already in progress for this application.` Watch it with `shipwick status` |
-| `NOT_FOUND` | `The server does not know that application.` List what it runs with `shipwick ps` |
+| `NOT_FOUND` | `The server does not know that application.` List what it runs with `shipwick ps`. When the agent says what was not found, such as a volume or a backup, its message is printed instead: `Error: <the agent's message>` |
 | `NOT_DEPLOYED` | `This application has no successful deployment yet.` Deploy it with `shipwick deploy` |
 | `NO_ROLLBACK_TARGET` | `There is no earlier successful deployment to go back to.` See the history with `shipwick status` |
 | `APPLICATION_RUNNING` | `The application is running, and a restore replaces the files under it.` Stop it first with `shipwick stop` |
@@ -1146,8 +1752,21 @@ None of these fail the command. See [Upgrade Shipwick](/docs/tasks/upgrade).
 | `STATIC_APPLICATION` | `This application is a folder served by the proxy: it has no containers, so there are no logs, metrics or commands to run.` See what it serves with `shipwick status` |
 | `VOLUME_IN_USE` | `Error: <the agent's message>`, then `Delete it with: shipwick delete <app>` |
 | `RATE_LIMITED` | `Too many failed attempts from this address; try again in a minute.` |
+| `IMAGE_INCOMPLETE` | `The server no longer has the layers that were left out of the image.` Send it again with `shipwick deploy`. `deploy` itself answers this code by sending the whole image |
+| `REGISTRY_LOGIN_FAILED` | `Error: <the agent's message>`, then `Nothing was stored. Check the username and the token, and that the token may read images; then log in again.` when the registry refused the credential, or `Nothing was stored. Check the registry's name, and that the server can reach it.` when it could not be asked |
+| `KEY_ROTATION_PENDING` | `The key was already rotated, and the agent has not been restarted with the new one.` Put the key from the file the message names on the server into `/opt/shipwick/.env` as `SHIPWICK_ENCRYPTION_KEY`, restart the agent, then rotate again |
+| `INVALID_CERTIFICATE` | `The server refused the certificate: <the agent's reason>.` Then `--cert is the chain in PEM, the hostname's own certificate first (fullchain.pem); --key is its private key (privkey.pem).` |
+| `TRAFFIC_UNAVAILABLE` | `This server records no traffic: the agent reads the access log of the Caddy container in its own compose project, and there is none.` See how the proxy is doing with `shipwick server status` |
+| `BACKUP_BUSY` | `That backup is in use: it is still being taken, verified or restored.` See where it stands with `shipwick backups <app>` |
+| `BACKUP_NOT_USABLE` | `Error: <the agent's message>`, then `See which backups succeeded with: shipwick backups <app>` |
+| `NO_VOLUMES` | `This application has no volumes, so there is nothing to back up.` Give it some under `volumes` in `deploy.yaml` |
+| `BACKUPS_NOT_ENCRYPTED` | `Error: <the agent's message>`, then `Set SHIPWICK_BACKUP_PASSPHRASE in /opt/shipwick/.env on the server, then: cd /opt/shipwick && docker compose up -d` |
+| `IMPORT_IN_PROGRESS` | `An import is already running on this server; it takes one at a time.` Follow it with `shipwick import --status` |
+| `INVALID_EXPORT` | `Error: <the agent's message>`, then `What the import had finished before it stopped is in place: shipwick import --status. An export is written with: shipwick export` |
+| `EXPORT_IN_PROGRESS` | `The server is writing an export already.` See it with `shipwick export --list` |
+| `STANDBY_NOT_CONFIGURED` | `This server has no bucket to fetch exports from.` Set the `SHIPWICK_BACKUP_S3_*` variables and `SHIPWICK_BACKUP_PASSPHRASE` of the first server, and `SHIPWICK_STANDBY_SCHEDULE`, in `/opt/shipwick/.env` on this server; or import a file with `shipwick import <file> --stopped` |
 | `ENDPOINT_NOT_FOUND` | `The agent does not know this operation — it is probably older than this shipwick.` Compare versions with `shipwick server status` |
-| `INVALID_CONFIG` | The field-by-field validation report. A hostname or a published port that another application holds is reported the same way, under the line that claims it: `aliases[1]`, `publish[0].host`; so is an `env` value whose `${NAME}` is neither set here nor stored on the server: `env.DATABASE_URL`, with `shipwick secret set NAME` as what is expected |
+| `INVALID_CONFIG` | The field-by-field validation report. A hostname or a published port that another application holds is reported the same way, under the line that claims it: `aliases[1]`, `publish[0].host`; so is an `env` value whose `${NAME}` is neither set here nor stored on the server: `env.DATABASE_URL`, with `shipwick secret set NAME` as what is expected. Since 0.5 a hostname is taken per `path`: two applications may serve one hostname under different paths, and the same path twice is refused |
 | Any other API error | `Error: <message>` |
 
 The error codes are described in the [REST API reference](/docs/reference/api#error-codes).

@@ -25,7 +25,7 @@ FAILED → ROLLBACK → RESTORING → ROLLED_BACK
 | `FAILED` | The cause is recorded in the deployment's `error`. It stays there through the rest of the path. |
 | `ROLLBACK` | The new replicas that never made it into rotation are removed. They are the failure, and they hold the one slot of headroom the restore needs. New replicas that are already serving keep serving. |
 | `RESTORING` | The replicas of the previous deployment that had been retired are recreated from that deployment's stored configuration. They are verified like any new replica, against the previous version's own health check and port. |
-| `ROLLED_BACK` | The restored replicas are ready. Traffic returns to the previous version, and the remaining new containers are removed. |
+| `ROLLED_BACK` | The restored replicas are ready. Traffic returns to the previous version, and the remaining new containers are removed. So is the image the failed deployment named, unless it is the running version's or the rollback target's. |
 
 Traffic leaves the new replicas only after the restored ones are verified, so capacity does not dip a second time.
 
@@ -40,7 +40,7 @@ The events of the restore are recorded with the failed deployment. The previous 
 
   replica 2 did not become healthy within 30s: GET /health on port 8080: connection refused
 
-my-api is running 1.4.1 again: the replicas that had already been replaced were restored.
+my-api is running 1.4.1 again: the previous version was restored.
 ```
 
 Through the API, `ROLLED_BACK` means that part of the previous version had already been replaced and was restored. `FAILED` means nothing of it was lost. In both cases `error` says why the deployment failed.
@@ -76,7 +76,7 @@ Rolling back my-api to 1.4.1  (deployment #3)...
 
 **The whole configuration returns, not only the image.** Environment values, replica count, limits, hostnames, published ports, jobs and health check come back as they were stored with that deployment. Secrets are included, and they never leave the server to do so; a value the agent filled in from a stored secret is restored as that deployment used it, whatever the secret says now. This is also why rollback exists as a server-side operation at all: the API only ever returns configurations with environment values masked, so no client could re-submit one.
 
-**What the target needs to still be there.** The image of the version before the one running is always kept, so a rollback to it never waits for a pull. Further back, an image from a registry is pulled again; an image that was built on a developer's machine cannot be, and a rollback to a version whose image was pruned, or that this server was never sent, fails with `… is not on this server; it was built on a developer's machine — run shipwick deploy from the project again`. A static application is rolled back to the folder the proxy kept for that version, with no upload; the folder of the serving version and of the one before it are kept, and a rollback further back fails with `the files of <version> are no longer on the server: deploy the folder again`.
+**What the target needs to still be there.** The image of the version before the one running is always kept, so a rollback to it never waits for a pull. Further back, an image from a registry is pulled again, with the credential the agent keeps for that registry if there is one ([Pull from private registries](/docs/tasks/private-registries)); an image that was built on a developer's machine cannot be, and a rollback to a version whose image was pruned, or that this server was never sent, fails with `… is not on this server; it was built on a developer's machine — run shipwick deploy from the project again`. A static application is rolled back to the folder the proxy kept for that version, with no upload; the folder of the serving version and of the one before it are kept, and a rollback further back fails with `the files of <version> are no longer on the server: deploy the folder again`. An application that was a folder and is now deployed as a container keeps its last folder for as long as a plain `shipwick rollback` would return to it, which is until its second container version.
 
 **A `pre_deploy` command runs on a rollback too.** A rollback is a deployment, and the stored configuration is deployed whole: if it has a `pre_deploy` command, that command runs from the older image, before any replica of it starts, and a failure fails the rollback with nothing touched. A migration that cannot run backwards will stop a rollback here; see [Deployments](/docs/concepts/deployments#before-the-replicas-start-the-pre-deploy-command).
 
@@ -123,4 +123,4 @@ my-api is running 1.4.1, but it is DEGRADED right now (1/2 replicas healthy). Sh
 
 If the image of the previous version has been pruned from the server since it was deployed, recreating a replica pulls it again first.
 
-If the agent is shutting down when a rollout fails, it does not start a restore it could not finish. The next start reaches the same end state: the interrupted deployment is `FAILED`, and reconciliation completes the previous version. See [Health checks and supervision](/docs/concepts/health-and-supervision).
+An agent that stops while a deployment is being rolled back leaves it where it is, and since 0.5 the next start finishes the rollback: missing replicas of the previous version are created, all of them verified, and what is left of the failed version removed. See [Agent restarts during a deployment](/docs/concepts/deployments#agent-restarts-during-a-deployment).

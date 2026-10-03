@@ -10,6 +10,7 @@ Some work belongs to an application without being part of a replica: a migration
 ## Before you begin
 
 - The application is deployed. Jobs and commands run from the image of its active deployment, with its `env`, its resource limits, its `entrypoint` and `user`, and on the same network, so they reach a database at `postgres:5432` the way a replica does.
+- Since 0.5, a job or one-off command whose image has been pruned from the server pulls it again, as a replica does, instead of failing. The pull uses the credential the agent keeps for that registry, if `shipwick registry login` stored one; see [Pull from private registries](/docs/tasks/private-registries).
 - A run gets **none of the application's volumes**. A replica may be writing them, and two writers on one volume is how data gets lost. Work that needs the data goes through the application.
 - Nothing runs on the server itself. A command runs inside a container, as the image's own command would.
 - Listing jobs and runs needs a token with the `read` role; starting one needs `deploy`. See [Create tokens for CI and teammates](/docs/tasks/tokens).
@@ -227,10 +228,10 @@ An application's page has a Jobs section: every job with its schedule (marked UT
 | `POST` | `/applications/:name/jobs/:job/run` | deploy | Start a job now → `202`, or `409 JOB_ALREADY_RUNNING` |
 | `POST` | `/applications/:name/run` | deploy | Run a command; body `{"command": ["rails", "db:migrate"]}` → `202` |
 
-Both `POST`s answer with the run and a `Location` to poll until `finished_at` is set. A run's `status` is `running`, `succeeded`, `failed`, `timed_out` or `interrupted`; `exit_code` is `null` when the container could not be started. See [the API reference](/docs/reference/api#jobs-and-one-off-commands).
+Both `POST`s answer with the run and a `Location` to poll until `finished_at` is set. A run's `status` is `running`, `succeeded`, `failed`, `timed_out` or `interrupted`; `exit_code` is `null` when the container could not be started. See [the API reference](/docs/reference/api#get-applications-name-jobs).
 
 ## What's next
 
-- The [`pre_deploy`](/docs/reference/deploy-yaml#pre_deploy) and [`jobs`](/docs/reference/deploy-yaml#jobs) fields in the deploy.yaml reference.
+- The [`pre_deploy`](/docs/reference/deploy-yaml#pre-deploy) and [`jobs`](/docs/reference/deploy-yaml#jobs) fields in the deploy.yaml reference.
 - [`shipwick jobs`](/docs/reference/cli#jobs) and [`shipwick run`](/docs/reference/cli#run) in the CLI reference.
 - [Get notified](/docs/tasks/notifications) when a job fails.

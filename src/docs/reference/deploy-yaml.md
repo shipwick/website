@@ -1,11 +1,11 @@
 ---
 title: deploy.yaml
-description: Complete reference of the deploy.yaml file, with every field, its type, default and validation rules, the units it accepts, ${NAME} placeholders, and the format of validation errors.
+description: Complete reference of the deploy.yaml file, with every field, its type, default and validation rules, including paths, the proxy block, wildcard hostnames and scheduled backups, the units it accepts, ${NAME} placeholders, and the format of validation errors.
 ---
 
 # deploy.yaml
 
-`deploy.yaml` describes one application: its image, or the Dockerfile to build one from, or the folder to serve, and how to run it. This page lists every field with its type, default and validation rules, the units used for sizes and durations, how `${NAME}` placeholders are filled in, the error format that `shipwick` and the API produce, and `shipwick.yaml`, which describes several applications in one file.
+`deploy.yaml` describes one application: its image, or the Dockerfile to build one from, or the folder to serve, how to run it, the hostnames and the path it is served at, what the proxy does for it, and when its volumes are backed up. This page lists every field with its type, default and validation rules, the units used for sizes and durations, how `${NAME}` placeholders are filled in, the error format that `shipwick` and the API produce, and `shipwick.yaml`, which describes several applications in one file.
 
 ## The file
 
@@ -17,7 +17,7 @@ domain: api.example.com
 replicas: 2
 ```
 
-- Only `name` and `image` are required, or [`build`](#build) in place of `image`. A folder the proxy serves itself needs `name`, [`static`](#static) and `domain`, and nothing else applies.
+- Only `name` and `image` are required, or [`build`](#build) in place of `image`. A folder the proxy serves itself needs `name`, [`static`](#static) and `domain`, and nothing that describes a container applies.
 - The file is YAML. JSON is accepted too, since it is a subset of YAML.
 - One file describes one application. A file with several YAML documents is rejected. Several applications go in one [`shipwick.yaml`](#several-applications-shipwick-yaml) instead.
 - The maximum size is 64 KB.
@@ -35,7 +35,7 @@ env:
   DATABASE_URL: postgres://app:${DATABASE_PASSWORD}@postgres:5432/app
 ```
 
-Two places can fill it in. `shipwick` replaces every `${NAME}` it has a value for before the file is validated or sent, from its own environment or from a file given with `--env-file`. An `env` value whose name is set nowhere there is left to the agent, which fills it in from the secrets stored on the server with `shipwick secret set NAME`, before the deployment is recorded; the record holds the values, so a later change of a secret applies from the next deployment on and a rollback restores the value that deployment used. A name that neither side has is an error, never an empty value, and the deployment is refused before anything is recorded, with the command to run. Only `env` values are filled in by the server: a `${TAG}` in `image` must be set where `shipwick` runs. `$${NAME}` is a literal `${NAME}`. The rules are in the [CLI reference](/docs/reference/cli#placeholders).
+Two places can fill it in. `shipwick` replaces every `${NAME}` it has a value for before the file is validated or sent, from its own environment or from a file given with `--env-file`. An `env` value, or a password under [`proxy.basic_auth`](#proxy), whose name is set nowhere there is left to the agent, which fills it in from the secrets stored on the server with `shipwick secret set NAME`, before the deployment is recorded; the record holds the values, so a later change of a secret applies from the next deployment on and a rollback restores the value that deployment used. A name that neither side has is an error, never an empty value, and the deployment is refused before anything is recorded, with the command to run. Only `env` values and the passwords of `proxy.basic_auth` are filled in by the server: a `${TAG}` in `image` must be set where `shipwick` runs. `$${NAME}` is a literal `${NAME}`. The rules are in the [CLI reference](/docs/reference/cli#placeholders).
 
 ## Fields
 
@@ -44,9 +44,11 @@ Two places can fill it in. `shipwick` replaces every `${NAME}` it has a value fo
 | [`name`](#name) | string | yes | |
 | [`image`](#image) | string | unless `build` or `static` is set | |
 | [`build`](#build) | `.`, a folder, or `{context, dockerfile}` | in place of `image` | |
-| [`build.context`](#build) | string | with `build` as a map | |
+| [`build.context`](#build) | string | no | `.`, the directory of `deploy.yaml` |
 | [`build.dockerfile`](#build) | string | no | `Dockerfile` |
-| [`static`](#static) | string | in place of `image`; requires `domain` | |
+| [`static`](#static) | a folder, or `{dir, fallback}` | in place of `image`; requires `domain` | |
+| [`static.dir`](#static) | string | with `static` as a map | |
+| [`static.fallback`](#static) | string | no | none: a path that names no file is a `404` |
 | [`entrypoint`](#entrypoint) | list of strings, or one string | no | the image's `ENTRYPOINT` |
 | [`command`](#command) | list of strings, or one string | no | the image's `CMD` |
 | [`user`](#user) | string | no | the image's `USER` |
@@ -54,6 +56,15 @@ Two places can fill it in. `shipwick` replaces every `${NAME}` it has a value fo
 | [`domain`](#domain) | string | no | none |
 | [`aliases`](#aliases) | list of strings | no | none |
 | [`redirects`](#redirects) | list of strings | no | none |
+| [`path`](#path) | string | no; requires `domain` | the whole domain |
+| [`proxy.strip_prefix`](#proxy) | boolean | no; requires `path` | `false` |
+| [`proxy.headers`](#proxy) | map of string to string | no | none |
+| [`proxy.basic_auth[].path`](#proxy) | string | no | the whole application |
+| [`proxy.basic_auth[].username`](#proxy) | string | with `proxy.basic_auth` | |
+| [`proxy.basic_auth[].password`](#proxy) | string | with `proxy.basic_auth` | |
+| [`proxy.redirects[].from`](#proxy) | string | with `proxy.redirects` | |
+| [`proxy.redirects[].to`](#proxy) | string | with `proxy.redirects` | |
+| [`proxy.redirects[].status`](#proxy) | integer | no | `308` |
 | [`replicas`](#replicas) | integer | no | `1` |
 | [`env`](#env) | map of string to string | no | none |
 | [`health.path`](#health) | string | one of `path`, `tcp`, `command` with `health` | |
@@ -67,6 +78,10 @@ Two places can fill it in. `shipwick` replaces every `${NAME}` it has a value fo
 | [`resources.memory`](#resources) | size | no | unlimited |
 | [`volumes[].name`](#volumes) | string | with `volumes` | |
 | [`volumes[].path`](#volumes) | string | with `volumes` | |
+| [`backups.schedule`](#backups) | string | with `backups`; requires `volumes` | |
+| [`backups.keep`](#backups) | integer | no | `7` |
+| [`backups.before`](#backups) | list of strings | no | none |
+| [`backups.stop`](#backups) | boolean | no | `false` |
 | [`publish[].port`](#publish) | integer | with `publish` | |
 | [`publish[].host`](#publish) | integer | no | the same as `port` |
 | [`publish[].address`](#publish) | string | no | every address of the server |
@@ -81,9 +96,10 @@ Two places can fill it in. `shipwick` replaces every `${NAME}` it has a value fo
 | [`jobs[].timeout`](#jobs) | duration | no | `1h` |
 | [`restart.policy`](#restart) | string | no | `always` |
 | [`deploy.strategy`](#deploy) | string | no | `rolling` |
+| [`deploy.stop_timeout`](#deploy) | duration | no | `10s` |
 | [`after`](#several-applications-shipwick-yaml) | list of strings | no; `shipwick.yaml` only | |
 
-With `static`, only `name`, `static`, `domain`, `aliases` and `redirects` apply; every other field is an error next to it.
+With `static`, only `name`, `static`, `domain`, `aliases`, `redirects`, `path` and `proxy` apply; a field that describes a container is an error next to it.
 
 ### name
 
@@ -140,7 +156,7 @@ Build the image on your machine instead of naming one. `shipwick deploy` runs `d
 |---|---|
 | Type | A string, the build context; or a map with `context` and `dockerfile` |
 | Required | no. Replaces `image`; cannot be combined with `static`. |
-| `build.context` | Required as a map. The directory handed to `docker build`, relative to `deploy.yaml`: `.` for its own directory, or a folder in it such as `api`. |
+| `build.context` | Default `.`. The directory handed to `docker build`, relative to `deploy.yaml`: `.` for its own directory, or a folder in it such as `api`. |
 | `build.dockerfile` | Default `Dockerfile`. Relative to the context. |
 | Rule | Both paths are relative, contain no control characters, and stay inside the directory of `deploy.yaml`: `must be relative to deploy.yaml`, `must stay inside the directory of deploy.yaml`. Backslashes are read as slashes; paths are cleaned. |
 
@@ -154,6 +170,8 @@ build:
   dockerfile: docker/Dockerfile.prod
 ```
 
+A map that names only its Dockerfile, `build: {dockerfile: docker/Dockerfile.prod}`, builds in the directory of `deploy.yaml`.
+
 The deployment's version is the image tag, `20260927-153000-a1b2`; every deployment is a new build. `shipwick validate` describes the build and does not run it; `shipwick deploy --image` does not apply to an application with `build`. `shipwick.local` is a host that does not exist, so such an image is either on the server or it is not: a rollback to a version whose image was pruned, or that this server was never sent, fails and asks for another `shipwick deploy` from the project. `shipwick init` writes `build: .` together with a Dockerfile for a project it recognises.
 
 ### static
@@ -162,10 +180,11 @@ A folder served by the proxy as it is: a built frontend. There is no container, 
 
 | | |
 |---|---|
-| Type | string |
+| Type | A string, the folder; or a map with `dir` and `fallback` |
 | Required | no. Replaces `image`. Requires `domain`: `is required for a static application: the proxy serves the files at it`. |
-| Rule | A folder relative to `deploy.yaml`, inside its directory: `dist/`, `build`, `out/public`. Read on the machine where `shipwick deploy` runs, at deploy time. Trailing slashes are dropped. |
-| Excludes | `image`, `build`, `port`, `replicas`, `env`, `health`, `resources`, `volumes`, `publish`, `entrypoint`, `command`, `user`, `logging`, `pre_deploy` and `jobs`. Each is refused with `does not apply to a static application: the proxy serves the files, there is no container`. |
+| `static.dir` | Required as a map. A folder relative to `deploy.yaml`, inside its directory: `dist/`, `build`, `out/public`. Read on the machine where `shipwick deploy` runs, at deploy time. Backslashes are read as slashes; trailing slashes are dropped. |
+| `static.fallback` | A file in the folder, answered with status 200 for every path that names no file: `index.html` for a single-page application. Relative to the folder, at most 200 characters, with letters, digits, dots, dashes, underscores and tildes between the slashes. Without it such a path is a `404`. |
+| Excludes | `image`, `build`, `port`, `replicas`, `env`, `health`, `resources`, `volumes`, `publish`, `entrypoint`, `command`, `user`, `logging`, `pre_deploy`, `jobs`, `backups` and `deploy.stop_timeout`. Each is refused with `does not apply to a static application: the proxy serves the files, there is no container`. |
 
 ```yaml
 name: web
@@ -174,7 +193,13 @@ domain: example.com
 redirects: [www.example.com]
 ```
 
-Run the build first: the folder is sent as it is. It must hold an `index.html`, which `shipwick deploy` checks before anything is sent and the agent checks again; a request for a path that names no file is a `404`, since the fallback route of a single-page application is not assumed. Files and directories only; a symbolic link that leads out of the folder is skipped with a warning. `deploy.yaml`, `shipwick.yaml`, `.git` and `.env` files are left out wherever they are in the folder, since everything sent is served; other dotfiles such as `.well-known` go in. The version of a static deployment is the first twelve characters of the folder's digest, so the same files make the same version on any machine. `aliases`, `redirects`, `stop` (the domain answers `503`), `start`, `rollback` and `delete` work as for any application; `shipwick logs`, `run`, `jobs` and the metrics have nothing to show and say so. `shipwick init` writes `static: <dir>` for a folder of static files, and for a Vite or Astro project that builds one.
+```yaml
+static:
+  dir: dist/
+  fallback: index.html
+```
+
+Run the build first: the folder is sent as it is. It must hold an `index.html`, which `shipwick deploy` checks before anything is sent and the agent checks again. A request for a path that names no file is a `404` unless `fallback` names the page that answers it; a missing image or script then gets that page too. The fallback file must be in the folder, which `shipwick deploy` checks before it uploads and the agent before it routes. Files and directories only; a symbolic link that leads out of the folder is skipped with a warning. `deploy.yaml`, `shipwick.yaml`, `.git` and `.env` files are left out wherever they are in the folder, since everything sent is served; other dotfiles such as `.well-known` go in. The version of a static deployment is the first twelve characters of the folder's digest, so the same files make the same version on any machine. `aliases`, `redirects`, [`path`](#path), [`proxy`](#proxy), `stop` (the domain answers `503`), `start`, `rollback` and `delete` work as for any application; `shipwick logs`, `run`, `jobs` and the metrics have nothing to show and say so. `shipwick init` writes `static: <dir>` for a folder of static files and for an Astro project that builds one, and `static: {dir: dist/, fallback: index.html}` for a project built by Vite.
 
 ### entrypoint
 
@@ -257,28 +282,37 @@ The public hostname of the application. Caddy serves it over HTTPS with an autom
 |---|---|
 | Type | string |
 | Required | no. Requires `port`. |
-| Rule | A plain hostname: dot-separated labels of lowercase letters, digits and dashes, each 1 to 63 characters and starting and ending with a letter or digit; at most 253 characters in total. No scheme, port, path or wildcard. |
+| Rule | A hostname: dot-separated labels of lowercase letters, digits and dashes, each 1 to 63 characters and starting and ending with a letter or digit; at most 253 characters in total. No scheme, port or path. The first label may be `*`, a wildcard: `"*.example.com"`. |
 | Normalization | Trimmed and converted to lowercase. |
 
 ```yaml
 domain: api.example.com
 ```
 
-More hostnames are added with [`aliases`](#aliases), served exactly like the domain, and [`redirects`](#redirects), answered with a redirect to it.
+More hostnames are added with [`aliases`](#aliases), served exactly like the domain, and [`redirects`](#redirects), answered with a redirect to it. [`path`](#path) limits the application to one path of its hostnames.
 
-A hostname belongs to one application, in any role. A deployment that claims a hostname already in use — as another application's domain, alias or redirect, or by the agent's API or the dashboard — is refused before anything is started. The error is shaped like a validation error, and its field names the line to change: `domain`, `aliases[0]`, `redirects[1]`. Its message names the owner: `already served by application "web"`, or `already served by Shipwick itself (the agent or the dashboard)`. A redeploy or a rollback is checked the same way, since a stored configuration's hostnames may have been taken since.
+**Wildcards.** `domain` and `aliases` may be a wildcard: one leading `*` label and a plain hostname after it, quoted in YAML.
+
+```yaml
+domain: example.com
+aliases: ["*.example.com"]
+```
+
+`*.example.com` is every name one label below the domain: `a.example.com`, and neither `example.com` nor `a.b.example.com`. A certificate for a wildcard is issued only through a DNS record, so the agent refuses a deployment that names one unless it has [`SHIPWICK_CLOUDFLARE_API_TOKEN`](/docs/reference/agent-configuration#shipwick-cloudflare-api-token) or a certificate of your own covers the name: see [Cloudflare in front of the server](/docs/tasks/cloudflare) and [a certificate of your own](/docs/tasks/certificates). `*.example.com` and `api.example.com` are different hostnames and may belong to different applications; a request for `api.example.com` goes to the application that names it exactly, every other name under the domain to the wildcard's. `redirects` cannot be wildcards, and cannot be sent to a wildcard `domain`.
+
+**Hostnames in use.** A hostname that is served, as a domain or an alias, is taken per path: two applications may name the same hostname when each serves a different [`path`](#path) of it, and the same path twice, or none on both, is refused. A hostname that is redirected, or that the agent's API or the dashboard is served at, is taken whole. A deployment that claims what is already in use is refused before anything is started. The error is shaped like a validation error, and its field names the line to change: `domain`, `path`, `aliases[0]`, `redirects[1]`. Its message names the owner: `already served by application "web"`, or `already served by Shipwick itself (the agent or the dashboard)`; for an application with a `path`, `example.com/api is already served by application "api"; applications share a domain under different paths`. A redeploy or a rollback is checked the same way, since a stored configuration's hostnames may have been taken since.
 
 An application that is only called by other applications on the server needs no domain.
 
 ### aliases
 
-More hostnames served exactly like `domain`: the same route, the same replicas. Each gets its own certificate; point each one's DNS at the server. See [Serve several hostnames and redirect www](/docs/tasks/several-hostnames).
+More hostnames served exactly like `domain`: the same route, the same replicas, the same [`path`](#path). Each gets its own certificate; point each one's DNS at the server. See [Serve several hostnames and redirect www](/docs/tasks/several-hostnames).
 
 | | |
 |---|---|
 | Type | list of strings |
 | Required | no. Requires `domain`. |
-| Rule | At most 20 entries. Each is a hostname by the same rule as `domain`, and is listed once across `domain`, `aliases` and `redirects`. |
+| Rule | At most 20 entries. Each is a hostname by the same rule as `domain`, [wildcards](#domain) included, and is listed once across `domain`, `aliases` and `redirects`. |
 | Normalization | Each entry is trimmed and converted to lowercase. The order is kept. |
 
 ```yaml
@@ -288,17 +322,17 @@ aliases: [api.example.com]
 
 Without a `domain`, `aliases` is an error: an alias is served like the domain, so there has to be one. A hostname that appears twice, in whichever lists, is reported on its second occurrence: `"example.com" is already listed under domain`, `"a.example.com" is already listed under aliases[0]`.
 
-Like the domain, an alias in use by another application or by Shipwick itself is refused by the agent, with an error on `aliases[i]`.
+Like the domain, an alias in use by another application under the same path, or by Shipwick itself, is refused by the agent, with an error on `aliases[i]`.
 
 ### redirects
 
-Hostnames answered with a `308` redirect to `https://<domain>`, with the same path and query; the method is kept. For `www.example.com` and old domains.
+Hostnames answered with a `308` redirect to `https://<domain>`, with the same path and query; the method is kept. For `www.example.com` and old domains. Redirects from one path to another are [`proxy.redirects`](#proxy).
 
 | | |
 |---|---|
 | Type | list of strings |
-| Required | no. Requires `domain`. |
-| Rule | At most 20 entries. Each is a hostname by the same rule as `domain`, and is listed once across `domain`, `aliases` and `redirects`. |
+| Required | no. Requires `domain`, and one that is not a wildcard: `cannot be sent to a wildcard domain`. |
+| Rule | At most 20 entries. Each is a plain hostname, never a wildcard, and is listed once across `domain`, `aliases` and `redirects`. |
 | Normalization | Each entry is trimmed and converted to lowercase. The order is kept. |
 
 ```yaml
@@ -308,7 +342,80 @@ redirects: [www.example.com, example.net]
 
 `https://www.example.com/docs?x=1` is answered with a `308` to `https://example.com/docs?x=1`. A redirect needs no replica: it is answered whether or not the application is running, including while it is stopped. Every redirected hostname gets its own certificate, so its DNS must point at the server.
 
-Without a `domain`, `redirects` is an error: a redirect is sent to the domain. A hostname in use anywhere is refused like an alias, with an error on `redirects[i]`.
+Without a `domain`, `redirects` is an error: a redirect is sent to the domain. A redirect is a whole hostname, whatever the application's `path`, so it cannot be shared: a hostname in use anywhere is refused, with an error on `redirects[i]`.
+
+### path
+
+Limits the application to one path of its domain and everything under it, so that several applications answer under one hostname. See [Several applications on one hostname](/docs/tasks/paths-and-proxy).
+
+| | |
+|---|---|
+| Type | string |
+| Required | no. Requires `domain`. |
+| Default | the whole domain. `path: /` means the same. |
+| Rule | Starts with `/` and does not end with one; letters, digits, dots, dashes, underscores and tildes between the slashes; no `.` or `..` segments; at most 200 characters. Pattern: `^(/[A-Za-z0-9._~-]+)+$` |
+| Normalization | Leading and trailing whitespace is trimmed. |
+
+```yaml
+name: api                 # example.com/api and everything under it
+domain: example.com
+path: /api
+```
+
+```yaml
+name: web                 # the rest of example.com
+domain: example.com
+```
+
+The longest path wins: with a third application at `/api/admin`, a request for `/api/admin/users` goes there, `/api/users` to `api`, and everything else to `web`. Without an application that takes the rest, the rest is a `404`. A path matches whole segments, `/api` and `/api/users` but not `/apix`, and without regard to case, so `/API` and `/api` are one path. Each application keeps its own replicas, health checks, rollouts and rollbacks. Aliases are served under the same path; `redirects` remain whole hostnames.
+
+Two applications cannot have the same path of a hostname, or both none: the second deployment is refused by the agent with an error on `path`, as described under [`domain`](#domain).
+
+The application sees the path as the visitor sent it, `/api/users`, unless [`proxy.strip_prefix`](#proxy) removes the prefix. A static application under a path is always served with the prefix removed, since its files are looked up in its folder, and a request for the path itself is sent on with a trailing slash, so that relative links in the page lead below it.
+
+### proxy
+
+What the proxy does for the application's requests besides passing them on: response headers, basic authentication, redirects from one path to another, and removing `path` before the application sees a request. See [Several applications on one hostname](/docs/tasks/paths-and-proxy) for each of them at work.
+
+| Field | Type | Default | Rule |
+|---|---|---|---|
+| `proxy.strip_prefix` | boolean | `false` | Requires `path`. Removes it from a request before the application sees it: `/api/users` arrives as `/users`. |
+| `proxy.headers` | map of string to string | none | At most 50 headers. A name is an HTTP token, letters, digits and dashes in practice, and is listed once whatever its case. A value is not empty, at most 4096 characters, and contains no control characters or newlines. Headers that belong to the connection are refused: `Connection`, `Content-Encoding`, `Content-Length`, `Keep-Alive`, `Proxy-Authenticate`, `Proxy-Authorization`, `Proxy-Connection`, `TE`, `Trailer`, `Transfer-Encoding`, `Upgrade`. |
+| `proxy.basic_auth[].path` | string | the whole application | A path by the same rule as [`path`](#path), inside the application's own `path` when it has one. `/` means the whole application. |
+| `proxy.basic_auth[].username` | string | required | At most 255 characters; no colon and no control characters. Listed once for each path. |
+| `proxy.basic_auth[].password` | string | required | At least 8 characters and at most 72 bytes; no control characters. A secret: write it as a [placeholder](#placeholders). |
+| `proxy.redirects[].from` | string | required | One path, matched exactly, by the same rule as `path` and inside the application's own `path`. Not `/`. Listed once. |
+| `proxy.redirects[].to` | string | required | A path on the same host, starting with one `/`, with or without a query; or an absolute `https://` URL. At most 2048 characters; no whitespace, control characters, braces or backslashes. |
+| `proxy.redirects[].status` | integer | `308` | One of `301`, `302`, `307`, `308`. |
+
+At most 20 `basic_auth` entries and 100 `redirects`. The block requires `domain`, and an unknown key inside it is an error like anywhere else in the file.
+
+```yaml
+domain: example.com
+path: /api
+proxy:
+  strip_prefix: true              # the application sees /users for /api/users
+  headers:                        # set on every response
+    X-Frame-Options: DENY
+    Strict-Transport-Security: max-age=31536000
+  basic_auth:
+    - path: /api/admin            # optional; without it, the whole application
+      username: admin
+      password: ${ADMIN_PASSWORD}
+  redirects:
+    - from: /api/old
+      to: /api/new                # or an https:// URL
+      status: 308                 # 301, 302, 307 or 308
+```
+
+A request meets them in this order: a redirect answers first, then the proxy asks for a password, then the application, or the folder of a static one, answers, and the headers are set on what it sends, replacing a header of the same name. The headers are on the redirects too, and not on the `401` that asks for the password.
+
+Every path in the block is the path as the visitor asks for it: under `path: /api`, the admin area is `/api/admin`, with or without `strip_prefix`, and a path outside `/api` is refused.
+
+- **`strip_prefix`.** The proxy does not rewrite responses: an application that is served without its prefix must add it to its own redirects and links.
+- **`headers`.** Values are sent as written; nothing in them is expanded by the proxy.
+- **`basic_auth`.** A password is a secret, treated like an `env` value: `${ADMIN_PASSWORD}` is filled in by `shipwick` from its environment or `--env-file`, else by the agent from the secrets stored with `shipwick secret set`. It is encrypted in the agent's database, shown as `********` wherever the configuration is shown, and the proxy is given a bcrypt hash of it, never the password. Several entries with the same `path` are several users of it. Where the paths of two entries overlap, the longer one decides: with one account for everything and another for `/admin`, `/admin` accepts only the second. A password left to the server's secrets is checked by the agent once its value is known.
+- **`redirects`.** The query string travels along unless `to` has one. The default status, `308`, keeps the method. A redirect to itself, or a circle of them, is refused.
 
 ### replicas
 
@@ -440,7 +547,7 @@ deploy:
   strategy: recreate
 ```
 
-On the server the volume is the Docker volume `shipwick_<name>_<volume>`: `shipwick_postgres_data` here. It belongs to the application, not to a deployment: every deployment mounts the same volumes, and nothing removes them — not a redeploy, not a rollback, not `shipwick delete`. `shipwick volumes` lists every volume on the server with the application it belongs to and whether that application still exists; `shipwick volumes rm shipwick_postgres_data` removes one whose application was deleted, and refuses one whose application still exists. `shipwick backup` and `shipwick restore` copy a volume's contents out and back in; see [Back up and restore volumes](/docs/tasks/backups).
+On the server the volume is the Docker volume `shipwick_<name>_<volume>`: `shipwick_postgres_data` here. It belongs to the application, not to a deployment: every deployment mounts the same volumes, and nothing removes them — not a redeploy, not a rollback, not `shipwick delete`. `shipwick volumes` lists every volume on the server with the application it belongs to and whether that application still exists; `shipwick volumes rm shipwick_postgres_data` removes one whose application was deleted, and refuses one whose application still exists. `shipwick backup` and `shipwick restore` copy a volume's contents out and back in, and [`backups`](#backups) has the server archive the volumes on a schedule; see [Back up and restore volumes](/docs/tasks/backups).
 
 Volumes are named volumes only. A path on the host cannot be mounted. The `pre_deploy` command and job containers get no volumes: a replica may be writing them.
 
@@ -458,6 +565,43 @@ replicas:
   must be 1 for an application with volumes, got 2: replicas cannot share a volume
   expected: 1
 ```
+
+### backups
+
+Backups of the application's volumes, taken by the agent on a schedule. A backup is one tar archive per volume, kept on the server and, when the agent has a bucket, in S3-compatible storage as well. See [Back up and restore volumes](/docs/tasks/backups), and [Agent configuration](/docs/reference/agent-configuration#backups) for where backups go and how they are encrypted.
+
+| Field | Type | Default | Rule |
+|---|---|---|---|
+| `backups.schedule` | string | required when `backups` is present | Five cron fields, read in UTC, as for [`jobs`](#jobs). Runs of whitespace between fields are collapsed to one space. |
+| `backups.keep` | integer | `7` | 1 to 365. How many successful backups are kept; the oldest go once a new one has succeeded. |
+| `backups.before` | list of strings | none | A command run inside the running replica before the archive is taken. Same rule as `pre_deploy.command`: 1 to 256 arguments, the first not blank, none containing a NUL byte or longer than 4096 bytes. A list, not a string. |
+| `backups.stop` | boolean | `false` | Stop the application while the archive is taken, and start it again whatever happens. |
+
+`backups` requires [`volumes`](#volumes): a backup is an archive of them. An unknown key inside the block is an error.
+
+```yaml
+name: postgres
+image: postgres:17
+volumes:
+  - name: data
+    path: /var/lib/postgresql/data
+deploy:
+  strategy: recreate
+backups:
+  schedule: "0 3 * * *"     # five cron fields, UTC, like jobs
+  keep: 7                   # successful backups kept; default 7
+  before: ["pg_dump", "-U", "postgres", "-f", "/var/lib/postgresql/data/backup.sql", "app"]
+  stop: false               # stop the application for the archive; default false
+```
+
+Two things decide whether what is in the archive can be trusted:
+
+- `before` runs inside the running replica first, as a list of arguments, never through a shell: a dump written into the volume, a checkpoint. It has an hour. If it exits non-zero the backup fails and nothing is archived.
+- `stop: true` stops the application for as long as the archive takes and starts it again whatever happens, a failed backup included. The application is down meanwhile.
+
+Both may be given: the command runs, then the application stops. Without either, the archive is taken from under the running process, which is fine for uploads and not for a database.
+
+Only successful backups count towards `keep`. A scheduled backup that fails is posted to the webhook as `backup.failed`. `shipwick backups <app>` lists the backups the server keeps, and `shipwick backups run <app>` takes one now, with or without a `backups` block; see the [CLI reference](/docs/reference/cli#backups).
 
 ### publish
 
@@ -609,6 +753,7 @@ Restarts back off: 1s, 2s, 5s, 10s, 30s, then every 5 minutes.
 | Field | Type | Default | Rule |
 |---|---|---|---|
 | `deploy.strategy` | string | `rolling` | One of `rolling`, `recreate`. Must be `recreate` when `volumes` or `publish` is set. |
+| `deploy.stop_timeout` | duration | `10s` | `1s` to `10m`. How long a replica that is being stopped gets between `SIGTERM` and `SIGKILL`. Does not apply to a static application. |
 
 | Value | Behavior |
 |---|---|
@@ -621,6 +766,17 @@ deploy:
 ```
 
 With `rolling` and `publish`, the error is `must be "recreate" for an application that publishes ports: two versions cannot listen on the same server port`. With `volumes` as well, only the volume message is shown.
+
+```yaml
+deploy:
+  stop_timeout: 2m   # WebSockets, long uploads: let them finish
+```
+
+`stop_timeout` applies wherever Shipwick stops a replica gracefully: a deployment that replaces it, `shipwick stop`, `shipwick delete`, the restart of an unhealthy replica. A deployment does not wait for the replaced replicas: once every new replica serves, it is done, and the old containers get their `SIGTERM` and their time in the background. What the time is used for is the application's business. A process that handles `SIGTERM` leaves cleanly and usually at once; one that does not keeps running until the time is up and is killed with whatever it was serving, and the application's events say so:
+
+```text
+The replaced container shipwick_my-api_6_1 did not exit within 10s of SIGTERM and was killed. To let it finish its requests, handle SIGTERM in the application; to give it longer, set deploy.stop_timeout
+```
 
 See [Deployments](/docs/concepts/deployments).
 
@@ -641,7 +797,7 @@ Units are binary, matching Docker's convention: `1gb` is 1024 `mb`. Units are ca
 
 ### Durations
 
-Used by `health.interval`, `health.timeout`, `health.start_period`, `pre_deploy.timeout` and `jobs[].timeout`. A number with a unit, in Go's duration syntax: `500ms`, `3s`, `1m`, `1m30s`. Valid units are `ns`, `us`, `ms`, `s`, `m` and `h`. A number without a unit is not valid. Each field has its own range, listed with the field.
+Used by `health.interval`, `health.timeout`, `health.start_period`, `pre_deploy.timeout`, `jobs[].timeout` and `deploy.stop_timeout`. A number with a unit, in Go's duration syntax: `500ms`, `3s`, `1m`, `1m30s`. Valid units are `ns`, `us`, `ms`, `s`, `m` and `h`. A number without a unit is not valid. Each field has its own range, listed with the field.
 
 ### CPU
 
@@ -663,7 +819,7 @@ resources.memory:
   expected: 128mb, 512mb, 1gb, ...
 ```
 
-Each entry names the field by its dotted path (`resources.memory`, `env.MY_VAR`, `volumes[0].path`, `publish[1].host`, `logging.options.gelf-address`, `jobs[0].schedule`), says what is wrong, and where possible lists what is expected.
+Each entry names the field by its dotted path (`resources.memory`, `env.MY_VAR`, `volumes[0].path`, `publish[1].host`, `logging.options.gelf-address`, `jobs[0].schedule`, `proxy.basic_auth[0].password`, `proxy.headers.X-Frame-Options`), says what is wrong, and where possible lists what is expected.
 
 Other forms the report takes:
 
@@ -674,7 +830,11 @@ Other forms the report takes:
 | A build path that is absolute or leaves the project | `build.context:` / `invalid value "/srv/app": must be relative to deploy.yaml`; `build.dockerfile:` / `invalid value "../Dockerfile": must stay inside the directory of deploy.yaml` |
 | `build` and `static` together | `build:` / `cannot be combined with static: a static application has no image to build` |
 | A static application without a domain | `domain:` / `is required for a static application: the proxy serves the files at it` |
-| A container field next to `static` | `port:` / `does not apply to a static application: the proxy serves the files, there is no container` |
+| A container field next to `static` | `port:` / `does not apply to a static application: the proxy serves the files, there is no container`; the same on `backups` and `deploy.stop_timeout` |
+| A static folder that is absolute or leaves the project | `static:` / `must be a relative path: the folder is found next to deploy.yaml`; `must stay inside the directory of deploy.yaml`, expected `dist/, build/, out/ — a folder relative to deploy.yaml` |
+| A `fallback` without a folder | `static.dir:` / `is required: the folder the fallback page is in`, expected `dist` |
+| A `fallback` that is not a file in the folder | `static.fallback:` / `invalid value "/index.html": must be relative to the folder`; `invalid value "../index.html": name a file inside the folder, with letters, digits, dots, dashes, underscores and tildes between the slashes`, expected `index.html, 200.html, app/index.html — a file in the folder` |
+| An unknown key under `static` | `line 3:` / `unknown field "fallbak"` |
 | A `start_period` out of range | `health.start_period:` / `invalid value "2h": out of range`, expected `30s, 1m, 5m, ... (up to 30m)` |
 | A reserved application name | `name:` / `"caddy" is reserved for Shipwick's own services` |
 | `port` missing while `domain` is set | `port:` / `is required when domain is set` |
@@ -690,7 +850,33 @@ Other forms the report takes:
 | More than 20 aliases or redirects | `aliases:` / `too many (21)`, expected `at most 20` |
 | An empty hostname | `redirects[0]:` / `is empty`, expected `a hostname, e.g. www.example.com` |
 | A hostname with a scheme, port or path | `aliases[0]:` / `invalid value "api.example.com/v1": not a valid hostname` |
-| A hostname listed twice | `aliases[0]:` / `"example.com" is already listed under domain`; `redirects[1]:` / `"a.example.com" is already listed under aliases[0]` |
+| A hostname listed twice | `aliases[0]:` / `"example.com" is already listed under domain`; `redirects[1]:` / `"a.example.com" is already listed under aliases[0]`, expected `each hostname once` |
+| A wildcard that is more than one leading label | `domain:` / `invalid value "*.*.example.com": a wildcard is one leading label and nothing else`, expected `api.example.com, *.example.com` |
+| A wildcard among the redirects | `redirects[0]:` / `invalid value "*.example.com": not a valid hostname` |
+| Redirects next to a wildcard domain | `redirects:` / `cannot be sent to a wildcard domain`, expected `domain: example.com, with the wildcard under aliases` |
+| `path` without `domain` | `path:` / `requires domain: a path is a part of it`, expected `domain: example.com` |
+| An invalid `path` | `path:` / `invalid value "api": must start with /`; `invalid value "/api/": must not end with /`; `invalid value "/api v2": use letters, digits, dots, dashes, underscores and tildes between the slashes`; `invalid value "/api/../x": must not contain . or .. segments`; `invalid value: longer than 200 characters`, expected `/api, /docs/v2, ...` |
+| `proxy` without `domain` | `proxy:` / `requires domain: it says what the proxy does with the requests for it`, expected `domain: example.com` |
+| An unknown key under `proxy` | `line 12:` / `unknown field "header"` |
+| `strip_prefix` without `path` | `proxy.strip_prefix:` / `requires path: it is the prefix that is removed`, expected `path: /api` |
+| More than 50 headers | `proxy.headers:` / `too many (51)`, expected `at most 50` |
+| An invalid header name | `proxy.headers:` / `invalid header name "X Frame"`, expected `letters, digits and dashes, e.g. X-Frame-Options` |
+| A header that belongs to the connection | `proxy.headers.Content-Length:` / `belongs to the connection, and the proxy writes it itself`, expected `a header about the content, e.g. X-Frame-Options, Cache-Control` |
+| A header listed twice in different case | `proxy.headers.x-frame-options:` / `is the same header as X-Frame-Options: names are compared without regard to case`, expected `each header once` |
+| An empty, oversized or multi-line header value | `proxy.headers.X-Frame-Options:` / `value must not be empty`; `value is too long (4097 characters)`, expected `at most 4096`; `value must not contain control characters or newlines` |
+| More than 20 accounts | `proxy.basic_auth:` / `too many (21)`, expected `at most 20` |
+| An account's path outside the application's | `proxy.basic_auth[0].path:` / `"/admin" is outside path /api, which is all this application serves`, expected `/api/admin` |
+| An account without a username, or with an invalid one | `proxy.basic_auth[0].username:` / `is required`, expected `admin`; `is too long (256 characters)`, expected `at most 255`; `invalid value "a:b": must not contain a colon or control characters` |
+| A username listed twice for one path | `proxy.basic_auth[1].username:` / `"admin" is listed twice for the same path`, expected `one entry for each user of a path` |
+| A missing or unusable password | `proxy.basic_auth[0].password:` / `is required`; `is too short: at least 8 characters`; `is too long: at most 72 bytes`; `must not contain control characters`, expected `${ADMIN_PASSWORD}, with the value in the environment, in --env-file or stored with shipwick secret set`. The password is never repeated. |
+| More than 100 path redirects | `proxy.redirects:` / `too many (101)`, expected `at most 100` |
+| A redirect without `from`, or from everything | `proxy.redirects[0].from:` / `is required`; `must be a path below /: redirecting everything would leave nothing to serve`, expected `/old` |
+| A path redirected twice | `proxy.redirects[1].from:` / `"/old" is redirected twice`, expected `one redirect for each path` |
+| A redirect without `to`, or to something else than a path or an `https://` URL | `proxy.redirects[0].to:` / `is required`; `invalid value "http://example.org/new": must be a path starting with / or an https:// URL`; `invalid value "//example.org/new": a path starts with one slash; for another host use https://`, expected `/new, https://example.org/new` |
+| A redirect target with a space or braces | `proxy.redirects[0].to:` / `invalid value "/new page": must not contain whitespace, control characters, braces or backslashes` |
+| An unknown redirect status | `proxy.redirects[0].status:` / `invalid value 303`, expected `301, 302, 307, 308` |
+| A redirect to itself | `proxy.redirects[0].to:` / `redirects /old to itself`, expected `another path, or an https:// URL` |
+| Redirects that lead in a circle | `proxy.redirects[0].to:` / `leads back to /old through the other redirects: a browser would follow them forever`, expected `a path that is not redirected` |
 | A duration out of range | `health.interval:` / `invalid value "10m": out of range` |
 | An invalid environment variable name | `env.my-var:` / `invalid variable name` |
 | A `health` block without a kind | `health:` / `one of path, tcp or command is required` |
@@ -699,12 +885,20 @@ Other forms the report takes:
 | An empty or oversized `health.command` | `health.command:` / `must not be empty`; `too many arguments (65)`, expected `at most 64` |
 | An empty argument or a NUL byte in `health.command` | `health.command[1]:` / `must not be empty`; `must not contain NUL bytes` |
 | An unknown deployment strategy | `deploy.strategy:` / `invalid value "blue-green"`, expected `rolling, recreate` |
+| A `stop_timeout` out of range | `deploy.stop_timeout:` / `invalid value "15m": out of range`, expected `10s, 30s, 5m, ... (1s to 10m)` |
 | More than 10 volumes | `volumes:` / `too many (11)`, expected `at most 10` |
 | A volume name used twice | `volumes[1].name:` / `"data" is used twice` |
 | A volume path that is not absolute and clean | `volumes[0].path:` / `invalid value "data/"`, expected `an absolute path inside the container, e.g. /var/lib/postgresql/data` |
 | A volume path used twice | `volumes[1].path:` / `"/data" is mounted twice` |
 | Volumes without `recreate` | `deploy.strategy:` / `must be "recreate" for an application with volumes: two versions cannot write the same files at once` |
 | Volumes with more than one replica | `replicas:` / `must be 1 for an application with volumes, got 2: replicas cannot share a volume` |
+| `backups` that is not a block | `backups:` / `must be a block with a schedule` |
+| An unknown key under `backups` | `backups:` / `unknown field "schedul"`, expected `schedule, keep, before, stop` |
+| `backups` without a schedule | `backups.schedule:` / `is required`, expected `"0 3 * * *" (minute hour day-of-month month day-of-week, in UTC)` |
+| An invalid backup schedule | `backups.schedule:` / `invalid value "61 * * * *": minute: value 61 out of range 0-59`, expected `five cron fields in UTC, e.g. "0 3 * * *" (every day at 03:00)` |
+| A `keep` out of range | `backups.keep:` / `invalid value 0`, expected `a number between 1 and 365` |
+| An empty or oversized `before` command | `backups.before:` / `is required`; `too many arguments (257)`; `argument 2 is longer than 4096 bytes`; `argument 2 must not contain NUL bytes` |
+| `backups` without `volumes` | `backups:` / `needs volumes: a backup is an archive of the application's volumes` |
 | Published ports without `recreate` | `deploy.strategy:` / `must be "recreate" for an application that publishes ports: two versions cannot listen on the same server port` |
 | Published ports with more than one replica | `replicas:` / `must be 1 for an application that publishes ports, got 2: replicas cannot share a server port` |
 | More than 20 published ports | `publish:` / `too many (21)`, expected `at most 20` |
@@ -742,11 +936,14 @@ Other forms the report takes:
 | Several YAML documents in one file | `deploy.yaml:` / `multiple YAML documents are not supported; describe one application per file` |
 | A file over 64 KB | `deploy.yaml:` / `file is too large (max 64 KB)` |
 | A hostname in use, refused by the agent | `domain:` / `already served by application "web"`; `aliases[1]:` / `already served by Shipwick itself (the agent or the dashboard)` |
+| A path of a hostname in use, refused by the agent | `path:` / `example.com/api is already served by application "api"; applications share a domain under different paths`; `aliases[0]:` / `api.example.com/api is already served by application "api"` |
+| A wildcard no certificate can be had for, refused by the agent | `aliases[0]:` / `a certificate for a wildcard is issued only through a DNS record, and the agent is not set up for that`, expected `SHIPWICK_CLOUDFLARE_API_TOKEN on the agent, or a certificate of your own: shipwick cert set '*.example.com' --cert fullchain.pem --key privkey.pem` |
+| A stored secret that cannot be used as a password, refused by the agent | `proxy.basic_auth[0].password:` / `with ${ADMIN_PASSWORD} filled in from the server's secrets, the password is too short: at least 8 characters`, expected `shipwick secret set ADMIN_PASSWORD` |
 | A server port in use, refused by the agent | `publish[0].host:` / `already published by application "postgres"`; `already published by Shipwick itself (the agent or the proxy)` |
 
 Unknown fields do not hide other mistakes: when they are the only syntax problem, the rest of the file is still validated and everything is reported together.
 
-An unset `${NAME}` outside `env` is reported by `shipwick` before validation, since the document cannot be validated without it: `deploy.yaml: refers to ${DATABASE_PASSWORD}, which is not set`. An `env` value whose `${NAME}` is set neither where `shipwick` runs nor among the server's secrets is refused by the agent in the same shape: `env.DATABASE_URL:` / `refers to ${DATABASE_PASSWORD}, which is not set where shipwick runs and not stored on the server`, expected `shipwick secret set DATABASE_PASSWORD`.
+An unset `${NAME}` outside `env` is reported by `shipwick` before validation, since the document cannot be validated without it: `deploy.yaml: refers to ${DATABASE_PASSWORD}, which is not set`. An `env` value whose `${NAME}` is set neither where `shipwick` runs nor among the server's secrets is refused by the agent in the same shape: `env.DATABASE_URL:` / `refers to ${DATABASE_PASSWORD}, which is not set where shipwick runs and not stored on the server`, expected `shipwick secret set DATABASE_PASSWORD`. A basic-auth password is reported the same way, on `proxy.basic_auth[0].password`.
 
 The agent returns the same information in the API's error envelope, as `400 INVALID_CONFIG` with one object per problem in `details.fields`:
 
@@ -764,7 +961,7 @@ The agent returns the same information in the API's error envelope, as `400 INVA
 }
 ```
 
-The two checks only the agent can make, a hostname or a server port already in use, come back in the same shape with one entry, from `deploy`, `redeploy` and `rollback` alike. `shipwick` renders an agent-side rejection exactly like a local one.
+The checks only the agent can make — a hostname, a path of one or a server port already in use, a wildcard without a certificate, a secret that is not stored — come back in the same shape. A hostname or a server port in use is refused by `deploy`, `redeploy` and `rollback` alike. `shipwick deploy` asks the agent for them before it builds an image or uploads a folder, so they are reported before the work, not after it. `shipwick` renders an agent-side rejection exactly like a local one.
 
 ## Full example
 
@@ -778,12 +975,14 @@ The two checks only the agent can make, a hostname or a server port already in u
 #   name: web
 #   static: dist/
 #   domain: example.com
+# A single-page application answers every path that names no file with one page:
+#   static: {dir: dist/, fallback: index.html}
 
 # Lowercase letters, digits and dashes. Identifies the application on the server.
 name: my-api
 
-# Any image reference Docker understands. For private registries, run
-# `docker login <registry>` once on the server; Shipwick uses those credentials.
+# Any image reference Docker understands. For a private registry, give the
+# server a credential once: shipwick registry login ghcr.io --username <name>
 # Pin a version tag: deployments are recorded by it (1.4.2 here).
 image: ghcr.io/company/my-api:1.4.2
 
@@ -792,8 +991,8 @@ image: ghcr.io/company/my-api:1.4.2
 # server. Paths are relative to this file. Replaces `image`.
 # build: .
 # build:
-#   context: .
-#   dockerfile: Dockerfile   # default
+#   context: .               # default: the directory of this file
+#   dockerfile: Dockerfile   # default; relative to the context
 
 # Run something other than the image's default: these replace its ENTRYPOINT,
 # CMD and USER. A string is one argument; use a list for several. Nothing is
@@ -812,8 +1011,31 @@ domain: api.example.com
 
 # More hostnames served exactly like `domain`, and hostnames redirected to it
 # (308, same path and query) — www, an old domain. Each gets a certificate.
+# `domain` and aliases may be a wildcard, "*.example.com", when the agent has
+# a Cloudflare API token or you supplied a certificate that covers it
+# (shipwick cert set).
 # aliases: [api2.example.com]
 # redirects: [www.api.example.com]
+
+# Serve only one path of the domain, and everything under it; another
+# application takes another path, or the rest. The longest path wins.
+# path: /api
+
+# What the proxy does for this application besides passing requests on.
+# Every path here is the path as the visitor asks for it.
+# proxy:
+#   strip_prefix: true              # the application sees /users for /api/users; needs path
+#   headers:                        # set on every response
+#     X-Frame-Options: DENY
+#     Strict-Transport-Security: max-age=31536000
+#   basic_auth:
+#     - path: /api/admin            # optional; without it, the whole application
+#       username: admin
+#       password: ${ADMIN_PASSWORD} # a secret, filled in like an env value
+#   redirects:
+#     - from: /api/old
+#       to: /api/new                # or an https:// URL
+#       status: 308                 # 301, 302, 307 or 308; default 308
 
 # Number of identical containers to run. Default: 1.
 replicas: 2
@@ -869,6 +1091,18 @@ deploy:
 #   - name: data
 #     path: /var/lib/postgresql/data
 
+# Backups of the volumes, taken by the server on a schedule (five cron fields,
+# UTC) and kept there and, when the agent has one, in an S3 bucket. `before`
+# runs inside the running replica first — a dump, a checkpoint — and a non-zero
+# exit fails the backup; `stop: true` stops the application while the archive
+# is taken. `shipwick backups` lists them, `shipwick backups verify` proves
+# that one restores.
+# backups:
+#   schedule: "0 3 * * *"
+#   keep: 7       # successful backups kept; default 7, up to 365
+#   before: ["pg_dump", "-U", "postgres", "-f", "/var/lib/postgresql/data/backup.sql", "app"]
+#   stop: false   # default false
+
 # Ports that are not HTTP, published on the server itself: a database reached
 # from outside the server, a game server. Needs replicas: 1 and the recreate
 # strategy: a server port has one holder. Published ports bypass the host
@@ -882,8 +1116,15 @@ deploy:
 # rolling (default): replicas are replaced one at a time, the application keeps
 # serving. recreate: the running version is stopped before the new one starts;
 # required with volumes and publish.
+#
+# stop_timeout: how long a replica that is being stopped — replaced by a
+# deployment, or by `shipwick stop` — gets to finish what it has in hand after
+# SIGTERM, before it is killed. Default 10s, up to 10m. Raise it for WebSockets
+# or long uploads; the application has to handle SIGTERM for the time to be of
+# use.
 # deploy:
 #   strategy: recreate
+#   stop_timeout: 2m
 
 # Ship logs to a collector instead of the server's disk: json-file (default),
 # local, syslog, journald, gelf, fluentd, awslogs or splunk, with the driver's
@@ -963,7 +1204,7 @@ apps:
 | | |
 |---|---|
 | `apps` | Required, and the only top-level key: any other is `cannot be set at the top of shipwick.yaml; move it into an entry under apps`. A list of 1 to 50 entries. |
-| An entry | A complete `deploy.yaml`, validated by the same rules; problems are reported with the entry's index in front, `apps[1].port`. Names must be unique within the file. `build` and `static` paths are relative to `shipwick.yaml`. |
+| An entry | A complete `deploy.yaml`, validated by the same rules, so every field on this page can be set in one, `path`, `proxy` and `backups` included; problems are reported with the entry's index in front, `apps[1].port`. Names must be unique within the file. `build` and `static` paths are relative to `shipwick.yaml`. |
 | `after` | A list of names of other entries in the file. An unknown name, an entry that waits for itself, or a cycle through several entries is an error on `apps[i].after`. |
 
 `shipwick deploy` uses the file when there is no `deploy.yaml` in the directory; `-f shipwick.yaml` names it explicitly, and it cannot be combined with other `-f` files. Applications whose dependencies are done start at once, up to four at a time (`--parallel N`): `postgres` and `web` above start together, `api` when `postgres` has deployed. Every line of output carries the name of the application it belongs to. An application whose dependency did not deploy is skipped, the others finish, and the command exits non-zero if any failed or was skipped. `${NAME}` placeholders work in every entry, `--image` does not apply, and `shipwick validate` checks the file and prints the order.

@@ -35,13 +35,27 @@ Everything on the server is started by one command, the installer, as three cont
 |---|---|---|---|
 | **Docker** | server | yes | Runs the containers. It must be there before Shipwick; the installer stops if it is not, and `shipwick server install` installs it for you. |
 | **Agent** | server | yes | The one process that is Shipwick: takes `deploy.yaml`, pulls or loads the image, starts the replicas, checks their health, tells Caddy what to route, supervises what runs, keeps its state in one SQLite file. Serves the REST API that the CLI and the dashboard talk to. |
-| **Caddy** | server | yes | The reverse proxy in front of your applications. Holds ports 80 and 443, obtains and renews certificates, balances across replicas, serves static sites from disk. Installed and configured by Shipwick; you never edit its configuration. |
+| **Caddy** | server | yes | The reverse proxy in front of your applications. Holds ports 80 and 443, obtains and renews certificates, balances across replicas, serves static sites from disk. Installed and configured by Shipwick; you never edit its configuration. Since 0.5 the image is Shipwick's own build, `ghcr.io/shipwick/caddy`: Caddy with the Cloudflare DNS module and nothing else added. |
 | **Dashboard** | server | no | The same information and everyday actions in a browser. Skip it by leaving its hostname empty when the installer asks; add it later by setting `SHIPWICK_DASHBOARD_DOMAIN` in `/opt/shipwick/.env`. |
 | **`shipwick`** | your laptop, CI | yes | The command-line client. Validates `deploy.yaml`, builds the image on your machine when the file says `build: .`, sends it, waits for the result and tells you what happened. Also installs the server over SSH and checks the setup with `doctor`. |
-| **A DNS name** | your DNS provider | for HTTPS | One record per hostname you use: the API, the dashboard, and every application with a `domain`. Plain `A` (and `AAAA`) records pointing at the server, "DNS only", not proxied through a CDN. |
+| **A DNS name** | your DNS provider | for HTTPS | One record per hostname you use: the API, the dashboard, and every application with a `domain`. Plain `A` (and `AAAA`) records pointing at the server, "DNS only", not proxied through a CDN — unless the agent has a Cloudflare API token, with which records can stay proxied by Cloudflare. |
 | **A registry** | anywhere | no | Only if you want to `docker push` images and have the server pull them. With `build: .` the CLI builds on your machine and sends the image straight to the server. CI pipelines usually keep a registry. |
+| **A Cloudflare API token** | Cloudflare | no | Only to keep hostnames behind Cloudflare's proxy, or to use wildcard hostnames. Caddy then obtains certificates through a DNS record. See [Put Cloudflare in front](/docs/tasks/cloudflare). |
+| **A bucket** | any S3-compatible service | no | Only to keep backups off the server. The agent takes backups on a schedule and keeps them on the server's disk; with a bucket configured it sends each one there as well. See [Back up and restore volumes](/docs/tasks/backups). |
 
 Nothing else: no database to provision, no queue, no second server.
+
+### What the server connects to
+
+Visitors and the CLI come in through ports 80 and 443. Going out, the server reaches the registries it pulls images from and the certificate authority, and three more places only when you configure them:
+
+| Connection | When |
+|---|---|
+| Your webhook | `SHIPWICK_WEBHOOK_URL` is set: the agent posts notifications there. |
+| Cloudflare's API | `SHIPWICK_CLOUDFLARE_API_TOKEN` is set: Caddy creates and removes the DNS records that prove a hostname is yours. |
+| The S3 bucket | The `SHIPWICK_BACKUP_S3_*` variables are set: the agent sends backups there, and reads them back to restore. |
+
+To decide whether a hostname is ready, the agent also asks public DNS resolvers — Cloudflare's, Google's, Quad9's — rather than the server's own. All of these are listed in [Agent configuration](/docs/reference/agent-configuration).
 
 ## From an empty VPS to a running application
 
@@ -81,12 +95,12 @@ Each of these was met on a real server. The message you see is in the first colu
 | `Port 80 is already in use by …` from the installer | Something else on the server holds port 80 or 443: another web server, another deployment platform, a leftover container. Automatic HTTPS needs both ports. | Stop or remove what holds them, or use a fresh server. The installer changed nothing yet. |
 | `Docker is not installed` | The installer does not install Docker on its own. | `curl -fsSL https://get.docker.com \| sh`, then run the installer again. Or use `shipwick server install`, which does this step. |
 | `Routing https://api.example.com is waiting for DNS: does not resolve yet; add an A record: api.example.com → 203.0.113.10` | The deployment succeeded, but the hostname does not point at the server yet, so Caddy was not asked for a certificate. | Create the record as the message says. Within a minute the agent notices and the site is served; nothing to redo. |
-| `… resolves to Cloudflare's proxy (104.21.5.6), not to this server: turn the proxy off for this record` | The record is proxied ("orange cloud"). The proxy would take the TLS handshake away from Caddy, and no certificate could be issued. | In Cloudflare, switch the record to "DNS only" (grey cloud). Proxied records are not supported yet. |
+| `… resolves to Cloudflare's proxy (104.21.5.6), not to this server: turn the proxy off for this record (DNS only), or set SHIPWICK_CLOUDFLARE_API_TOKEN on the agent to keep it on` | The record is proxied ("orange cloud"). The proxy takes the TLS handshake away from Caddy, and no certificate can be issued from the server itself. | In Cloudflare, switch the record to "DNS only" (grey cloud). Or give the agent a Cloudflare API token, and the certificate is obtained through a DNS record instead: [Put Cloudflare in front](/docs/tasks/cloudflare). |
 | The browser shows a certificate error minutes after the record was created | Caddy tried to get a certificate while the record was missing, failed, and is waiting before it retries. | Wait a few minutes. If it persists: `cd /opt/shipwick && docker compose restart caddy`. Deploying before DNS exists is what the DNS check above prevents. |
 | `Deployment failed … did not become healthy within 30s` | The container started but did not answer the health check: wrong `port`, a `path` that returns non-2xx, or an application that needs longer to start. | Read the "Last output of replica 1" lines under the message. Fix `port` or `health.path`; a slow starter gets `health.start_period: 60s`. The version that was running kept serving throughout. |
-| `pull access denied` or `unauthorized` when the image is private | The server has no credentials for the registry. | `docker login <registry>` once on the server, see [Pull from private registries](/docs/tasks/private-registries). Or use `build: .` and skip the registry. |
+| `pull access denied for ghcr.io/company/api: run shipwick registry login ghcr.io (or check the image name)` | The server has no credentials for the registry the image is in. | `shipwick registry login <registry>` once, see [Pull from private registries](/docs/tasks/private-registries). Or use `build: .` and skip the registry. |
 | `The agent rejected the API token` | The token is wrong, revoked, or belongs to another server. | `shipwick login` with the token from `/opt/shipwick/.env` on the server. Several servers: `shipwick context ls`. |
-| `cannot reach the Shipwick agent at …` | The URL is wrong, the API hostname was left empty at install, or DNS for it is missing. | `shipwick doctor`. If you chose not to expose the API, use the SSH tunnel: [Reach the API without a hostname](/docs/tasks/access-without-a-hostname). |
+| `cannot reach the Shipwick agent at …` | The URL is wrong, the API hostname was left empty at install, or DNS for it is missing. | `shipwick doctor`. If you chose not to expose the API, use the SSH tunnel: [Reach the API without a hostname](/docs/tasks/access-without-a-hostname). On the server itself, `shipwick` is signed in by the installer when the API has a hostname; without one it says that the agent publishes no port, and how to give it a hostname. |
 | `429 RATE_LIMITED` / "Too many failed attempts from this address" | Twenty wrong tokens within a minute from one address. | Wait a minute. A valid token is never refused; only wrong ones are answered this way. |
 | The site answers `503` | The application is stopped (`shipwick stop`), or no replica is healthy. | `shipwick status <app>` says which. `shipwick start`, or read the replicas' output with `shipwick logs`. |
 | `refers to ${DATABASE_PASSWORD}, which is not set` | A placeholder in `deploy.yaml` has no value on your machine and no secret on the server. | `shipwick secret set DATABASE_PASSWORD` once, or pass `--env-file`. |
