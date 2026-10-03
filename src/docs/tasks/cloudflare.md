@@ -74,6 +74,8 @@ domain: example.com
 aliases: ["*.example.com"]
 ```
 
+Cloudflare has a limit of its own here. The certificate it presents to visitors covers, on the free plan, the zone and one label below it: `*.example.com` is served, and `*.apps.example.com` is refused at Cloudflare before the request reaches your server, whatever certificate the server holds. A deeper wildcard needs a certificate for it at Cloudflare, or its record set to *DNS only*.
+
 Without the token, a deployment that names a wildcard is refused unless a certificate of your own covers it. See [Every name under a domain](/docs/tasks/several-hostnames#every-name-under-a-domain).
 
 ## Check it
