@@ -114,7 +114,7 @@ Each replica has one of these health values, shown by `shipwick status` and in t
 `unknown` counts as fine on purpose: an application must not flap to `DOWN` because its supervisor was restarted.
 
 ::: info The agent must be able to reach container addresses
-HTTP and TCP probes go to container IP addresses. An agent running in a container, the recommended setup, finds itself through the Docker API and joins the application network on its own. An agent running as a host process reaches bridge networks directly on Linux. With Docker Desktop on macOS or Windows it cannot, and the agent warns at startup: applications with a `path` or `tcp` check will fail to deploy there. A `command` check goes through the Docker API and needs no address.
+HTTP and TCP probes go to container IP addresses. An agent running in a container, the recommended setup, finds itself through the Docker API and joins the application network on its own; since 0.8 it does not listen there, see [Who can reach the API](/docs/security#who-can-reach-the-api). An agent running as a host process reaches bridge networks directly on Linux. With Docker Desktop on macOS or Windows it cannot, and the agent warns at startup: applications with a `path` or `tcp` check will fail to deploy there. A `command` check goes through the Docker API and needs no address.
 :::
 
 ## The supervisor
@@ -218,7 +218,11 @@ Reconciliation is also what completes an application after a failed rollback, or
 
 Health, backoff position, crash-loop flags and the active [alerts](#alerts) live in the agent's memory. After an agent restart every replica starts with a clean slate and its health is `unknown` until probed, and an alert whose condition still holds is raised again. Only the restart counter is persisted, for display.
 
-Applications keep running while the agent is down or being upgraded, but nothing restarts them during that time. After a server reboot, the agent brings every application back up according to its restart policy, and goes on with a deployment that the reboot interrupted; see [Agent restarts during a deployment](/docs/concepts/deployments#agent-restarts-during-a-deployment).
+Applications keep running while the agent is down or being upgraded, but nothing restarts them during that time. After a server reboot, the agent brings every application back up according to its restart policy, and goes on with a deployment that the reboot interrupted; see [Agent restarts during a deployment](/docs/concepts/deployments#agent-restarts-during-a-deployment). "According to its policy" has a consequence worth knowing before the first reboot: an application with `on-failure` whose process exits with 0 when it is asked to stop, and every application with `never`, stays stopped. See [When things break](/docs/tasks/when-things-break#the-server-reboots).
+
+### When Docker does not answer
+
+Since 0.8 the supervisor asks the Docker daemon one question before each pass, and skips the pass when it goes unanswered for 15 seconds: it restarts nothing, changes no route and holds no application. It never concludes that a container is gone from a daemon that did not answer; a replica is declared gone only when Docker says that it does not exist. The agent's log says so once, the `docker` alert is raised when the silence has lasted 30 seconds, and supervision resumes with the daemon's first answer. See [When things break](/docs/tasks/when-things-break#docker-does-not-answer).
 
 ### Events
 
@@ -258,7 +262,7 @@ A notification says that something happened. An alert says that something is the
 
 Healthy here is the definition *recovered* uses: every replica ready and none with a restart still held against it. A crash-looping replica, up for a moment between crashes, therefore neither ends the unhealthy period nor restarts its five minutes. `application.down` and `application.recovered` are sent at once, as before; `unhealthy` is what follows when the outage lasts, and it also covers an application that is only degraded, which nothing else reports.
 
-Each alert is raised once and cleared once, however long it lasts; a warning that turns critical is told a second time. Alerts go to the webhook as `alert.raised` and `alert.cleared`, into the application's events, and into `alerts` of `GET /server`. Stopping or deleting an application drops its alerts without a message. The other two alerts, a replica close to its memory limit and the server's disk filling up, are read from the metric samples; all four, with their thresholds and where they show, are in [Alerts and metrics](/docs/tasks/alerts-and-metrics).
+Each alert is raised once and cleared once, however long it lasts; a warning that turns critical is told a second time. Alerts go to the webhook as `alert.raised` and `alert.cleared`, into the application's events, and into `alerts` of `GET /server`. Stopping or deleting an application drops its alerts without a message. Two more alerts, a replica close to its memory limit and the server's disk filling up, are read from the metric samples, and since 0.8 a fifth, `docker`, says that the Docker daemon has not answered for 30 seconds. All five, with their thresholds and where they show, are in [Alerts and metrics](/docs/tasks/alerts-and-metrics).
 
 ## Application status
 

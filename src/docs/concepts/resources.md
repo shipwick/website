@@ -5,7 +5,7 @@ description: How cpu and memory limits are written, parsed and applied to contai
 
 # Resource limits and metrics
 
-`resources` in `deploy.yaml` sets CPU and memory limits per replica, and the agent reports usage against them, live and over the last week. This page describes the units and parsing rules, the Docker settings the limits become, what happens at the limit and the alert that comes before it, how metrics are measured, how the history is sampled, stored and served, and the same numbers in the Prometheus format.
+`resources` in `deploy.yaml` sets CPU and memory limits per replica, and the agent reports usage against them, live and over the last week. This page describes the units and parsing rules, the Docker settings the limits become, what an application without a limit does to a small server, what happens at the limit and the alert that comes before it, what a Docker daemon that does not enforce limits means, how metrics are measured, how the history is sampled, stored and served, and the same numbers in the Prometheus format.
 
 ## Limits
 
@@ -59,6 +59,30 @@ resources.memory:
 
 `MemorySwap` is set equal to `Memory`. In Docker's terms that is a limit on memory plus swap that equals the memory limit, so the container cannot use swap to go beyond it. The memory limit is a hard cap.
 
+### An application without a limit
+
+Without a limit a replica may use whatever the server has. That is how one application takes a small server down: it leaks, the server's memory fills, and the kernel kills a process — not necessarily the one that leaked.
+
+Since 0.8 `shipwick doctor` names the running applications that have no memory limit, and says when the server has no swap, which is what turns a full memory into a killed process at once:
+
+```text
+! 3 applications run without a memory limit: postgres, redis, web. One that leaks takes the server's memory from all the others; set resources.memory in deploy.yaml
+! The server has no swap: once its 4 GB of memory is used, the kernel kills a process at once. Add a swap file on the server
+```
+
+`shipwick server status` and the dashboard show the swap next to the memory, and `GET /server` has `swap_bytes` and `unlimited_memory`. Shipwick reports both and changes neither: a limit is a line in `deploy.yaml`, swap is the server's. See [Prepare a server](/docs/tasks/prepare-a-server#a-swap-file).
+
+### Limits that are not enforced
+
+Limits are Docker's to enforce, and a daemon without the cgroup controllers — rootless Docker that was delegated none — accepts them and applies nothing. Docker does not say so when the container is created. Since 0.8 Shipwick does, wherever a limit is shown: on the deployment, in `shipwick status`, in `shipwick server status` and in `shipwick doctor`.
+
+```text
+$ shipwick status
+Limits     0.5 CPU, 64 MB  (Docker on this server does not enforce the memory and CPU limits; see shipwick doctor)
+```
+
+`GET /server` has `docker: {rootless, unenforced_limits}`, and an application's metrics `unenforced_limits`. On such a server the usage reported for one replica is that of everything the daemon runs, and the `memory` alert is not raised: there is no limit for a replica to come close to. See [Rootless Docker](/docs/tasks/less-than-the-docker-socket#limits).
+
 ## At the limit
 
 **CPU.** A replica that wants more CPU time than its limit is throttled by the kernel. It runs slower; nothing is killed or restarted.
@@ -79,7 +103,7 @@ Since 0.5 a replica that stays at or above 90% of its `resources.memory` for thr
 my-api replica 1 is at 93% of its memory limit (240 MB of 256 MB). At the limit it is killed and restarted; raise resources.memory in deploy.yaml, or watch it with: shipwick status my-api
 ```
 
-The alert goes to the webhook, into the application's events and into `shipwick server status`. It is decided from the samples of the [history](#history), not from a second reading, and an application without a memory limit has no such alert. The threshold is `SHIPWICK_ALERT_MEMORY_PERCENT` on the agent. The same samples watch the server's disk, which `GET /server` and `shipwick server status` report. See [Alerts and metrics](/docs/tasks/alerts-and-metrics).
+The alert goes to the webhook, into the application's events and into `shipwick server status`. It is decided from the samples of the [history](#history), not from a second reading, and an application without a memory limit has no such alert; nor has any application on a server where Docker [does not enforce the limit](#limits-that-are-not-enforced). The threshold is `SHIPWICK_ALERT_MEMORY_PERCENT` on the agent. The same samples watch the server's disk, which `GET /server` and `shipwick server status` report. See [Alerts and metrics](/docs/tasks/alerts-and-metrics).
 
 ## Metrics
 

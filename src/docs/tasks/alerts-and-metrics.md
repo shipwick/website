@@ -1,20 +1,21 @@
 ---
 title: Get alerts and scrape metrics
-description: The four alerts the agent raises for a replica close to its memory limit, a disk that is filling up, a replica that keeps restarting and an application that stays unhealthy, where they show and how to change their thresholds, how full the server's disk is, and the Prometheus endpoint with every series it exposes.
+description: The five alerts the agent raises for a replica close to its memory limit, a disk that is filling up, a replica that keeps restarting, an application that stays unhealthy and a Docker daemon that does not answer, where they show and how to change their thresholds, how full the server's disk is, and the Prometheus endpoint with every series it exposes.
 ---
 
 # Get alerts and scrape metrics
 
-A notification says that something happened. An alert says that something is the case and, left alone, ends badly. This page shows the four alerts the agent raises and when each is raised and cleared, where they show, how to change the two thresholds, how to see how full the server's disk is, and how to scrape the agent with Prometheus: the token, the scrape configuration and every series.
+A notification says that something happened. An alert says that something is the case and, left alone, ends badly. This page shows the five alerts the agent raises and when each is raised and cleared, where they show, how to change the two thresholds, how to see how full the server's disk is, and how to scrape the agent with Prometheus: the token, the scrape configuration and every series.
 
 ## Before you begin
 
 - Alerts, the disk and `GET /metrics` exist since 0.5. An older agent reports neither `disk` nor `alerts`, and `shipwick server status` then prints neither.
 - Alerts need no configuration. They are raised on every server and shown by `shipwick server status`, `shipwick doctor` and the dashboard. To be told about them when you are not looking, configure a webhook; see [Get notified](/docs/tasks/notifications).
-- The `memory` alert needs a limit to measure against: an application without `resources.memory` has no such alert. See [Resource limits and metrics](/docs/concepts/resources).
+- The `memory` alert needs a limit to measure against: an application without `resources.memory` has no such alert, and neither has any application on a server whose Docker daemon [does not enforce limits](/docs/concepts/resources#limits-that-are-not-enforced). See [Resource limits and metrics](/docs/concepts/resources).
+- The `docker` alert exists since 0.8.
 - Scraping needs a token with the `read` role and an agent that Prometheus can reach, which usually means an agent with a hostname (`SHIPWICK_AGENT_DOMAIN`); see [Install Shipwick on a server](/docs/getting-started/install).
 
-## The four alerts
+## The five alerts
 
 | Alert | Raised when | Cleared when |
 |---|---|---|
@@ -22,6 +23,7 @@ A notification says that something happened. An alert says that something is the
 | `disk` | The disk that holds the agent's data directory, in the standard installation the disk Docker keeps images and volumes on, is 85% full: a warning. At 95%: critical | It is below 80% |
 | `restarts` | The supervisor has restarted the same replica three times within ten minutes. Held back while the application is down or the replica crash-looping | Fewer than three restarts in the last ten minutes |
 | `unhealthy` | An application has had fewer healthy replicas than it should for five minutes: a warning. After an hour: critical | Every replica is healthy and has stayed up for a minute |
+| `docker` | The Docker daemon has not answered for 30 seconds: critical. Nothing is supervised, deployed or routed meanwhile; see [When things break](/docs/tasks/when-things-break#docker-does-not-answer) | It answers |
 
 Each alert comes with a sentence that says what is the case and where to look:
 
@@ -30,6 +32,7 @@ my-api replica 1 is at 93% of its memory limit (240 MB of 256 MB). At the limit 
 The server's disk is 87% full (5 GB of 40 GB free). See what takes the space with: docker system df
 my-api replica 2 was restarted 3 times in the last 10 minutes. See why it keeps stopping with: shipwick logs my-api
 my-api has not been healthy for 5 minutes: 1/2 replicas ready. See why with: shipwick status my-api
+Docker does not answer. Applications that are running keep running, but nothing is restarted, deployed or routed until it does. On the server: systemctl status docker
 ```
 
 A critical disk adds `Deployments, databases and logs fail when it runs out`, and an application that stays unhealthy reads `has not been healthy for an hour` once it is critical.
@@ -42,6 +45,7 @@ An alert is raised once and cleared once, however long it lasts. A warning that 
 - **`memory` and `disk` are read every 30 seconds**, after each round of [metric samples](/docs/concepts/resources#history). Three samples in a row means three consecutive ones: readings with an outage between them do not count.
 - **`restarts` and `unhealthy` are what the supervisor sees** in its tick. Healthy means every replica ready and none with a restart still held against it, so a crash-looping replica, up for a moment between crashes, neither ends the unhealthy period nor restarts its five minutes. See [Health checks and supervision](/docs/concepts/health-and-supervision#alerts).
 - **`application.down` and `application.recovered` are sent at once, as before.** `unhealthy` is what follows when the outage lasts, and it also covers an application that is only degraded, which nothing else reports. The `restarts` alert is held while the application is down or the replica crash-looping: the outage has been reported, and three restarts are how every outage begins.
+- **`docker` is not about what the supervisor sees but about its not seeing anything.** The supervisor asks the daemon one question before each pass; the alert is raised when that has gone unanswered for 30 seconds, which is longer than a restart of the daemon takes, and cleared by the first answer.
 - **Active alerts are kept in the agent's memory.** After the agent restarts, one whose condition still holds is raised again. Stopping or deleting an application drops its alerts without a message.
 
 ## Where alerts show
@@ -50,7 +54,8 @@ An alert is raised once and cleared once, however long it lasts. A warning that 
 |---|---|
 | The webhook | `alert.raised` and `alert.cleared`, with the sentence, and in the JSON form `"alert": {"kind": "memory", "severity": "warning", "replica": 1}` beside it. See [Get notified](/docs/tasks/notifications#alerts) |
 | The application's events | An alert about an application adds an event of type `alert`, in `shipwick status` and the dashboard: level `warn` or `error` when raised, `info` when cleared. A `disk` alert is about the server and is in no application's events |
-| `GET /server` | `alerts`: the ones that are active right now, oldest first |
+| `GET /server` | `alerts`: the ones that are active right now, oldest first. Not the `docker` alert: while it stands, `GET /server` is itself answered `503 RUNTIME_UNAVAILABLE` |
+| `GET /metrics` | `shipwick_alerts{kind, severity}`, which never asks Docker and so carries the `docker` alert too |
 | `shipwick server status` | The active alerts under the disk's usage |
 | `shipwick doctor` | The active alerts among its checks; a critical one counts as a problem |
 | The dashboard | The server's Status tab and the Overview list them, the Status entry in the navigation carries their number while one holds, the applications list marks an application that has one, and an application's page opens with the ones about it. See [Use the dashboard](/docs/tasks/dashboard) |
@@ -92,13 +97,13 @@ From the API, `GET /server` carries what holds right now:
 
 | Field | |
 |---|---|
-| `kind` | `memory`, `disk`, `restarts` or `unhealthy` |
-| `severity` | `warning` or `critical`. Only `disk` and `unhealthy` become critical |
-| `application`, `replica` | `memory` and `restarts` name an application and a replica; `unhealthy` an application, with `replica` 0; `disk` neither |
+| `kind` | `memory`, `disk`, `restarts`, `unhealthy` or, since 0.8, `docker` |
+| `severity` | `warning` or `critical`. `disk` and `unhealthy` become critical; `docker` always is |
+| `application`, `replica` | `memory` and `restarts` name an application and a replica; `unhealthy` an application, with `replica` 0; `disk` and `docker` neither |
 | `message` | The sentence |
 | `since` | When the alert was raised. It stays when a warning turns critical |
 
-Only active alerts are listed; the list is `[]` when there are none. See [`GET /server`](/docs/reference/api#get-server).
+Only active alerts are listed; the list is `[]` when there are none. The `docker` alert is read from the webhook and from [`GET /metrics`](#scrape-the-agent-with-prometheus): `shipwick server status`, `shipwick doctor` and the dashboard ask `GET /server`, which needs the daemon the alert is about, and say that Docker does not answer instead. See [`GET /server`](/docs/reference/api#get-server).
 
 ## Change the thresholds
 
@@ -186,6 +191,7 @@ The answer is `text/plain; version=0.0.4`. Errors — `401`, `403`, `429` — ar
 | `shipwick_disk_bytes{state}` | gauge | `state` is `total` or `used`, as `disk` in `GET /server`; absent where it cannot be measured |
 | `shipwick_alerts{kind, severity}` | gauge | Number of active alerts; every combination is present, 0 when none |
 
+- **A scrape is answered while Docker is not.** It never asks the daemon, which is why `shipwick_alerts{kind="docker"}` is where the `docker` alert can be read.
 - **A scrape costs the server next to nothing.** It reads the agent's database in one transaction and what the supervisor and the sampler last saw, and never asks Docker. A scraper comes every few seconds for ever, and an endpoint that listed containers each time would put that load on the daemon and fail whenever the daemon is slow, which is when the numbers matter.
 - **The numbers are as fresh as their source.** Status and the running and healthy counts are as the supervisor saw them at its last pass, a second ago at most; during a deployment they are those from before it began. CPU and memory are the last 30-second sample of each replica. A replica without a sample in the last 75 seconds, stopped or started less than a minute ago, has no CPU and memory series.
 - **In the first second after the agent starts**, an application the supervisor has not looked at yet has only its `desired` replicas and no status.
@@ -197,6 +203,7 @@ The units are those Prometheus expects, not those of the JSON endpoints: CPU is 
 ## What's next
 
 - [Get notified](/docs/tasks/notifications): the webhook that carries `alert.raised` and `alert.cleared`.
+- [When things break](/docs/tasks/when-things-break): what a full disk and a silent Docker daemon do, and what is yours to do.
 - [Resource limits and metrics](/docs/concepts/resources): how CPU and memory are measured, and the week of history the samples come from.
 - [Health checks and supervision](/docs/concepts/health-and-supervision): restarts, backoff and what makes an application healthy.
 - [`GET /server`](/docs/reference/api#get-server) and [`GET /metrics`](/docs/reference/api#get-metrics) in the API reference; [`shipwick server status`](/docs/reference/cli#server-status) and [`shipwick doctor`](/docs/reference/cli#doctor) in the CLI reference.

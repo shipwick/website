@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 const site = 'https://shipwick.com'
 const repo = 'https://github.com/shipwick/shipwick'
-const version = '0.7.0'
+const version = '0.8.0'
 
 export default defineConfig({
   lang: 'en-US',
@@ -166,9 +166,13 @@ export default defineConfig({
           text: 'The server',
           collapsed: false,
           items: [
+            { text: 'Prepare a server', link: '/docs/tasks/prepare-a-server' },
             { text: 'Upgrade Shipwick', link: '/docs/tasks/upgrade' },
+            { text: 'Verify a release', link: '/docs/tasks/verify-a-release' },
+            { text: 'When things break', link: '/docs/tasks/when-things-break' },
             { text: 'Reach the API without a hostname', link: '/docs/tasks/access-without-a-hostname' },
             { text: 'Run behind a corporate proxy or without internet', link: '/docs/tasks/corporate-network' },
+            { text: 'Give the agent less than the Docker socket', link: '/docs/tasks/less-than-the-docker-socket' },
           ],
         },
         {

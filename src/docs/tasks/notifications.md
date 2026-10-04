@@ -108,7 +108,7 @@ The recovery rule is strict on purpose. A replica that crash-loops runs for a mo
 
 ### Alerts
 
-An alert is a condition with a beginning and an end, not an occurrence: it is told once when it becomes true and once when it stops, and never in between. There are four kinds, described with their thresholds in [Alerts and metrics](/docs/tasks/alerts-and-metrics). In the JSON form the two events carry one more field:
+An alert is a condition with a beginning and an end, not an occurrence: it is told once when it becomes true and once when it stops, and never in between. There are five kinds, described with their thresholds in [Alerts and metrics](/docs/tasks/alerts-and-metrics). In the JSON form the two events carry one more field:
 
 ```json
 {
@@ -125,11 +125,11 @@ An alert is a condition with a beginning and an end, not an occurrence: it is to
 
 | Field | |
 |---|---|
-| `alert.kind` | `memory`, `disk`, `restarts` or `unhealthy` |
-| `alert.severity` | `warning` or `critical`; only `disk` and `unhealthy` become critical. `alert.cleared` carries the severity the alert had |
-| `alert.replica` | The replica a `memory` or `restarts` alert is about; `0` for `unhealthy` and `disk` |
+| `alert.kind` | `memory`, `disk`, `restarts`, `unhealthy` or, since 0.8, `docker` |
+| `alert.severity` | `warning` or `critical`; `disk` and `unhealthy` become critical, and `docker` always is. `alert.cleared` carries the severity the alert had |
+| `alert.replica` | The replica a `memory` or `restarts` alert is about; `0` for `unhealthy`, `disk` and `docker` |
 
-`application` is empty for a `disk` alert, which is about the server. Three rules keep alerts from repeating what was already said:
+`application` is empty for a `disk` and a `docker` alert, which are about the server. The webhook is where a `docker` alert is read: while the Docker daemon does not answer, `shipwick server status` and the dashboard cannot show it. See [When things break](/docs/tasks/when-things-break#docker-does-not-answer). Three rules keep alerts from repeating what was already said:
 
 - **A warning that turns critical is raised a second time; stepping back down a level tells nobody.** Only raising, turning critical and clearing are sent.
 - **The `restarts` alert is held while the application is down or the replica crash-looping.** The outage has been reported as `application.down`, and three restarts are how every outage begins.
@@ -158,6 +158,6 @@ where `<hex>` is the HMAC-SHA256 of the request body, keyed with the secret, in 
 
 - [`SHIPWICK_WEBHOOK_URL` and `SHIPWICK_WEBHOOK_SECRET`](/docs/reference/agent-configuration#environment-variables) in the agent configuration reference.
 - [Health checks and supervision](/docs/concepts/health-and-supervision): what the supervisor does between `application.down` and `application.recovered`.
-- [Alerts and metrics](/docs/tasks/alerts-and-metrics): the four alerts, their thresholds, and where else they show.
+- [Alerts and metrics](/docs/tasks/alerts-and-metrics): the five alerts, their thresholds, and where else they show.
 - [Run scheduled jobs and one-off commands](/docs/tasks/jobs): where `job.failed` comes from.
 - [Back up and restore volumes](/docs/tasks/backups): where `backup.failed` comes from.

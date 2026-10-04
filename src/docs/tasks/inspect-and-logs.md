@@ -245,14 +245,23 @@ Log archive     1.1 KB of 1 GB, 1 entry, kept 14 days
 Since 0.7 the `Agent` line also says when a newer release exists. The agent asks GitHub itself, once a day, so the line needs no connection of the CLI's own:
 
 ```text
-Agent           v0.7.0  v0.7.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+Agent           v0.8.0  v0.8.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
 ```
 
 See [Upgrade Shipwick](/docs/tasks/upgrade#a-notice-when-a-newer-release-exists).
 
+Since 0.8 the `Memory` line carries the server's swap, and the `Docker` line says when the daemon is rootless and when it does not enforce limits:
+
+```text
+Docker          29.8.2, rootless; memory and CPU limits are not enforced
+Memory          4 GB, no swap
+```
+
+See [Resource limits and metrics](/docs/concepts/resources#limits-that-are-not-enforced). While the Docker daemon does not answer, the command says so instead: `Docker does not answer on the server. Applications that are running keep running; look at the daemon there with: systemctl status docker.` See [When things break](/docs/tasks/when-things-break#docker-does-not-answer).
+
 If a command fails with "The agent does not know this operation", the agent is probably older than your `shipwick`. Compare the two versions here, or run `shipwick upgrade --check`, which compares them for you.
 
-`shipwick doctor` goes further: the versions against the latest release, the token, Docker on the server, the proxy, the active alerts, certificates you supplied that have expired or will within 30 days, whether the agent's own state is backed up, ports 80 and 443, and for every application's domain whether DNS points at the server and `https://` answers, one line each with what to do about it. A critical alert and an expired certificate count as problems. See [Your first deployment](/docs/getting-started/first-deployment#when-the-domain-is-not-ready).
+`shipwick doctor` goes further: the versions against the latest release, the token, Docker on the server, the proxy, the active alerts, since 0.8 the applications without a memory limit, a server without swap, limits the Docker daemon does not enforce, an API that is open to applications and a proxy that is not Shipwick's image, certificates you supplied that have expired or will within 30 days, whether the agent's own state is backed up, ports 80 and 443, and for every application's domain whether DNS points at the server and `https://` answers, one line each with what to do about it. A critical alert and an expired certificate count as problems. See [Your first deployment](/docs/getting-started/first-deployment#when-the-domain-is-not-ready).
 
 ## Open it in the browser
 

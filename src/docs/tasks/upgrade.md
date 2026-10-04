@@ -1,11 +1,11 @@
 ---
 title: Upgrade Shipwick
-description: Upgrade the agent, Caddy setup and dashboard by running the installer again, upgrade the CLI with shipwick upgrade, how a server says that a newer release exists, and what happens to running applications meanwhile.
+description: Upgrade the agent, Caddy setup and dashboard by running the installer again, what an upgrade does from each release since 0.1.0 and what it costs in seconds, how to go back to the release before, upgrade the CLI with shipwick upgrade, how a server says that a newer release exists, and what happens to running applications meanwhile.
 ---
 
 # Upgrade Shipwick
 
-You upgrade a Shipwick server by running the installer again, on the server or from your laptop over SSH, and a CLI elsewhere with `shipwick upgrade`. This page covers what the installer changes, what it leaves alone, how to choose a version, what happens to your applications and to a running deployment while the agent restarts, how the server says that a newer release exists, what the upgrades to 0.7, 0.6, 0.5, 0.4 and 0.3 do on first start and what you may want to turn on afterwards, and how to upgrade the CLI on laptops and in CI.
+You upgrade a Shipwick server by running the installer again, on the server or from your laptop over SSH, and a CLI elsewhere with `shipwick upgrade`. This page covers what the installer changes, what it leaves alone, what an upgrade does from each release and what it costs, how to choose a version and how to go back, what happens to your applications and to a running deployment while the agent restarts, how the server says that a newer release exists, what the upgrades to 0.8, 0.7, 0.6, 0.5, 0.4 and 0.3 do on first start and what you may want to turn on afterwards, and how to upgrade the CLI on laptops and in CI.
 
 ## Read the changelog first
 
@@ -16,7 +16,7 @@ Shipwick is at 0.x. Before 1.0, a minor version may change the API, `deploy.yaml
 Since 0.7 the agent asks GitHub once a day which release is the latest, and `GET /server` carries the answer. The dashboard and `shipwick server status` say when the server is behind, without a connection of their own:
 
 ```text
-Agent           v0.7.0  v0.7.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+Agent           v0.8.0  v0.8.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
 ```
 
 In the dashboard the notice is on the server's Status tab, with the command that upgrades; see [Use the dashboard](/docs/tasks/dashboard#the-server).
@@ -39,6 +39,7 @@ curl -fsSL https://get.shipwick.com | sh
 
 ```text
 ✓ Docker 29.8.0 with Compose 5.5.1
+  The release's signature was not checked: cosign is not installed. Every file is checked against the release's checksums.
 ✓ Installed /opt/shipwick/compose.yml
 ✓ Keeping the existing /opt/shipwick/.env (your API token is unchanged)
 ✓ Started the Shipwick services
@@ -72,7 +73,7 @@ It runs the installer on the server; the token is unchanged and not printed agai
 
 What the installer does on an upgrade:
 
-1. Downloads the new release's compose file and verifies it against the release's `checksums.txt`. Only a verified file replaces `/opt/shipwick/compose.yml`. A checksum mismatch installs nothing and leaves the running installation as it was.
+1. Downloads the new release's compose file and verifies it against the release's `checksums.txt` — and, since 0.8.0, `checksums.txt` against the release's signature first, where cosign is installed; see [Verify a release](/docs/tasks/verify-a-release). Only a verified file replaces `/opt/shipwick/compose.yml`. A checksum mismatch installs nothing and leaves the running installation as it was. Since 0.8 the installer also asks Compose to read the new file before it replaces the one in use: a Compose plugin older than 2.23.1 cannot, and the installer stops there with the version it needs.
 2. Keeps `/opt/shipwick/.env` exactly as it is. The root token does not change, and it is not printed again. The hostnames do not change, and the installer does not ask for them. Anything else you put there — `SHIPWICK_WEBHOOK_URL`, a mount for images built from source — stays too.
 3. Pulls the images that the new compose file names, and recreates the containers whose definition changed.
 4. Waits for the agent to report healthy.
@@ -84,6 +85,28 @@ What the installer does on an upgrade:
 The installer writes a fresh `/opt/shipwick/compose.yml` on every run. Keep your own changes — [publishing the API on loopback](/docs/tasks/access-without-a-hostname), [mounting `docker login` credentials](/docs/tasks/private-registries) — in `/opt/shipwick/compose.override.yml`. Compose merges the two files, and the installer never touches the override or `.env`.
 :::
 
+## What an upgrade does
+
+From every release since 0.1.0 the upgrade to this version is one step, the installer, and needs nothing before or after it. Each of those releases was installed the way it was released, given applications with its own CLI — a volume with data, secrets, tokens, jobs and backups as far as it had them — and upgraded. What happened on every one of them:
+
+- **Shipwick's three containers are replaced; the applications' are not.** The replicas after the upgrade are the containers the old release started, and they are served without a deployment.
+- **Requests go unanswered while the proxy's container is replaced.** Connections are refused for two to three seconds: with about ten requests a second to an application of two replicas, each on a connection of its own, between 9 and 21 requests failed per upgrade and none before or after (23 upgrades, at least one from each release, in a Docker daemon inside a container on a developer's machine). The agent is away a few seconds longer; nothing is supervised or deployed in that time, and nothing stops.
+- **The agent brings its database up to date when it starts.** The history, the tokens, the secrets, the scheduled jobs and the backups of the old release are there afterwards, and a rollback goes back to a deployment the old release made. Volumes are Docker's and are not touched.
+- **`.env` and `compose.override.yml` stay as they are**; `compose.yml` is replaced. Images named in `.env` (`SHIPWICK_AGENT_IMAGE` and the others) stay too: an upgrade does not replace an image of your own.
+- **The old release's CLI keeps working** against the new agent for what it knew: `ps`, `deploy`, `redeploy`, `rollback`, its token. The commands and `deploy.yaml` keys that came later need `shipwick upgrade`.
+
+What differs by where the upgrade starts:
+
+| From | What the upgrade does besides | What you do |
+|---|---|---|
+| 0.7 | The proxy's image gains Shipwick's own way of finding replicas, and the agent loads a configuration that uses it | Nothing |
+| 0.5, 0.6 | The same | Nothing |
+| 0.3, 0.4 | And the proxy changes from `caddy:2-alpine` to Shipwick's build of Caddy | Nothing |
+| 0.2 | And the agent creates `encryption.key` next to `shipwick.db` and encrypts the env values of earlier deployments, once | From then on, back `encryption.key` up with `shipwick.db`: without it the database cannot be read |
+| 0.1 | And the proxy joins a second network, `shipwick-services`; the replicas that run are given their application's name on it, without a restart | The same. `agent`, `caddy`, `dashboard` and `localhost` are no longer names an application can be deployed under |
+
+Not walked this way: the packages, a bundle, and an installation with a compose file of its own. For those, see [If you installed without the installer](#if-you-installed-without-the-installer).
+
 ## Choose a version
 
 By default the installer installs the latest release. Pre-releases, such as release candidates, are never picked by default. To install a specific version:
@@ -93,6 +116,65 @@ curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.4.1 sh
 ```
 
 Everything comes from that one release — the compose file, the images and the CLI — so the three always belong together.
+
+## Go back to the release before
+
+Going back is the installer with that version:
+
+```bash
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.7.0 sh
+```
+
+Two things can stand in the way, and since 0.8 the installer deals with both.
+
+**The proxy's saved configuration.** The proxy starts from the configuration it saved last, and one saved by a newer release may name a part the older proxy does not have; the older proxy then does not start. The installer removes that file, and the agent loads the routes again within seconds. Going back costs the same seconds without the proxy as going up. This is what going back from 0.8 to 0.7 takes, and all it takes: 0.8 adds nothing to the agent's database.
+
+```text
+! The proxy's saved configuration was written by a newer release and was removed; the agent loads the routes again.
+```
+
+Without the installer — the packages, or a compose file of your own — remove the file yourself before the older proxy starts, or it will not start:
+
+```bash
+docker compose run --rm --no-deps --entrypoint rm caddy -f /config/caddy/autosave.json
+```
+
+**A database a newer release has added to.** An agent refuses such a database: it does not guess at what it does not know. Whether a release adds to the database is in its changelog, under *Changed*, and in the sections below. When it has, the installer finds the older agent refusing, starts the newer release again, and says so:
+
+```text
+✗ The agent of this release cannot read the database: the release that ran here has added to it.
+  That release was started again; the proxy was replaced twice, and requests went unanswered for some seconds.
+  Going back takes the agent's data as it was before the upgrade: docs/handbook.md, "Upgrading".
+```
+
+Measured the same way as an upgrade, twice: 43 and 50 requests failed, within five and seven seconds. Before 0.8 the installer left the older agent restarting forever with nothing to load the routes, and every hostname went unanswered until someone installed the newer release again.
+
+To be able to go back across such a release, copy the agent's data before you upgrade. The agent is stopped for the copy, the applications are not:
+
+```bash
+cd /opt/shipwick
+docker compose stop agent
+docker run --rm -v shipwick_agent-data:/data -v /root:/to busybox \
+  tar -czf /to/shipwick-before-upgrade.tar.gz -C /data shipwick.db encryption.key
+docker compose start agent
+```
+
+Put it back before the installer of the older release runs:
+
+```bash
+cd /opt/shipwick
+docker compose stop agent
+docker run --rm -v shipwick_agent-data:/data -v /root:/from:ro busybox sh -c '
+  rm -f /data/shipwick.db-wal /data/shipwick.db-shm &&
+  tar -xzf /from/shipwick-before-upgrade.tar.gz -C /data'
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.7.0 sh
+```
+
+The older agent then knows what the copy knows.
+
+- **An application deployed since is brought back to the deployment the copy has as its last**: the containers of the later one are removed and those of the earlier one started.
+- **What was stored since — secrets, tokens, history — is not in the copy.**
+- **The volumes are as the newer release left them.**
 
 ## What happens to running applications
 
@@ -113,7 +195,48 @@ Supervision then resumes. The supervisor's state is held in memory, so every rep
 
 A job that was running when the old agent stopped is marked `interrupted` and its container removed; the job runs again at its next scheduled time. Firings that fell while the agent was down are not caught up.
 
-After a server reboot, the agent brings every application back up according to its restart policy.
+After a server reboot, the agent brings every application back up according to its restart policy. What an agent that is killed in the middle of each kind of deployment does is in [When things break](/docs/tasks/when-things-break#the-agent-is-killed).
+
+### Upgrading from 0.7 to 0.8
+
+0.8 changes how the proxy finds replicas and who can reach the API; applications run as before, and nothing changes for a `deploy.yaml` that worked before. All three containers are recreated, because their images changed. Requests go unanswered for the two to three seconds in which the proxy's container is replaced; certificates and configuration are on volumes and stay, and the applications' containers are not touched.
+
+The agent's database is as 0.7 left it: 0.8 applies no schema migration, so [going back](#go-back-to-the-release-before) to 0.7 is the installer with that version.
+
+What the upgrade itself changes:
+
+- **The proxy's image gains Shipwick's own way of finding replicas**, and the agent loads a configuration that uses it. The agent is restarted before the proxy is replaced; in between it serves through the older proxy the way it did, and offers the proxy its own way again once a minute. See [Replicas are found by name](/docs/concepts/routing-and-https#replicas-are-found-by-name).
+- **The API moves to a network of its own**, `shipwick-control`, for the agent, the proxy and the dashboard. The agent no longer listens on the network the applications are on, and the dashboard is no longer reachable from application containers either. The installer sets this up with the applications left running. See [Who can reach the API](/docs/security#who-can-reach-the-api).
+
+Five things behave differently without being asked:
+
+- **An application's container that calls the API directly is refused**, `403 APPLICATION_CALLER`, before its token is looked at. An application that calls the API on purpose does so at the API's hostname, `https://<SHIPWICK_AGENT_DOMAIN>`.
+- **An address rests before a container of another application takes it**: half a second after a replica the agent stopped, 2.5 seconds after one that stopped by itself. A deployment of one application is as fast as before; three applications of two replicas each, deployed together, took 7.3 to 7.8 seconds where one alone took about 6.
+- **`shipwick config` gives back the values that were written in the file**, for an application deployed again by 0.8 of both `shipwick` and the agent. What is written in `deploy.yaml` in plain sight is therefore readable by whoever may deploy the application; a password belongs in `${NAME}`. Until that deployment every value is masked as before. See [Get deploy.yaml back from the server](/docs/tasks/get-the-configuration-back).
+- **A Docker daemon that does not answer is `503 RUNTIME_UNAVAILABLE`**, also for a daemon that is not running, which used to be a `500`; a request the server's disk has no room for is `507 DISK_FULL`. After 30 seconds without an answer the agent raises the `docker` alert. See [When things break](/docs/tasks/when-things-break).
+- **`shipwick doctor` says more**: the running applications without a memory limit, a server without swap, limits the Docker daemon does not enforce, an API that is open to applications, a proxy that is not Shipwick's image of this version. None of them is counted as a problem.
+
+Three arrangements need a look after the upgrade, and `shipwick doctor` names each:
+
+| Arrangement | After the upgrade |
+|---|---|
+| The agent from a package | Run the compose command again: `docker compose --env-file /etc/shipwick/agent.env -f /usr/share/shipwick/compose.yml up -d`. It moves the proxy and the dashboard onto the control network; until then the agent refuses both. `SHIPWICK_LISTEN_ADDR` on the Docker bridge is needed for the dashboard only: the proxy now reaches the agent by itself |
+| A compose file of your own | Add the `shipwick-control` network as the release's `compose.production.yml` has it, and leave `SHIPWICK_LISTEN_ADDR` unset for the agent's container. Until then the agent listens as it did, and the API is open to applications |
+| The API's port published in `compose.override.yml`, on Docker before 28 | The agent keeps listening on the network the applications are on, so that the port works. Upgrade Docker, or give the API a hostname and remove the port |
+
+A proxy image of your own (`SHIPWICK_CADDY_IMAGE` in `.env`) is not replaced by the upgrade. Build it again from the new `Dockerfile.caddy`; until then the agent serves through it the way it did before 0.8, and `shipwick doctor` says so. See [A proxy image of your own](/docs/concepts/routing-and-https#a-proxy-image-of-your-own).
+
+What is new is opt-in. What an operator may want to turn on or use:
+
+| | How |
+|---|---|
+| Lock an application's containers down further | `security` in `deploy.yaml`: a read-only root filesystem, fewer capabilities, no container that runs as root. See [Containers locked down further](/docs/security#containers-locked-down-further) |
+| Deploy one application out of a `shipwick.yaml` | `shipwick deploy api --image …`. See [Deploy from CI](/docs/tasks/deploy-from-ci#deploy-several-applications) |
+| Verify the release before it is installed | Install cosign on the server, and set `SHIPWICK_REQUIRE_SIGNATURE=1` for the installer to make it a condition. See [Verify a release](/docs/tasks/verify-a-release) |
+| Give every application a memory limit, and the server swap | `resources.memory` in `deploy.yaml`, a swap file on the server. See [Prepare a server](/docs/tasks/prepare-a-server) |
+| Give the agent less than the Docker socket | A socket proxy, or rootless Docker. See [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket) |
+
+On laptops and in CI, upgrade the CLI as described below; the names for `deploy` and `validate`, the plain values of `config` and the new lines of `doctor` need it. A 0.7 `shipwick` keeps working against a 0.8 agent for everything it knows. A 0.8 `shipwick` against a 0.7 agent deploys as before, with one difference: a `deploy.yaml` with a `security` block is refused by the older agent, as every key it does not know, and `shipwick deploy` says that the server is older than the file and how to upgrade it.
 
 ### Upgrading from 0.6 to 0.7
 
@@ -262,7 +385,7 @@ shipwick upgrade
 The server runs v0.4.1, the latest release.
 ```
 
-The latest release is downloaded from GitHub and verified against its `checksums.txt` before the binary is swapped; nothing changes if the checksum does not match. The command then compares the server's version with the release. When the server is behind, it says so and prints the installer line to run there; a server it cannot reach is one dim line, not an error. `shipwick upgrade --check` reports and changes nothing.
+The latest release is downloaded from GitHub and verified against its `checksums.txt` before the binary is swapped; nothing changes if the checksum does not match. Since 0.8, where cosign is installed, `checksums.txt` is verified against the release's signature first, and a release from 0.8.0 on that has no signature is refused; without cosign the command says that the signature was not checked. See [Verify a release](/docs/tasks/verify-a-release). The command then compares the server's version with the release. When the server is behind, it says so and prints the installer line to run there; a server it cannot reach is one dim line, not an error. `shipwick upgrade --check` reports and changes nothing.
 
 A `shipwick` from Homebrew is left to Homebrew — the command prints `Upgrade with: brew upgrade shipwick` — because the package manager would otherwise be confused by a file it did not put there. On Windows, `shipwick upgrade` replaces `shipwick.exe` the same way and leaves the old binary behind as `shipwick.old.exe` until the next run removes it.
 
@@ -283,14 +406,18 @@ docker compose -f compose.production.yml pull
 docker compose -f compose.production.yml up -d
 ```
 
+Since 0.8 a compose file of your own also needs the `shipwick-control` network, as the release's file has it; see [Upgrading from 0.7 to 0.8](#upgrading-from-0-7-to-0-8). This kind of installation was not walked through the upgrade from every release the way the installer's was.
+
 If you built the images from source, rebuild them from the new checkout — since 0.5 there are three, the proxy's with `docker build -t ghcr.io/shipwick/caddy -f Dockerfile.caddy .` — and run `sh scripts/install.sh` from it again.
 
-If the agent was installed from a package, install the newer package and run its compose command again; see [Install from a package](/docs/getting-started/install-from-a-package#upgrade).
+If the agent was installed from a package, install the newer package and run its compose command again — coming from 0.7 that command is not optional; see [Install from a package](/docs/getting-started/install-from-a-package#upgrade).
 
-If the agent runs as a plain binary, replace it with the new build and restart it. The first start of 0.3.0 creates `encryption.key` in `SHIPWICK_DATA_DIR`, or reads `SHIPWICK_ENCRYPTION_KEY` if you set it; the first starts of 0.4.0, 0.5, 0.6 and 0.7 apply the migrations described above.
+If the agent runs as a plain binary, replace it with the new build and restart it. The first start of 0.3.0 creates `encryption.key` in `SHIPWICK_DATA_DIR`, or reads `SHIPWICK_ENCRYPTION_KEY` if you set it; the first starts of 0.4.0, 0.5, 0.6 and 0.7 apply the migrations described above; 0.8 applies none.
 
 ## What's next
 
 - The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) and the [releases](https://github.com/shipwick/shipwick/releases).
 - [Install the CLI](/docs/getting-started/install-cli#upgrade) covers `shipwick upgrade` in full.
+- [Verify a release](/docs/tasks/verify-a-release): the signature, and what the installer does with and without cosign.
+- [When things break](/docs/tasks/when-things-break): an agent killed in the middle of a deployment, a reboot.
 - [Health and supervision](/docs/concepts/health-and-supervision) explains what the supervisor does once it is back.

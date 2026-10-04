@@ -307,7 +307,7 @@ Three containers from `/opt/shipwick/compose.yml`: the agent, Caddy and the dash
 
 ### Security
 
-The agent holds the Docker socket, so an `admin` token is root on the server: treat it so, and give CI a `deploy` token. The API speaks plain HTTP on `127.0.0.1:9000` and is reached over HTTPS through Caddy, an SSH tunnel or a private network. Only the SHA-256 of each token is kept, `env` values and secrets are encrypted at rest, no shell runs anywhere, and containers are never privileged. People can sign in through your OpenID Connect provider, and every change is in the audit trail.
+The agent holds the Docker socket, so an `admin` token is root on the server: treat it so, and give CI a `deploy` token. The API speaks plain HTTP on `127.0.0.1:9000` and is reached over HTTPS through Caddy, an SSH tunnel or a private network. Only the SHA-256 of each token is kept, `env` values and secrets are encrypted at rest, no shell runs anywhere, and containers are never privileged; `security` in `deploy.yaml` takes away more, per application. Application containers do not reach the API, and releases are signed by the workflow that builds them. People can sign in through your OpenID Connect provider, and every change is in the audit trail.
 
 <div class="next">
 

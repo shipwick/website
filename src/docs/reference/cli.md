@@ -15,7 +15,7 @@ shipwick [command] [flags]
 |---|---|
 | [`init`](#init) | Recognise the project and write a `Dockerfile`, a `.dockerignore` and a `deploy.yaml`, or add an entry to a `shipwick.yaml` |
 | [`validate`](#validate) | Check `deploy.yaml` or `shipwick.yaml` without deploying, placeholders filled in |
-| [`deploy`](#deploy) | Deploy the application described by `deploy.yaml`, building the image here with `build:`, or the applications of a `shipwick.yaml` |
+| [`deploy`](#deploy) | Deploy the application described by `deploy.yaml`, building the image here with `build:`, or the applications of a `shipwick.yaml`: all of them, or the ones named |
 | [`redeploy`](#redeploy) | Deploy the running configuration again, optionally with another image |
 | [`config`](#config) | Print the `deploy.yaml` of what an application runs |
 | [`rollback`](#rollback) | Go back to an earlier successful deployment |
@@ -156,7 +156,7 @@ See [Run behind a corporate proxy or without internet](/docs/tasks/corporate-net
 
 ### Which application a command targets
 
-Commands that take `[app]` use the application named in `./deploy.yaml` when no argument is given. `-f` / `--file` selects another file. For `logs`, `-f` means `--follow`, and the file is selected with `--file` only. For `deploy` and `validate`, `-f` can be repeated to name several files, and both look for `shipwick.yaml`, several applications in one file, when there is no `deploy.yaml`.
+Commands that take `[app]` use the application named in `./deploy.yaml` when no argument is given. `-f` / `--file` selects another file. For `logs`, `-f` means `--follow`, and the file is selected with `--file` only. For `deploy` and `validate`, `-f` can be repeated to name several files, and both look for `shipwick.yaml`, several applications in one file, when there is no `deploy.yaml`. Since 0.8 the two take names as arguments, which choose among the applications of a `shipwick.yaml`; see [Some applications of a shipwick.yaml](#some-applications-of-a-shipwick-yaml).
 
 Since 0.5, the other commands that take `[app]` (`status`, `logs`, `stop`, `start`, `rollback`, `redeploy`, `run`, `jobs`, `open`, `backup`, `restore` and `backups`) also look at a `shipwick.yaml` when there is no `deploy.yaml` in the directory. One that describes a single application names it. One that describes several is an error that lists them and shows the command with a name:
 
@@ -314,6 +314,15 @@ replicas: 1
 #   cpu: 1
 #   memory: 512mb
 
+# Take away what the application does not need. Each key is independent;
+# tmpfs is scratch space in memory, for what must be written under a
+# read-only root.
+# security:
+#   read_only: true
+#   tmpfs: [/tmp]
+#   capabilities: none # or the ones to keep: [CHOWN, SETGID, SETUID]
+#   non_root: true     # needs a numeric user, here or in the image
+
 # Data that must outlive deployments (a database): named volumes, which
 # need replicas: 1 and the recreate strategy.
 # volumes:
@@ -348,7 +357,7 @@ For a recognised project the `image` lines read `build: .` with a comment saying
 init: true
 ```
 
-Where a `Dockerfile` already exists and is kept, the line stays commented out: that image may bring an init process of its own. A static site's file is three lines: `name`, `static` and `domain`, with a comment naming the build command to run first; with a fallback page, `static` is written as `static: {dir: dist/, fallback: index.html}`.
+Where a `Dockerfile` already exists and is kept, the line stays commented out: that image may bring an init process of its own. Since 0.8 the file carries the [`security`](/docs/reference/deploy-yaml#security) block as a commented example, for every kind of project with a container; uncommented as it stands, it is a block the agent accepts, given a numeric `user`. A static site's file is three lines: `name`, `static` and `domain`, with a comment naming the build command to run first; with a fallback page, `static` is written as `static: {dir: dist/, fallback: index.html}`.
 
 `init` refuses to overwrite an existing `deploy.yaml` without `--force`. It does not contact the agent. `shipwick deploy` in a directory with neither a `deploy.yaml` nor a `shipwick.yaml` runs `init` first when a terminal is attached (`No deploy.yaml here. Let's write one.`), then deploys: `Deploying now. Change them later and deploy again.`
 
@@ -379,7 +388,7 @@ Review them, then run: shipwick deploy
 Check `deploy.yaml` without deploying. The file is read, its `${NAME}` placeholders are filled in from the environment and `--env-file`, and it is validated exactly as the agent would validate it. Runs offline, and prints the configuration as it will be applied, defaults included. A `shipwick.yaml` is checked entry by entry, and the order the applications deploy in is printed.
 
 ```text
-shipwick validate [flags]
+shipwick validate [name...] [flags]
 ```
 
 | Flag | Default | |
@@ -420,6 +429,7 @@ The first line is `<file> is valid`, with `(N variables substituted)` when place
 | `Entrypoint` | `/app/entrypoint.sh` | The arguments, space-separated; an argument containing spaces or quotes is quoted |
 | `Command` | `node worker.js` | Same form |
 | `User` | `1000:1000` | |
+| `Security` | `read-only root filesystem; tmpfs at /tmp (64 MB), /var/cache/api (200 MB); no capabilities; refuses to run as root` | What the [`security`](/docs/reference/deploy-yaml#security) block takes away, the parts that are set separated by `; `: `read_only`, each `tmpfs` directory with its size, `capabilities` (`no capabilities` for `none`, `capabilities CHOWN, SETUID only` for a list), `non_root`. `user: root`, or a user given by name, next to `non_root: true` is a validation error. Since 0.8 |
 | `Logging` | `gelf (2 options)` | The driver, and the number of options when there are any: `(1 option)`, `(2 options)` |
 | `Pre-deploy` | `dotnet Migrate.dll` | The `pre_deploy` command |
 | `Job` | `nightly-report at 0 3 * * * UTC: node report.js` | One line per job: its name, schedule and command |
@@ -427,19 +437,30 @@ The first line is `<file> is valid`, with `(N variables substituted)` when place
 
 With several files, each is validated and described in turn. An invalid file, or an unset placeholder, prints the report and exits with `1`. See [Placeholders](#placeholders).
 
-## deploy
-
-Deploy the application described by `deploy.yaml` and wait for the result. With `build:` in the file, build the image here and send it to the server first; with `static:`, upload the folder first. A `shipwick.yaml` deploys several applications at the same time; several `-f` deploy several `deploy.yaml` in order.
+Since 0.8, names choose among the applications of a `shipwick.yaml`, as they do for [`deploy`](#some-applications-of-a-shipwick-yaml). The whole file is still checked; the order and the summaries shown are those of the named applications, and a line says what a deployment of them would leave out:
 
 ```text
-shipwick deploy [flags]
+$ shipwick validate api
+✓ shipwick.yaml is valid
+
+shipwick deploy api leaves out postgres and assumes it running.
+```
+
+The summary of `api` follows. With several left out the line ends `and assumes them running.` A name the file does not have, and a name next to a `deploy.yaml`, are the errors `deploy` gives.
+
+## deploy
+
+Deploy the application described by `deploy.yaml` and wait for the result. With `build:` in the file, build the image here and send it to the server first; with `static:`, upload the folder first. A `shipwick.yaml` deploys several applications at the same time, all of them or, since 0.8, the ones named; several `-f` deploy several `deploy.yaml` in order.
+
+```text
+shipwick deploy [name...] [flags]
 ```
 
 | Flag | Default | |
 |---|---|---|
 | `-f`, `--file <path>` | `deploy.yaml`, else `shipwick.yaml` | Path to a deployment config; repeat for several applications |
 | `--env-file <path>` | | `NAME=value` file for `${NAME}` placeholders; repeat for several. Optional: `env` values may also come from the server's secrets |
-| `--image <ref>` | | Deploy this image instead of the one in the configuration. One application only; not with `build:` |
+| `--image <ref>` | | Deploy this image instead of the one in the configuration. One application only: a `deploy.yaml`, or exactly one named application of a `shipwick.yaml`. Not with `build:` |
 | `--parallel <n>` | `4` | How many applications of a `shipwick.yaml` deploy at the same time |
 | `--no-wait` | | Start the deployment and return immediately |
 | `--verbose` | | Show everything `docker build` prints, instead of one progress line |
@@ -471,7 +492,7 @@ Behavior:
 - **Only the layers the server does not have are sent.** The first deployment sends the whole image. After that `deploy` asks the agent which of the image's layers the server lacks and leaves the others out of the archive, so a change to the application costs its own layer: `✓ Sent image to the server (22 KB; the server had the rest of 57.9 MB)`. With an agent older than 0.5, or whenever the reduced archive cannot be built or is refused, the whole image is sent as before.
 - **With `static:`**, the folder is sent as it is, up to 512 MB, as a tar archive with fixed metadata, so the same files make the same digest and the same version everywhere: `✓ Uploaded dist/: 42 files, 3.1 MB`. Run the build first; a folder without an `index.html` is refused before anything is sent. A symbolic link that leads out of the folder is skipped, with a warning. `deploy.yaml`, `shipwick.yaml`, `.git` and `.env` files are never sent: everything in the archive is served. The progress line then reads `Checking the uploaded files`, `Copying the files to the proxy`, `Looking for index.html`, `Switching over`.
 - **`deploy` waits for `completed_at`**, not for the first `ACTIVE`. When it returns, the next operation on the application is guaranteed not to be rejected as busy.
-- `--image` edits the YAML document in memory. The agent still receives one plain `deploy.yaml`, and the file on disk is untouched. This is the form for CI: keep `deploy.yaml` in the repository and pass the image that was just built. It is refused for an application with `build:`.
+- `--image` edits the YAML document in memory. The agent still receives one plain `deploy.yaml`, and the file on disk is untouched. This is the form for CI: keep `deploy.yaml` in the repository and pass the image that was just built. It is refused for an application with `build:`. Since 0.8 it also applies to one named application of a `shipwick.yaml`; see [Some applications of a shipwick.yaml](#some-applications-of-a-shipwick-yaml).
 - The last line is the application's address, with its `path` when it has one: `https://example.com/api`.
 - A first deployment ends with the two commands to run next, `shipwick logs -f <app>` and `shipwick status <app>`, and with the dashboard's address when the server has one:
 
@@ -485,6 +506,8 @@ Behavior:
 - With `--no-wait`, the command prints `Deployment #N started` and exits with `0` without knowing the outcome.
 - In a terminal, a transient progress line shows what the agent is busy with: pulling the image, starting containers, checking health, switching over, retiring the previous version.
 - With a `pre_deploy` command, two more lines follow the pull: `✓ Running pre-deploy command` and `✓ Pre-deploy command finished (12s)`. If the command fails, the deployment fails before any replica of the new version was started, and its last output lines are printed under the error.
+- **The agent is told which `env` values stood in the file in plain sight** (since 0.8). `deploy` knows which values it filled in from the environment or `--env-file` and which it found written, and names the written ones with the deployment (`?plain=`). The agent keeps that, and [`config`](#config) gives those values back as they are; a value with anything filled in here is never among them. A static application has none. An agent older than 0.8 ignores the statement.
+- **Limits that Docker does not enforce are said** (since 0.8). On a server whose Docker daemon accepts `resources` and applies nothing, as rootless Docker does without the cgroup controllers, a deployment that asks for a limit gets a warning among its steps: `! Docker on this server does not enforce resources.memory and resources.cpu: the replicas run without a limit. shipwick doctor says what the server lacks`. It names the limits the file sets and the daemon does not apply. See [Limits that are not enforced](/docs/concepts/resources#limits-that-are-not-enforced).
 
 If the deployment fails, the command prints the cause, the saved output of the failed replica or pre-deploy command if there is any, and what is running now, then exits with `1`:
 
@@ -508,6 +531,21 @@ The last line depends on the outcome:
 | The previous version is not fully healthy afterwards | `my-api is running 1.4.1, but it is DEGRADED right now (1/2 replicas healthy). Shipwick keeps trying to restore it:` |
 | Nothing was deployed before | `my-api has no running version.` |
 
+**A server older than the file** (since 0.8). An agent refuses a key it does not know, so an agent older than 0.8 refuses a `deploy.yaml` with [`security`](/docs/reference/deploy-yaml#security), and the application is never deployed without what the key asks for. `unknown field` alone reads like a typo; where this `shipwick` accepted the file and the agent did not know a key, the report is followed by what that means:
+
+```text
+invalid deploy.yaml
+
+line 5:
+  unknown field "security"
+
+The agent is version v0.7.0 and does not know "security", which this shipwick (v0.8.0) does: the server is older than deploy.yaml.
+Nothing was deployed. Upgrade the server, then deploy again:
+  curl -fsSL https://get.shipwick.com | sh (on the server)
+```
+
+When the agent's version cannot be asked for, the sentence begins `The agent does not know "security"`. See [Upgrade Shipwick](/docs/tasks/upgrade).
+
 ### Several applications
 
 A `shipwick.yaml` holds an `apps` list in which every entry is a complete `deploy.yaml`, and `after: [postgres]` names the entries one must wait for; see [Several applications](/docs/reference/deploy-yaml#several-applications-shipwick-yaml). `deploy` uses it when there is no `deploy.yaml` in the directory, or when `-f` names it; it cannot be combined with other `-f` files.
@@ -521,7 +559,7 @@ shipwick deploy --parallel 2
 - Every line of output carries the name of the application it belongs to.
 - An application starts when every name in its `after` has completed a successful deployment in this run. One that waits for an application that failed, or was itself skipped, is skipped: `Skipped api: postgres did not deploy`. The others finish.
 - The last line is `3 of 3 applications deployed.`, or the count with what happened to the rest: `Stopped: 1 of 3 applications deployed, 1 failed, 1 skipped.` The command exits with `1` if any failed or was skipped. With `--no-wait` it reads `3 of 3 applications started.`
-- `--image` does not apply: `--image applies to one application, and shipwick.yaml describes several`.
+- `--image` without a name does not apply: `--image applies to one application, and shipwick.yaml describes several`, then `Name the one it is for: shipwick deploy <name> --image <ref>` with the image that was given.
 
 `-f` repeated deploys several `deploy.yaml` files, in the order given, one after the other:
 
@@ -534,6 +572,46 @@ shipwick deploy -f api/deploy.yaml -f worker/deploy.yaml
 - The command stops at the first failure: what comes later usually depends on what came before. It then prints `Stopped at worker: 1 of 3 applications deployed.` and exits with `1`. The applications already deployed stay deployed.
 - When every deployment succeeds, the last line is `3 of 3 applications deployed.`
 - `--image` applies to one application. With several files it is refused: `--image applies to one application; deploy several with one deploy.yaml each and no --image`.
+
+### Some applications of a shipwick.yaml
+
+Since 0.8, names deploy those applications of the file and nothing else: what a pipeline wants after it built one image, and what keeps a change to one application from redeploying the database next to it.
+
+```bash
+shipwick deploy api web
+shipwick deploy api --image ghcr.io/company/api:$GIT_SHA
+```
+
+```text
+$ shipwick deploy api --image ghcr.io/company/api:2.3.1
+Deploying api...
+
+✓ Validated shipwick.yaml
+Not deployed now and assumed to be running: postgres
+```
+
+- The whole file is read and validated either way, so a name is checked against everything the file describes.
+- `after` still orders the named ones among themselves. An `after` that names an application left out is not waited for: that application is assumed to be running, and one line after the validation names every such application. Nothing checks that it runs.
+- One name is deployed and reported like a single `deploy.yaml`; several are deployed like the whole file, with `Deploying 2 applications...`, `--parallel` and the last line counting the named ones.
+- `--image` applies when exactly one application is named. With more: `--image applies to one application, and 2 are named`, then `Name the one it is for: shipwick deploy <name> --image <ref>`. For an application with `build:` it is refused: `api has build: and is built here, so --image does not apply; remove build: to deploy an image instead`.
+- A name the file does not have is an error that lists the ones it has, and nothing is deployed:
+
+  ```text
+  Error: shipwick.yaml has no application named worker
+
+  It describes: postgres, api, web
+  ```
+- A name next to a `deploy.yaml` is an error that says why:
+
+  ```text
+  Error: deploy.yaml describes one application and takes no name: a name chooses among the applications of a shipwick.yaml
+
+  Leave the name out: shipwick deploy
+  ```
+
+  With `-f` the sentence names the file (`api/deploy.yaml describes one application and takes no name: …`, then `Leave the name out: shipwick deploy -f api/deploy.yaml`), or, with several, `the files given with -f describe one application each and take no name: …`. In a directory with neither file: `a name chooses among the applications of a shipwick.yaml, and there is none here`, then `Run it where the file is, or name the file with -f`.
+
+[`validate`](#validate) takes the same names and gives the same errors, with `shipwick validate` in place of `shipwick deploy`.
 
 See [Deployments](/docs/concepts/deployments) and [Deploy from CI](/docs/tasks/deploy-from-ci).
 
@@ -557,7 +635,7 @@ The result is an ordinary deployment, followed and reported like `deploy`. The a
 
 ## config
 
-Print the `deploy.yaml` that describes what an application runs: the way to get the file back when it was lost, or was never on this machine. Since 0.7.
+Print the `deploy.yaml` that describes what an application runs: the way to get the file back when it was lost, or was never on this machine. Since 0.7; since 0.8 the values that were written in the file come back with it.
 
 ```text
 shipwick config <app> [flags]
@@ -571,17 +649,19 @@ shipwick config <app> [flags]
 ```text
 $ shipwick config my-api -o deploy.yaml
 ✓ Wrote deploy.yaml: my-api as deployment #7 (1.4.2) runs it
-! 1 value is not handed out and stands as "********" in the file: env.POSTGRES_PASSWORD
+! 1 value is not handed out and stands as "********" in the file: env.API_KEY
   Write it again, or store it with shipwick secret set NAME and refer to it as ${NAME}.
   Until then shipwick deploy refuses the file.
 ```
 
 - **The application is named**, always: the command does not read the name from a `deploy.yaml`, since it is the command for when there is none.
 - **The file** is in the layout [`init`](#init) writes and describes the active deployment. Without `-o` it is printed to standard output, and nothing else is.
-- **The server does not hand out secret values.** A value that was written as a reference to a secret stored on the server is that reference again, such as `postgres://app:${DB_PASSWORD}@db:5432/app`, and is filled in again when the file is deployed. A value that was given with the file, or filled in from the environment or `--env-file`, is shown as `"********"` with a comment on its line.
-- **The masked fields are listed** on standard error, by their names in the file: `env.LOG_LEVEL`, `proxy.basic_auth[0].password`. With several the sentence is in the plural: `2 values are not handed out and stand as "********" in the file: …`, then `Write them again, or store each with shipwick secret set NAME and refer to it as ${NAME}.`
+- **The server does not hand out secret values.** A value that was written as a reference to a secret stored on the server is that reference again, such as `postgres://app:${DB_PASSWORD}@db:5432/app`, and is filled in again when the file is deployed.
+- **A value that stood in the deployed file as it was sent comes back as it is** (since 0.8): `LOG_LEVEL: debug` is `LOG_LEVEL: debug` again. The agent cannot tell such a value from a password; [`deploy`](#deploy) can, and says with the deployment which `env` values it found written. A redeploy and a rollback carry that on. What is written in `deploy.yaml` in plain sight is therefore readable by whoever may deploy the application: a password belongs in `${NAME}`, not in the file.
+- **Everything else is masked**, shown as `"********"` with a comment on its line: an `env` value that `deploy` filled in from the environment or `--env-file`, even in part; a basic-auth password that was written out; a value typed in the dashboard's editor; and every value of an application that was last deployed by a `shipwick` or an agent older than 0.8, until it is deployed again with both at 0.8 or later. Nobody but the sender of a file can say that a value in it is plain, so a value nobody spoke for is masked.
+- **The masked fields are listed** on standard error, by their names in the file: `env.API_KEY`, `proxy.basic_auth[0].password`. With several the sentence is in the plural: `2 values are not handed out and stand as "********" in the file: …`, then `Write them again, or store each with shipwick secret set NAME and refer to it as ${NAME}.`
 - **A file that still has a mask is refused** by [`deploy`](#deploy) and [`validate`](#validate), with the fields that need a value: `"********"` is never accepted as an `env` value or a basic-auth password.
-- **An application deployed before 0.7** has all its secret values masked until it is deployed again from its file: the references were not kept then.
+- **An application deployed before 0.7** has its references to stored secrets masked too, until it is deployed again from its file: the references were not kept then.
 - **`-o` does not write over a file that exists**: `deploy.yaml already exists`, then `Overwrite it with: shipwick config my-api -o deploy.yaml --force`. The check is made before the agent is asked.
 - An agent older than 0.7: `the agent is older than this shipwick and does not write an application's deploy.yaml`, then `Compare versions with: shipwick server status`.
 
@@ -645,7 +725,7 @@ Memory     412 MB / 2 GB
 
 The output has up to five parts:
 
-1. **Summary.** Status, with `(deployment in progress)` while one is in flight. Then `Version` (with the deployment number and when it was deployed), `Image`, `URL` if there is a domain (with the application's `path`: `https://example.com/api`), `Replicas`, `CPU` and `Memory` if anything is running, `Health` if a health check is configured, `Limits`, and `Backups` for an application with volumes. CPU is in percent of one core; with a limit it is shown as `used / limit`. For a static application a `Files` line (`42 files, 3.1 MB, served by the proxy`) replaces the image, replicas and usage, and there are no containers to list.
+1. **Summary.** Status, with `(deployment in progress)` while one is in flight. Then `Version` (with the deployment number and when it was deployed), `Image`, `URL` if there is a domain (with the application's `path`: `https://example.com/api`), `Replicas`, `CPU` and `Memory` if anything is running, `Health` if a health check is configured, `Limits`, and `Backups` for an application with volumes. CPU is in percent of one core; with a limit it is shown as `used / limit`. Since 0.8, `Limits` says when the server's Docker does not enforce them; see below. For a static application a `Files` line (`42 files, 3.1 MB, served by the proxy`) replaces the image, replicas and usage, and there are no containers to list.
 2. **Certificates.** One line per hostname whose certificate is not in order, and why; nothing when all are. See below.
 3. **Containers.** Columns `REPLICA`, `CONTAINER`, `STATE`, `HEALTH`, `RESTARTS`, `STARTED`. `STATE` is `running`, `exited (<code>)`, `out of memory`, or another Docker state. `HEALTH` is `healthy`, `unhealthy`, `starting`, `checking` (not probed yet), or `-` without a health check. `RESTARTS` shows `N (crash loop)` while restarts are rate-limited. Since 0.6, a container that a deployment replaced and that is still on its way out is listed below the replicas with the state `stopping`; see below.
 4. **Deployments.** The 5 most recent, with columns `DEPLOY` (the `#number`), `VERSION`, `STATUS`, `VIA` (`deploy`, `redeploy`, `rollback`, or `import` and `standby` for a deployment made by [`import`](#import)), `WHEN`, and the error of a failed deployment, truncated to 90 characters.
@@ -671,6 +751,14 @@ REPLICA   CONTAINER             STATE      HEALTH    RESTARTS   STARTED
 2         shipwick_my-api_7_2   running    healthy   0          4s ago
 -         shipwick_my-api_6_2   stopping   -         -
 ```
+
+**Limits that are not enforced** (since 0.8). A Docker daemon without the cgroup controllers, as rootless Docker is without delegation, accepts `resources.cpu` and `resources.memory` and applies neither. On such a server the `Limits` line says so about the limits the application has:
+
+```text
+Limits     0.5 CPU, 64 MB  (Docker on this server does not enforce the memory and CPU limits; see shipwick doctor)
+```
+
+With one of the two it reads `does not enforce the memory limit` or `the CPU limit`. The note needs the application's metrics, so it appears while a replica is running. An application without limits, and an agent older than 0.8, get no note. See [`doctor`](#doctor) and [Limits that are not enforced](/docs/concepts/resources#limits-that-are-not-enforced).
 
 **The `Backups` line** (since 0.5) appears for an application with volumes and sums up the backups the server keeps of it; see [`backups`](#backups):
 
@@ -1435,13 +1523,13 @@ shipwick server status
 ```text
 https://agent.example.com  ● reachable
 
-Agent           v0.7.0
-CLI             v0.7.0
+Agent           v0.8.0
+CLI             v0.8.0
 Host            vps-1
 OS              linux (amd64, kernel 6.8.0)
 Docker          29.8.0
 CPUs            4
-Memory          8 GB
+Memory          8 GB, 2 GB swap
 Applications    3
 Containers      5 running
 Proxy           ok  serving 4 routes
@@ -1451,23 +1539,31 @@ Dashboard       https://dashboard.example.com
 Disk            61 GB of 75 GB used (81%)
 ```
 
-An agent of 0.7 adds a line, and says in the first when it knows of a newer release:
+An agent of 0.7 or later adds a line, and says in the first when it knows of a newer release:
 
 ```text
-Agent           v0.7.0  v0.7.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+Agent           v0.8.0  v0.8.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
 Log archive     1.1 KB of 1 GB, 1 entry, kept 14 days
+```
+
+Since 0.8 the `Memory` line carries the server's swap, and the `Docker` line says what about the daemon changes what a deployment gets:
+
+```text
+Docker          29.8.2, rootless; memory and CPU limits are not enforced
+Memory          4 GB, no swap
 ```
 
 The command first calls the health endpoint, which needs no token. This separates "cannot reach the agent" from "reached it, but the token is wrong". The first line is the agent's URL and `● reachable`, with `context <name>` after the URL when the configuration file holds several servers. Then:
 
 | Line | |
 |---|---|
-| `Agent` | The agent's version. Since 0.7, followed by `v0.7.1 is available` and the installer line when the agent knows of a release newer than itself. The agent asks GitHub itself, once a day; an agent from before 0.7, one told not to ask (`SHIPWICK_UPDATE_CHECK=off`) and one that cannot reach GitHub say nothing, and neither does this line |
+| `Agent` | The agent's version. Since 0.7, followed by `v0.8.1 is available` and the installer line when the agent knows of a release newer than itself. The agent asks GitHub itself, once a day; an agent from before 0.7, one told not to ask (`SHIPWICK_UPDATE_CHECK=off`) and one that cannot reach GitHub say nothing, and neither does this line |
 | `CLI` | The version of `shipwick` |
 | `Host` | The server's hostname |
 | `OS` | Operating system, architecture and kernel |
-| `Docker` | Docker version |
-| `CPUs`, `Memory` | Of the server |
+| `Docker` | Docker version. Since 0.8, followed by `, rootless` when the daemon runs as an ordinary user of the server, and by the limits it accepts and does not apply: `; memory and CPU limits are not enforced`, or `memory` or `CPU` alone. See [Limits that are not enforced](/docs/concepts/resources#limits-that-are-not-enforced) and [Rootless Docker](/docs/tasks/less-than-the-docker-socket#rootless-docker) |
+| `CPUs` | Of the server |
+| `Memory` | Of the server. Since 0.8, followed by its swap: `8 GB, 2 GB swap`, or `8 GB, no swap`. Without swap a full memory is a killed process at once; see [Prepare a server](/docs/tasks/prepare-a-server). The memory alone with an agent older than 0.8, and where the agent cannot tell |
 | `Applications` | Number of applications |
 | `Containers` | Number of running Shipwick-managed containers |
 | `Proxy` | `ok  serving N domains`, `unreachable` with the error, or `not configured` when `SHIPWICK_CADDY_ADMIN` is not set on the agent |
@@ -1496,6 +1592,8 @@ A server that reaches the internet the plain way has no such line. See [Run behi
 
 The active alerts follow, one line each, in the agent's words: `!` for a warning, `✗` for a critical one. They are a replica close to its memory limit, a disk that is filling up, a replica that keeps restarting and an application that has not been healthy for a while; see [Alerts and metrics](/docs/tasks/alerts-and-metrics). Without alerts nothing is printed.
 
+Since 0.8 there is a fifth alert, a Docker daemon that has not answered for 30 seconds, and the alert about memory is not raised about a limit Docker does not enforce. While the daemon does not answer, the agent is still `● reachable`, and this command ends, after 15 seconds at most, with the agent's version and the error of `RUNTIME_UNAVAILABLE`; see [Error messages](#error-messages). The alert itself goes to the webhook.
+
 If the token is rejected, the agent's version is still shown before the error. Since 0.6 a token that has expired is told so, with its name and when it expired; see `TOKEN_EXPIRED` under [Error messages](#error-messages).
 
 ## server install
@@ -1511,7 +1609,7 @@ shipwick server install <user@host> [flags]
 | `--agent-domain <host>` | | Hostname for the API, for example `agent.example.com` |
 | `--dashboard-domain <host>` | | Hostname for the dashboard, for example `dashboard.example.com` |
 | `--context <name>` | the hostname | Name to save the server under |
-| `--version <tag>` | the latest release | Release to install, for example `v0.7.0` |
+| `--version <tag>` | the latest release | Release to install, for example `v0.8.0` |
 
 ```text
 $ shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com
@@ -1552,7 +1650,7 @@ shipwick server bundle [flags]
 | Flag | Default | |
 |---|---|---|
 | `--arch <arch>` | `amd64` | The server's architecture: `amd64` or `arm64` |
-| `--version <tag>` | the latest release | Release to bundle, for example `v0.7.0` |
+| `--version <tag>` | the latest release | Release to bundle, for example `v0.8.0` |
 | `-o`, `--output <file>` | `shipwick-<version>-linux-<arch>.tar.gz` in the current directory | File to write |
 | `--no-pull` | | Save the images this machine has under the release's names instead of pulling them. Nothing proves them: they are not checked against the release's digests |
 
@@ -1560,27 +1658,37 @@ Run it on a machine that has a connection and Docker. It talks to no agent and n
 
 ```text
 $ shipwick server bundle --arch amd64
-✓ Release v0.7.0: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
-✓ The three images are the ones release v0.7.0 published for linux/amd64
-✓ Wrote shipwick-v0.7.0-linux-amd64.tar.gz (113 MB)
+✓ Release v0.8.0: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
+✓ Release v0.8.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)
+✓ The three images are the ones release v0.8.0 published for linux/amd64
+✓ Wrote shipwick-v0.8.0-linux-amd64.tar.gz (113 MB)
 
 Copy it to the server, and there, as root:
-  tar -xzf shipwick-v0.7.0-linux-amd64.tar.gz
-  sh shipwick-v0.7.0-linux-amd64/install.sh
+  tar -xzf shipwick-v0.8.0-linux-amd64.tar.gz
+  sh shipwick-v0.8.0-linux-amd64/install.sh
 The server needs Docker Engine and the Compose plugin; nothing is downloaded there.
 checksums.txt of the release: sha256 646205a7…
 ```
 
-This is the output for a release from 0.7.0 on, which publishes the digests of its images. For 0.6.0 the second line is a warning instead; see below.
+This is the output for a release from 0.8.0 on, on a machine that has cosign. The second line says what became of the release's signature, and the third is a warning for a release before 0.7.0, which publishes no digests of its images; see below.
 
-- **What is in it.** The release's compose file, installer and checksums, the `shipwick` binary for the server, and the three Shipwick images as one archive, `images.tar`, with a checksum of its own. The file unpacks into one directory named like the bundle.
+- **What is in it.** The release's compose file, installer and checksums, since 0.8 the signature of the checksums (`checksums.txt.sigstore.json`) when the release has one, the `shipwick` binary for the server, and the three Shipwick images as one archive, `images.tar`, with a checksum of its own. The file unpacks into one directory named like the bundle.
+- **The release's signature is verified** (since 0.8). From 0.8.0 on, a release's `checksums.txt` is signed by the workflow that published it. With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 2.4 or later on this machine, the command runs `cosign verify-blob` on the checksums, as a program with arguments, with the release workflow at that tag as the identity the certificate must name, before it downloads anything else. The second line of the output is one of three:
+
+  | Situation | Line |
+  |---|---|
+  | The signature verified | `✓ Release v0.8.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)` |
+  | No cosign on this machine | `The release's signature was not checked: cosign is not installed on this machine.` The bundle goes by the checksums, as before, and still carries the signature |
+  | A release before 0.8.0 | `Release v0.7.0 has no signature: releases before 0.8.0 were not signed.` |
+
+  A signature that is not the workflow's stops the command, and no bundle is written: `the signature of release v0.8.0's checksums did not verify as one made by the release workflow of github.com/shipwick/shipwick for v0.8.0; nothing was changed`, followed by cosign's last line and `cosign 2.4 or later reads this signature; an older one fails here whatever the file`. With cosign installed, a release from 0.8.0 on without a signature is refused as well: `release v0.8.0 has no signature (checksums.txt.sigstore.json), and every release since 0.8.0 has one; nothing was changed`. The installer on the server does not verify the signature by itself: cosign asks Sigstore for the keys it trusts, and that server reaches nothing. See [Verify a release](/docs/tasks/verify-a-release).
 - **The release's files are verified** against its published `checksums.txt` as they are downloaded. A mismatch is refused and nothing is written: `install.sh does not match the checksum published with the release; no bundle was written`. The installer verifies them again on the server, and checks the image archive against its checksum before it changes anything, so a copy that arrived damaged is refused.
 - **The images** are the ones the release's compose file names. They are pulled with `docker pull` for the server's architecture and written with `docker save`, both run as programs with arguments, never through a shell. In a terminal a progress line names the image being pulled. Without Docker here: `docker is not installed on this machine, and the images of a bundle are pulled and saved with it`. When a pull or the save fails, the last line `docker` printed is the reason.
-- **The images are proven** (since 0.7). A release from 0.7.0 on publishes `image-digests.txt`, listed in its `checksums.txt`: the digests of its three images as the registry holds them, per platform. The archive `docker save` wrote is checked against it before the bundle is written: it must hold the configuration the release published for the server's platform and the layers that configuration lists, and name that image, and no other, by the release's tag. An archive that does not is refused, and no bundle is written: `<image> is not the image release v0.7.0 published for linux/amd64: …; no bundle was written`. The installer checks once more what Docker made of the archive before it replaces anything.
-- **Two bundles are not proven**, and the command says so in place of the second line. With `--no-pull`: `The images are the ones this machine had under the release's names (--no-pull): they were not checked against the release's digests, and the installer will say so.` Of a release before 0.7.0: `Release v0.6.0 does not publish the digests of its images (0.7.0 and later do): the images are what the registry serves under its tags, unchecked, and the installer will say so.`
+- **The images are proven** (since 0.7). A release from 0.7.0 on publishes `image-digests.txt`, listed in its `checksums.txt`: the digests of its three images as the registry holds them, per platform. The archive `docker save` wrote is checked against it before the bundle is written: it must hold the configuration the release published for the server's platform and the layers that configuration lists, and name that image, and no other, by the release's tag. An archive that does not is refused, and no bundle is written: `<image> is not the image release v0.8.0 published for linux/amd64: …; no bundle was written`. The installer checks once more what Docker made of the archive before it replaces anything.
+- **Two bundles are not proven**, and the command says so in place of the line about the images. With `--no-pull`: `The images are the ones this machine had under the release's names (--no-pull): they were not checked against the release's digests, and the installer will say so.` Of a release before 0.7.0: `Release v0.6.0 does not publish the digests of its images (0.7.0 and later do): the images are what the registry serves under its tags, unchecked, and the installer will say so.`
 - **The last line** is the SHA-256 of the release's `checksums.txt`, from which everything in the bundle follows. The installer prints the same line on the server; compare the two.
 - **`--version`** takes a release tag. A bundle can be made of 0.6.0 and later: `release v0.5.1 does not publish its installer: a bundle can be made of 0.6.0 and later`. Anything that is not a release version is refused: `releases look like v0.6.0`.
-- The bundle is gathered in a temporary directory next to the output, written under another name and renamed, so a file with the bundle's name is always a whole bundle. The second line ends with its size.
+- The bundle is gathered in a temporary directory next to the output, written under another name and renamed, so a file with the bundle's name is always a whole bundle. The `Wrote` line ends with its size.
 - **On the server**, unpack it and run the installer inside it, as root. It is the same installer and asks the same questions; it downloads nothing and pulls nothing. Upgrading is the same procedure with the bundle of a newer release. Docker is not in the bundle: the server needs Docker Engine and the Compose plugin before the installer runs.
 
 See [Install on a server with no way out](/docs/tasks/corporate-network#install-on-a-server-with-no-way-out).
@@ -1640,11 +1748,13 @@ shipwick doctor
 ```
 
 ```text
-✓ shipwick v0.7.0, the latest release
-✓ Agent https://agent.example.com runs v0.7.0, the latest release
+✓ shipwick v0.8.0, the latest release
+✓ Agent https://agent.example.com runs v0.8.0, the latest release
 ✓ Token laptop (admin)
 ✓ Docker 29.8.0 on the server
 ✓ Proxy serving 2 routes
+! 3 applications run without a memory limit: postgres, redis, web. One that leaks takes the server's memory from all the others; set resources.memory in deploy.yaml
+! The server has no swap: once its 4 GB of memory is used, the kernel kills a process at once. Add a swap file on the server
 ✓ agent.example.com → 203.0.113.10
 ✓ Port 80 open on 203.0.113.10
 ✗ Port 443 is not reachable on 203.0.113.10: open it in the server's firewall; certificates are issued and renewed through ports 80 and 443
@@ -1654,7 +1764,7 @@ shipwick doctor
 2 problems found.
 ```
 
-One line per check: the CLI's and the agent's versions against the latest release (`!` and the upgrade command when one is behind), the token and its role, Docker on the server, the proxy and how many domains it serves, the server's active alerts, the certificates you supplied, the backup of the agent's own state, whether the agent's hostname resolves to the server, whether ports 80 and 443 answer there, and for every application's domain, alias and redirect whether DNS points at the server, and whether `https://` answers at the application's address, its `path` included. The last line is `Everything checks out.`, `No problems; 1 thing worth a look.` or `2 problems found.`; the command exits non-zero when something is broken (`✗`), not for things merely worth a look (`!`).
+One line per check: the CLI's and the agent's versions against the latest release (`!` and the upgrade command when one is behind), the token and its role, Docker on the server, the proxy and how many domains it serves, the server's active alerts, since 0.8 the applications without a memory limit, the server's swap, whether application containers can reach the API and whether Docker enforces limits, the certificates you supplied, the backup of the agent's own state, whether the agent's hostname resolves to the server, whether ports 80 and 443 answer there, and for every application's domain, alias and redirect whether DNS points at the server, and whether `https://` answers at the application's address, its `path` included. The last line is `Everything checks out.`, `No problems; 1 thing worth a look.` or `2 problems found.`; the command exits non-zero when something is broken (`✗`), not for things merely worth a look (`!`).
 
 Since 0.5, `doctor` also reports:
 
@@ -1674,7 +1784,19 @@ Since 0.6, `doctor` also reports:
 | The proxy and the Docker daemon | On a server whose agent goes through a proxy, whether the Docker daemon has one too. With both: `✓ The agent and the Docker daemon go through a proxy (proxy.example.com:3128)`. With the agent's alone: `! The agent goes through the proxy proxy.example.com:3128, and the Docker daemon on the server has none configured: images are pulled by the daemon, not by the agent. If pulls fail, add "proxies" to /etc/docker/daemon.json on the server and restart Docker`. See [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network) |
 | An ACME server of your own | `✓ Certificates are obtained from https://ca.example.internal/acme/acme/directory`, on an agent with `SHIPWICK_ACME_DIRECTORY` |
 
-On a network without a way to GitHub the latest release cannot be looked up; the version lines then say so, and the checks go on: `✓ shipwick v0.7.0 (could not check for a newer release)`.
+Since 0.8, `doctor` also reports the following, each as something worth a look (`!`): the first under the proxy's line, the others after the alerts, in this order. An agent older than 0.8 reports none of it, and nothing is read into its silence.
+
+| Check | Lines |
+|---|---|
+| A proxy that is not Shipwick's image of this version | Under the proxy's line: `! The proxy is not Shipwick's image of this version: a name lookup Docker leaves unanswered holds every request for seconds, and applications deployed together wait for each other. On the server, run the installer again; an image of your own is built from Dockerfile.caddy`. The proxy of an older release, the official Caddy image or an image of your own without Shipwick's part still serves. See [A proxy image of your own](/docs/concepts/routing-and-https#a-proxy-image-of-your-own) |
+| Applications without a memory limit | `! 3 applications run without a memory limit: postgres, redis, web. One that leaks takes the server's memory from all the others; set resources.memory in deploy.yaml`. The running applications are named, the first five of them, then `and 2 more`; with one the line begins `1 application runs`. Left out on a server whose Docker does not enforce memory limits, where setting one is no advice |
+| A server without swap | `! The server has no swap: once its 4 GB of memory is used, the kernel kills a process at once. Add a swap file on the server`. See [Prepare a server](/docs/tasks/prepare-a-server) |
+| An API open to applications | `! Application containers can reach the agent's API: it listens on a network they are on, and only the token keeps them out. On the server, run the installer again; if this stays, the agent's log says why, and "Who can reach the API" in the handbook (Security) what to change`. See [Who can reach the API](/docs/security#who-can-reach-the-api) |
+| Limits Docker does not enforce | On rootless Docker: `! Docker on the server is rootless and does not enforce memory and CPU limits: no replica is held to resources.memory and resources.cpu of its deploy.yaml, and the usage shown for a replica is not its own. Delegate the cpu and memory cgroup controllers to the user who runs Docker, on a server with systemd (handbook: Rootless Docker)`. On any other daemon: `! Docker on the server does not enforce memory limits: no replica is held to resources.memory of its deploy.yaml. Its kernel offers Docker no cgroup controller for them; docker info on the server says which`. The line names the limits that are not applied: memory, CPU or both. See [Rootless Docker](/docs/tasks/less-than-the-docker-socket#rootless-docker) and [Limits that are not enforced](/docs/concepts/resources#limits-that-are-not-enforced) |
+
+Shipwick reports the memory limits and the swap and changes neither: a limit is a line in `deploy.yaml`, swap is the server's.
+
+On a network without a way to GitHub the latest release cannot be looked up; the version lines then say so, and the checks go on: `✓ shipwick v0.8.0 (could not check for a newer release)`.
 
 Hostnames are resolved through public resolvers (Cloudflare's, Google's and Quad9's) before this machine's, the same view of DNS the agent takes. Since 0.6 each resolver is given two seconds, and when none of them can be reached, as behind a firewall that lets no DNS out, this machine's resolver is asked for the rest of the run. The server's address is learned by resolving the agent's own hostname, so through a tunnel (`127.0.0.1`) ports and record targets are not checked. An agent whose own hostname is behind Cloudflare's proxy hides the server's address in the same way, and ports 80 and 443 and the records' targets are not checked then either.
 
@@ -1712,7 +1834,7 @@ shipwick login [flags]
 ```text
 $ shipwick login --url https://agent.example.com
 API token:
-✓ Logged in to https://agent.example.com (my-server, agent v0.7.0)
+✓ Logged in to https://agent.example.com (my-server, agent v0.8.0)
   saved as context default in /home/me/.config/shipwick/config.yaml
 ```
 
@@ -2249,27 +2371,36 @@ shipwick upgrade [flags]
 
 ```text
 $ shipwick upgrade
-✓ Upgraded shipwick v0.3.1 → v0.7.0
+✓ Upgraded shipwick v0.3.1 → v0.8.0
   /usr/local/bin/shipwick
+  Release v0.8.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign).
 
-The server runs v0.3.1; v0.7.0 is available. On the server run:
+The server runs v0.3.1; v0.8.0 is available. On the server run:
   curl -fsSL https://get.shipwick.com | sh
 ```
 
 How the binary is replaced:
 
 - The latest release, never a pre-release, is looked up on GitHub. The release's `checksums.txt` is downloaded, then the binary for this operating system and architecture (`shipwick_linux_amd64`, `shipwick_windows_amd64.exe`, and so on; since 0.7 `shipwick_windows_arm64.exe` on Windows on Arm, picked by the machine's architecture also when the `shipwick` that runs is the x64 build) is written next to the running one as `.shipwick-new`, its SHA-256 is compared with the published checksum, and only then is it renamed over the old binary, with the old binary's permissions. A mismatch is refused, `<asset> does not match the checksum published with release <tag>; nothing was changed`, and so is a release without a binary for this platform. On Windows, where a running executable cannot be deleted, the old binary is moved aside as `shipwick.old.exe` and removed the next time `shipwick` runs.
-- **Homebrew and winget.** A binary under Homebrew's Cellar or winget's Packages directory is recognized by its path and left to the package manager. The command prints `shipwick v0.3.1 was installed with Homebrew; v0.7.0 is available.` followed by `Upgrade with: brew upgrade shipwick`, or the same with `winget upgrade Shipwick.Shipwick`, and changes nothing.
-- **Already current:** `shipwick v0.7.0 is up to date.` A build without a release version: `This shipwick is a development build (dev); the latest release is v0.7.0.` Neither changes anything.
-- **`--check`** prints `shipwick v0.3.1 is installed; v0.7.0 is available.` and `Upgrade with: shipwick upgrade`, and changes nothing.
+- **The release's signature** (since 0.8). From 0.8.0 on, a release's `checksums.txt` is signed by the workflow that published it; the signature is a file of the release, `checksums.txt.sigstore.json`. With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 2.4 or later on this machine, the command verifies the checksums against it before it looks anything up in them: `cosign verify-blob`, run as a program with arguments, with the release workflow of `github.com/shipwick/shipwick` at that tag as the identity the certificate must name. The third line of the output says what became of it:
+
+  | Situation | Line |
+  |---|---|
+  | The signature verified | `Release v0.8.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign).` |
+  | No cosign on this machine | `The release's signature was not checked: cosign is not installed on this machine.` The upgrade goes by the checksums, as before |
+
+  A signature that is not the workflow's stops the upgrade before the binary is downloaded: `the signature of release v0.8.0's checksums did not verify as one made by the release workflow of github.com/shipwick/shipwick for v0.8.0; nothing was changed`, followed by cosign's last line and `cosign 2.4 or later reads this signature; an older one fails here whatever the file`. With cosign installed, a release from 0.8.0 on that has no signature is refused: `release v0.8.0 has no signature (checksums.txt.sigstore.json), and every release since 0.8.0 has one; nothing was changed`. Nothing installs cosign for you, and nothing needs it. See [Verify a release](/docs/tasks/verify-a-release).
+- **Homebrew and winget.** A binary under Homebrew's Cellar or winget's Packages directory is recognized by its path and left to the package manager. The command prints `shipwick v0.3.1 was installed with Homebrew; v0.8.0 is available.` followed by `Upgrade with: brew upgrade shipwick`, or the same with `winget upgrade Shipwick.Shipwick`, and changes nothing.
+- **Already current:** `shipwick v0.8.0 is up to date.` A build without a release version: `This shipwick is a development build (dev); the latest release is v0.8.0.` Neither changes anything.
+- **`--check`** prints `shipwick v0.3.1 is installed; v0.8.0 is available.` and `Upgrade with: shipwick upgrade`, and changes nothing.
 - **Where it refuses.** A directory it cannot write to: `cannot write to /usr/local/bin: permission denied`, then `Run it as root: sudo shipwick upgrade` or the installer line `curl -fsSL https://get.shipwick.com | sh -s -- --cli`; on Windows, the advice is an administrator prompt or downloading the `.exe` from the releases page. Nothing is downloaded before the staging file could be created.
 
 The server is not upgraded by this command: the installer does that, on the server, with access to Docker. After the binary step, `upgrade` asks the configured agent's health endpoint, which needs no token, and prints one of:
 
 | Situation | Line |
 |---|---|
-| The server is behind | `The server runs v0.3.1; v0.7.0 is available. On the server run:` and the installer command |
-| The server is current | `The server runs v0.7.0, the latest release.` |
+| The server is behind | `The server runs v0.3.1; v0.8.0 is available. On the server run:` and the installer command |
+| The server is current | `The server runs v0.8.0, the latest release.` |
 | The server runs a development build | `The server runs a development build (dev).` |
 | The server cannot be reached | `The server at http://127.0.0.1:9000 could not be reached; its version was not checked.` |
 | The URL does not answer as an agent | `The server at <url> did not answer as a Shipwick agent; its version was not checked.` |
@@ -2299,6 +2430,9 @@ None of these fail the command. See [Upgrade Shipwick](/docs/tasks/upgrade).
 | `STATIC_APPLICATION` | `This application is a folder served by the proxy: it has no containers, so there are no logs, metrics or commands to run.` See what it serves with `shipwick status` |
 | `VOLUME_IN_USE` | `Error: <the agent's message>`, then `Delete it with: shipwick delete <app>` |
 | `RATE_LIMITED` | `Too many failed attempts from this address; try again in a minute.` |
+| `DISK_FULL` | `Error: <the agent's message>.`, then `See how full the disk is with: shipwick server status`. The agent answers `507` with this code when the server's disk has no room for a deployment, an uploaded folder or an image, and its message says what to free: `The server's disk is full (create deployment: database or disk is full (13)). Nothing was changed. Free space on the server — docker system df shows what takes it, docker image prune -a removes images nothing uses — and try again`. The same command works once there is room. See [The disk is full](/docs/tasks/when-things-break#the-disk-is-full). Since 0.8 |
+| `RUNTIME_UNAVAILABLE` | `Error: <the agent's message>`: `Docker does not answer on the server. Applications that are running keep running; look at the daemon there with: systemctl status docker. The cause: no answer within 15s`. Since 0.8 the agent answers `503` with this code, after 15 seconds at most, for a Docker daemon that took a question and never answered it, and for one that is not running, which used to be a `500`. See [Docker does not answer](/docs/tasks/when-things-break#docker-does-not-answer) |
+| `APPLICATION_CALLER` | `The agent does not answer the containers of applications: whatever runs in one could otherwise try tokens against it.` Then `Run the command outside the container, or reach the server at its hostname: shipwick login --url https://<SHIPWICK_AGENT_DOMAIN>`. The agent answers `403` with this code to a request that comes from an application's container, before its token is looked at. See [Who can reach the API](/docs/security#who-can-reach-the-api). Since 0.8 |
 | `IMAGE_INCOMPLETE` | `The server no longer has the layers that were left out of the image.` Send it again with `shipwick deploy`. `deploy` itself answers this code by sending the whole image |
 | `REGISTRY_LOGIN_FAILED` | `Error: <the agent's message>`, then `Nothing was stored. Check the username and the token, and that the token may read images; then log in again.` when the registry refused the credential, or `Nothing was stored. Check the registry's name, and that the server can reach it.` when it could not be asked |
 | `KEY_ROTATION_PENDING` | `The key was already rotated, and the agent has not been restarted with the new one.` Put the key from the file the message names on the server into `/opt/shipwick/.env` as `SHIPWICK_ENCRYPTION_KEY`, restart the agent, then rotate again |
@@ -2315,7 +2449,7 @@ None of these fail the command. See [Upgrade Shipwick](/docs/tasks/upgrade).
 | `PROMOTION_IN_PROGRESS` | `This server is being promoted; nothing is imported into it meanwhile.` Follow the promotion with `shipwick standby promote`. `standby promote` itself answers this code by following the promotion that is under way. Since 0.6 |
 | `FOREIGN_BUCKET` | `Error: <the agent's message>`: the bucket holds the backups of another installation under the agent's prefix, and [`backups adopt`](#backups-adopt) records nothing from it. Since 0.6 |
 | `ENDPOINT_NOT_FOUND` | `The agent does not know this operation — it is probably older than this shipwick.` Compare versions with `shipwick server status` |
-| `INVALID_CONFIG` | The field-by-field validation report. A hostname or a published port that another application holds is reported the same way, under the line that claims it: `aliases[1]`, `publish[0].host`; so is an `env` value whose `${NAME}` is neither set here nor stored on the server: `env.DATABASE_URL`, with `shipwick secret set NAME` as what is expected. Since 0.5 a hostname is taken per `path`: two applications may serve one hostname under different paths, and the same path twice is refused. Since 0.7 an `env` value or a basic-auth password that is `"********"`, the mask [`config`](#config) writes, is reported the same way |
+| `INVALID_CONFIG` | The field-by-field validation report. A hostname or a published port that another application holds is reported the same way, under the line that claims it: `aliases[1]`, `publish[0].host`; so is an `env` value whose `${NAME}` is neither set here nor stored on the server: `env.DATABASE_URL`, with `shipwick secret set NAME` as what is expected. Since 0.5 a hostname is taken per `path`: two applications may serve one hostname under different paths, and the same path twice is refused. Since 0.7 an `env` value or a basic-auth password that is `"********"`, the mask [`config`](#config) writes, is reported the same way. Since 0.8, when [`deploy`](#deploy) accepted the file and the agent refuses a key it does not know, the report is followed by what that means: the server is older than `deploy.yaml`, and the installer command that upgrades it |
 | Any other API error | `Error: <message>` |
 
 The codes of the dashboard's sign-in (`SIGN_IN_NOT_CONFIGURED`, `SIGN_IN_FAILED`, `SIGN_IN_UNAVAILABLE` and `ACCESS_NOT_GRANTED`) answer requests that only the dashboard makes; no command of `shipwick` receives them.

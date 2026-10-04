@@ -12,10 +12,10 @@ The agent is configured through environment variables only: its own `SHIPWICK_*`
 | Variable | Default | Meaning |
 |---|---|---|
 | [`SHIPWICK_AGENT_TOKEN`](#api-token) | generated | The root API token, `admin`. At least 16 characters. |
-| `SHIPWICK_LISTEN_ADDR` | `127.0.0.1:9000` | Address the API listens on. Loopback by default, on purpose. The agent image sets it to `0.0.0.0:9000`. |
+| [`SHIPWICK_LISTEN_ADDR`](#shipwick-listen-addr) | `127.0.0.1:9000` | Address the API listens on. Loopback by default, on purpose. The agent image sets it to `0.0.0.0:9000`, which since 0.8 the agent narrows to its address on the `shipwick-control` network and loopback. An address set here is used as it is. |
 | [`SHIPWICK_DATA_DIR`](#data-directory) | `/var/lib/shipwick` on Linux | Directory for the SQLite database, the token hash, the encryption key, the backups the agent takes, and the uploaded folders of static applications until they are deployed. |
 | [`SHIPWICK_ENCRYPTION_KEY`](#shipwick-encryption-key) | generated | The key that encrypts `env` values, stored secrets, registry passwords and certificate keys in the database: 64 hexadecimal characters. Unset: `encryption.key` in the data directory, created on the first start and replaced by `shipwick server rotate-key`. |
-| `SHIPWICK_DOCKER_NETWORK` | `shipwick` | Docker bridge network that application containers join. A second one, `<network>-services`, is derived from it: application containers join it too and carry their application's names on it while they are ready, and Caddy finds them there. Both are created if they do not exist. |
+| `SHIPWICK_DOCKER_NETWORK` | `shipwick` | Docker bridge network that application containers join. The other two are named after it. `<network>-services`: application containers join it too and carry their application's names on it while they are ready, and Caddy finds them there. `<network>-control`, since 0.8: the agent, Caddy and the dashboard, and no application; the API is reached there. All three are created if they do not exist. |
 | [`SHIPWICK_CADDY_ADMIN`](#shipwick-caddy-admin) | none | Caddy's admin endpoint. Unset: domains are recorded but not served. |
 | `SHIPWICK_AGENT_DOMAIN` | none | Serve the agent's API over HTTPS at this hostname, through Caddy. Requires `SHIPWICK_CADDY_ADMIN`. |
 | `SHIPWICK_DASHBOARD_DOMAIN` | none | Serve the dashboard over HTTPS at this hostname, through Caddy. Requires `SHIPWICK_CADDY_ADMIN`. Must differ from `SHIPWICK_AGENT_DOMAIN`. |
@@ -61,6 +61,14 @@ Both hostnames are trimmed, converted to lowercase and validated by the same rul
 ### SHIPWICK_LISTEN_ADDR
 
 The API speaks plain HTTP. The default binds it to loopback so that exposing it is an explicit choice. The agent image sets `SHIPWICK_LISTEN_ADDR=0.0.0.0:9000`, so that Caddy and the dashboard can reach the API over the container network. The production compose file publishes no host port for it: the only ways in are Caddy, over HTTPS, and the server itself.
+
+Since 0.8 an agent in a container does not listen on every address under that default. It listens on the address it has on the `shipwick-control` network, where the proxy and the dashboard reach it, and on loopback; applications are on neither. A request that comes from an application's container all the same is answered `403 APPLICATION_CALLER`.
+
+- **An address set here is used as it is.** Set for the agent's container, it leaves the API open to the containers of applications, protected by the token alone: the agent then refuses the containers it manages by their address only, warns in its log when it starts, and `shipwick doctor` and `open_to_applications` in `GET /server` report it. Leave it unset in the container.
+- **A published port on Docker before 28** has the same effect: Docker forwards the port over the network the applications are on, and the agent keeps listening there so that the port works.
+- **As a service of the host**, the agent listens where this variable says, and with `SHIPWICK_AGENT_DOMAIN` set also on the address the server has on the control network; it refuses every address of the two application networks.
+
+See [Who can reach the API](/docs/security#who-can-reach-the-api).
 
 The port of this address is one of the server ports an application cannot publish: `publish[].host` in `deploy.yaml` refuses it, together with 80, 443, 8080 and 8443. See [`publish`](/docs/reference/deploy-yaml#publish).
 
@@ -553,9 +561,11 @@ Override the ports only if something else owns 80 and 443. Automatic HTTPS needs
 
 ### SHIPWICK_CADDY_IMAGE
 
-Since 0.5 the proxy is Shipwick's own build of Caddy, `ghcr.io/shipwick/caddy`: Caddy 2.11.6 with the Cloudflare DNS module and nothing else added. The official image has no DNS providers, and a certificate for a hostname behind Cloudflare's proxy, or for a wildcard, can only be obtained through a DNS record. Every installation runs this image, whether or not `SHIPWICK_CLOUDFLARE_API_TOKEN` is set, and it is pinned to the release like the agent and the dashboard: the agent generates this Caddy's configuration, so a newer Caddy arrives with a release of Shipwick, not on its own.
+Since 0.5 the proxy is Shipwick's own build of Caddy, `ghcr.io/shipwick/caddy`: Caddy 2.11.6 with the Cloudflare DNS module and, since 0.8, Shipwick's own way of [finding replicas](/docs/concepts/routing-and-https#replicas-are-found-by-name), and nothing else added. The official image has no DNS providers, and a certificate for a hostname behind Cloudflare's proxy, or for a wildcard, can only be obtained through a DNS record. Every installation runs this image, whether or not `SHIPWICK_CLOUDFLARE_API_TOKEN` is set, and it is pinned to the release like the agent and the dashboard: the agent generates this Caddy's configuration, so a newer Caddy arrives with a release of Shipwick, not on its own.
 
 `SHIPWICK_CADDY_IMAGE` in `.env` names another image, one you built from [`Dockerfile.caddy`](https://github.com/shipwick/shipwick/blob/main/Dockerfile.caddy) for instance. The installer removes the images of earlier releases from the `ghcr.io/shipwick/caddy` repository, as it does for the agent and the dashboard, and keeps the one the compose file names.
+
+Since 0.8 an image of your own has to be built from that Dockerfile to have Shipwick's part. The agent also works with a Caddy that lacks it — the official image, or the proxy of a release before 0.8 — the way it did before: a name lookup that Docker leaves unanswered then holds the requests to every application for five seconds, and applications deployed together wait for each other. `shipwick doctor`, the dashboard and `proxy.plain_lookups` in `GET /server` say so, and the agent offers the proxy its own way again once a minute. See [A proxy image of your own](/docs/concepts/routing-and-https#a-proxy-image-of-your-own).
 
 The file fixes the rest of the agent's configuration:
 
@@ -563,10 +573,10 @@ The file fixes the rest of the agent's configuration:
 |---|---|
 | `SHIPWICK_CADDY_ADMIN` | `unix//run/caddy/admin.sock`, a socket in the `caddy-admin` volume that only the agent and Caddy mount |
 | `SHIPWICK_LOG_FORMAT` | `json` |
-| Dashboard's `SHIPWICK_AGENT_URL` | `http://agent:9000`. `SHIPWICK_AGENTS` in `.env` replaces it. |
+| Dashboard's `SHIPWICK_AGENT_URL` | `http://agent:9000`, on the control network. `SHIPWICK_AGENTS` in `.env` replaces it. |
 | Agent port | Not published. The only ways in are Caddy and the server itself. |
 | Caddy | [`ghcr.io/shipwick/caddy`](#shipwick-caddy-image), started with a bootstrap configuration that contains only the admin socket. The agent loads the real configuration, which also compresses responses with zstd or gzip when the client asks for it. |
-| Networks | `shipwick`, shared by all three services and by application containers, and `shipwick-services`, joined by Caddy and by application containers, where Caddy finds an application's replicas by its name |
+| Networks | Three. `shipwick`: application containers and Caddy; the agent joins it by itself, for health checks, and does not listen there. `shipwick-services`: Caddy and application containers, where Caddy finds an application's replicas by its name. `shipwick-control`, since 0.8: the agent, Caddy and the dashboard, and nothing else; the API is reached there. Before 0.8 all three services shared `shipwick` with the applications |
 | Logs | Each of the three containers keeps at most 3 files of 10 MB, like application replicas |
 | Restart policy | `unless-stopped` for all three services |
 
@@ -586,7 +596,7 @@ The installer replaces `/opt/shipwick/compose.yml` on every upgrade, and removes
 
 - **Private images, with `docker login`.** Since 0.5 the agent keeps registry credentials itself, stored with `shipwick registry login`, and needs no mount for them. A mount of the server's `docker login` credentials into the agent, `/root/.docker/config.json:/root/.docker/config.json:ro`, keeps working for registries without a stored credential. See [Pull from private registries](/docs/tasks/private-registries).
 - **Backups on another disk.** Mount the disk into the agent and set `SHIPWICK_BACKUP_DIR` to the mount point. See [Backups](#backups).
-- **No hostname for the API.** Leave `SHIPWICK_AGENT_DOMAIN` empty and publish the API on the server's loopback only, with `ports: ["127.0.0.1:9000:9000"]` on the agent, then reach it through an SSH tunnel. See [Reach the API without a hostname](/docs/tasks/access-without-a-hostname).
+- **No hostname for the API.** Leave `SHIPWICK_AGENT_DOMAIN` empty and publish the API on the server's loopback only, with `ports: ["127.0.0.1:9000:9000"]` on the agent, then reach it through an SSH tunnel. A published port wants Docker 28 or later; before that it leaves the API open to the containers of applications. See [Reach the API without a hostname](/docs/tasks/access-without-a-hostname).
 - **Certificate authorities of your own.** Since 0.6. Put the authority's certificate on the server, set `SHIPWICK_CA_FILE` in `.env` to the path the agent's container sees, and mount the file. The first mount is for the agent, which trusts the authorities for the webhook and the bucket. The second is for Caddy, which needs the authority only to reach an ACME server of your own and reads every certificate in `/etc/ssl/certs`. See [`SHIPWICK_CA_FILE`](#shipwick-ca-file).
 
 ```bash
@@ -602,6 +612,17 @@ services:
     volumes:
       - /etc/shipwick/ca.pem:/etc/ssl/certs/shipwick-ca.pem:ro
 ```
+
+### Overlays: a socket proxy and rootless Docker
+
+Since 0.8 two more files of the repository are overlays on the production compose file. Neither is what the installer sets up. See [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket).
+
+| File | Variable | Default | |
+|---|---|---|---|
+| `compose.socket-proxy.yml` | `SHIPWICK_SOCKET_PROXY_IMAGE` | the version the file pins | The image of the socket proxy between the agent and Docker. |
+| | `SHIPWICK_SOCKET_PROXY_LOG_LEVEL` | `INFO` | `DEBUG` logs every request the proxy lets through as well as the ones it refuses. |
+| | `SHIPWICK_DOCKER_SOCKET` | `/var/run/docker.sock` | The socket the proxy holds. With rootless Docker, `/run/user/<uid>/docker.sock`. |
+| `compose.rootless.yml` | `SHIPWICK_DOCKER_SOCKET` | `$XDG_RUNTIME_DIR/docker.sock` | The rootless daemon's socket, mounted into the agent in place of `/var/run/docker.sock`. |
 
 ## Dashboard variables
 
@@ -639,7 +660,7 @@ Since 0.7 the agent is published as a Debian and an RPM package, which install i
 | Variable | Value | |
 |---|---|---|
 | `SHIPWICK_AGENT_TOKEN` | generated | 64 hexadecimal characters, generated when the package was first installed. |
-| `SHIPWICK_LISTEN_ADDR` | `127.0.0.1:9000` | For a hostname for the API, or the dashboard, the address of Docker's bridge instead: `172.17.0.1:9000` unless Docker was configured otherwise. |
+| `SHIPWICK_LISTEN_ADDR` | `127.0.0.1:9000` | For the dashboard, the address of Docker's bridge instead: `172.17.0.1:9000` unless Docker was configured otherwise. Since 0.8 a hostname for the API needs no change here: with `SHIPWICK_AGENT_DOMAIN` set the agent also listens on the address the server has on the `shipwick-control` network, where the proxy reaches it. |
 | `SHIPWICK_CADDY_ADMIN` | `unix//run/shipwick/admin.sock` | The admin socket of the proxy the package's compose file starts. |
 | `SHIPWICK_PROXY_TLS_ADDR` | `127.0.0.1:443` | Where the agent reads the certificates the proxy serves. |
 | `SHIPWICK_LOG_FORMAT` | `text` | |

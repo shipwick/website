@@ -23,7 +23,7 @@ Internet ──▶ Caddy :443 ──▶ my-api_8080 ──┬──▶ shipwick_
 
 Shipwick does not reimplement certificates, ACME or HTTP/3. The configuration it generates makes Caddy listen on `:443` with one host matcher per domain, and that is all Caddy needs to do the rest itself. For certificates to be issued, ports 80 and 443 of the server must be reachable from the internet, unless certificates come through a DNS record; see [Behind Cloudflare](#behind-cloudflare). The production compose file also publishes 443/udp, for HTTP/3.
 
-The proxy is Shipwick's own build of Caddy, `ghcr.io/shipwick/caddy`: the official image plus the Cloudflare DNS module and nothing else, on every installation whether or not a Cloudflare token is set. It is pinned to the release like the agent and the dashboard; [`SHIPWICK_CADDY_IMAGE`](/docs/reference/agent-configuration#shipwick-caddy-image) overrides it.
+The proxy is Shipwick's own build of Caddy, `ghcr.io/shipwick/caddy`: the official image plus the Cloudflare DNS module and, since 0.8, Shipwick's own way of [finding replicas](#replicas-are-found-by-name), and nothing else, on every installation whether or not a Cloudflare token is set. It is pinned to the release like the agent and the dashboard; [`SHIPWICK_CADDY_IMAGE`](/docs/reference/agent-configuration#shipwick-caddy-image) overrides it.
 
 Application containers publish no host ports, unless `deploy.yaml` asks for some with `publish`; see [Ports that are not HTTP](#ports-that-are-not-http). Caddy reaches them over the private `shipwick-services` network, by name.
 
@@ -113,7 +113,7 @@ aliases: ["*.example.com"]
 
 ## Replicas are found by name
 
-Caddy is told a name, not a list of containers. Every application with a `port` has two names on the server's `shipwick-services` network: its own, `my-api`, which is what [other applications call](/docs/tasks/call-another-application), and one that includes the port, `my-api_8080`, which is what the proxy resolves. A replica answers to them exactly while it is ready for traffic: it takes the names once it passed its health check, and loses them the moment it stops. Docker's DNS returns one address per replica that carries the name, and Caddy asks it for every request.
+Caddy is told a name, not a list of containers. Every application with a `port` has two names on the server's `shipwick-services` network: its own, `my-api`, which is what [other applications call](/docs/tasks/call-another-application), and one that includes the port, `my-api_8080`, which is what the proxy resolves. A replica answers to them exactly while it is ready for traffic: it takes the names once it passed its health check, and loses them the moment it stops. Docker's DNS returns one address per replica that carries the name, and Caddy asks it again every second.
 
 ```text
 routing = for every replica that should serve: give it its names
@@ -125,9 +125,42 @@ routing = for every replica that should serve: give it its names
 
 - **A replica is born on both networks.** It joins `shipwick`, the network that holds the agent's health probes and its own connections to other applications, and `shipwick-services`, nameless. It is given its names there when it is ready, and loses them when it is not: running but failing its health check, or being restarted. A stopped container drops out of Docker's DNS by itself.
 - **Names change by rejoining the network.** Docker sets a container's names on a network only when the container joins it, so giving or taking a name means leaving `shipwick-services` and joining it again. That cuts what the replica has open over that network and nothing else; its database connections live on `shipwick`. It is done to newcomers, which have nothing open, and never to a replica on its way out: that one is stopped with its names on, and stopping is what takes it out of DNS.
-- **Caddy resolves the name for every request.** The route uses Caddy's `dynamic_upstreams` with an `A` lookup, refreshed every second, IPv4 only. Two versions of an application on different ports are two sources of one route while the rollout lasts.
+- **Caddy looks the name up again every second.** The route uses Caddy's `dynamic_upstreams` with a source of Shipwick's own, compiled into the proxy image since 0.8: an `A` lookup per name, refreshed every second, IPv4 only. Two versions of an application on different ports are two sources of one route while the rollout lasts.
 - **A name is in the configuration only while a running replica carries it.** Docker's DNS forwards a name nobody carries to the outside resolvers, and every request would wait seconds for that to fail. With no such name, the route is a static `503`.
 - **A rollout waits 1.5 seconds** between naming a new replica and stopping its predecessor, so that Caddy's next lookup has found the newcomer. An application with a single replica would otherwise spend that second with a proxy that only knows the replica that just stopped.
+
+### When Docker's DNS is silent
+
+Now and then Docker's DNS does not answer. Since 0.8 the proxy then goes on with the replicas of the last answer, for up to two seconds, and asks again in the background: a request waits a fifth of a second at most, and the requests of one application never wait for the name of another. Its log says when a name stopped being answered and when it was answered again. If the silence lasts longer, requests wait for it to end, up to five seconds each.
+
+Before 0.8 the proxy looked an application's name up on behalf of whichever request came first, with one lock for all names. When Docker's DNS left a lookup unanswered — seen on a real server, with nothing being deployed — the requests to every application waited five seconds for the resolver to give up, and some ended with a `503`.
+
+### An address rests before another application takes it
+
+One application's requests never reach another. Docker gives the address of a container that stopped to the next container that starts, and for a moment the proxy still holds that address for the application that had it. Before 0.8, when a replica of one application stopped — a crash, a deployment — just as a container of another started, and both listened on the same port, a request for the first could reach the second. Produced on purpose, it happened in four rounds of nine.
+
+So the agent lets such an address rest before a container of another application may start:
+
+- **When the agent stops a replica itself** — retired by a deployment, stopped, restarted — it tells the proxy to forget that replica, and the address rests for half a second after the proxy has answered.
+- **When a container stops by itself**, a crash, nobody could tell the proxy in time, and the address rests for 2.5 seconds, which is longer than the proxy remembers it.
+- **A deployment of one application never waits for itself**, and several deployed at once ([`shipwick.yaml`](/docs/reference/deploy-yaml#several-applications-shipwick-yaml)) hardly wait for each other: three applications of two replicas each, redeployed together, took 7.3 to 7.8 seconds where one alone took about 6.
+
+### A proxy image of your own
+
+A proxy image of your own ([`SHIPWICK_CADDY_IMAGE`](/docs/reference/agent-configuration#shipwick-caddy-image)), for another DNS provider for instance, is built from [`Dockerfile.caddy`](https://github.com/shipwick/shipwick/blob/main/Dockerfile.caddy) with your module added.
+
+The agent also works with a Caddy that lacks Shipwick's part — the official image, or the proxy of a release before 0.8 — by asking for replicas the way every Caddy can. Two things are then as they were before 0.8, or slower:
+
+- **A name lookup that Docker leaves unanswered holds the requests to every application** until the resolver gives up, five seconds.
+- **Such a proxy cannot be told to forget a replica**, so every address rests for the full 2.5 seconds and applications deployed together wait for each other: the three above took 17.6 seconds.
+
+`shipwick doctor` and the dashboard's page of the server say when that is the case, and `GET /server` carries `proxy.plain_lookups`:
+
+```text
+! The proxy is not Shipwick's image of this version: a name lookup Docker leaves unanswered holds every request for seconds, and applications deployed together wait for each other. On the server, run the installer again; an image of your own is built from Dockerfile.caddy
+```
+
+The agent offers the proxy its own way again once a minute, so replacing the image is all it takes.
 
 ### Why names
 

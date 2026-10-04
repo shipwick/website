@@ -193,6 +193,14 @@ shipwick deploy --image ghcr.io/company/my-api:$GIT_SHA
 
 The override is applied to the YAML document in memory. The agent still receives one plain `deploy.yaml`, and the file on disk is untouched. The image's tag becomes the deployment's version, so tagging images with the commit SHA makes every entry in the history traceable to a commit. `--image` does not apply to an application with `build:`; such a `deploy.yaml` builds on the runner instead.
 
+With a `shipwick.yaml`, name the application the image is for, since 0.8:
+
+```bash
+shipwick deploy api --image ghcr.io/company/api:$GIT_SHA
+```
+
+It deploys `api` and nothing else of the file; see [Deploy several applications](#deploy-several-applications).
+
 ## Build on the runner instead
 
 With `build: .` in `deploy.yaml` there is no registry: `shipwick deploy` runs `docker build` on the runner, for the server's architecture, and sends the image to the agent. Three things about it matter in a pipeline:
@@ -275,7 +283,22 @@ shipwick deploy                    # shipwick.yaml
 shipwick deploy --parallel 2
 ```
 
-`--image` does not apply to a `shipwick.yaml`: pin each image in the file. See [Several applications](/docs/reference/deploy-yaml#several-applications-shipwick-yaml).
+Since 0.8, `shipwick deploy api` deploys the named application of the file and nothing else, and `shipwick deploy api web` those two: what a pipeline wants after it built one image, and what keeps a change to `web` from redeploying the database beside it.
+
+```text
+$ shipwick deploy api --image ghcr.io/company/api:2.3.1
+Deploying api...
+
+✓ Validated shipwick.yaml
+Not deployed now and assumed to be running: postgres
+```
+
+- **`after` still orders the named ones among themselves.** An `after` that names an application left out is not waited for: it is assumed to be running, and the output says so in one line.
+- **`--image` applies when exactly one application is named.** Without a name it does not apply to a `shipwick.yaml`: pin each image in the file.
+- **The whole file is read and checked either way.** A name it does not have is an error that lists the ones it has, and with a `deploy.yaml`, which describes one application, a name is an error too.
+- **`shipwick validate api`** checks the file and shows what that deployment would do.
+
+See [Several applications](/docs/reference/deploy-yaml#several-applications-shipwick-yaml) and [`shipwick deploy`](/docs/reference/cli#some-applications-of-a-shipwick-yaml).
 
 Several `deploy.yaml` files given with `-f` deploy in the order given, one after the other, and stop at the first failure:
 

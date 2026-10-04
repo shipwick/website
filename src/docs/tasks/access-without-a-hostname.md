@@ -29,7 +29,7 @@ To take an existing API hostname away, set `SHIPWICK_AGENT_DOMAIN=` to empty in 
 
 `shipwick server install user@host` without `--agent-domain` does the same from your laptop: the API is not exposed, and the context it saves points at `http://127.0.0.1:9000`, ready for the tunnel below. Through the tunnel, `shipwick doctor` cannot check the ports and the records' targets, since it learns the server's address from the agent's hostname.
 
-Applications and the dashboard are not affected. The dashboard reaches the agent over the internal Docker network, so you can keep the dashboard on a hostname while the API stays private.
+Applications and the dashboard are not affected. The dashboard reaches the agent over the internal `shipwick-control` network, so you can keep the dashboard on a hostname while the API stays private.
 
 ## Publish the API on the server's loopback
 
@@ -50,6 +50,10 @@ cd /opt/shipwick && docker compose up -d
 ```
 
 The `127.0.0.1:` prefix matters. Without it, Docker publishes the port on every interface of the server.
+
+::: warning A published port wants Docker 28 or later
+Docker forwards a published port to the network a container's default route goes through, and before 28 that is the network the applications are on. The agent then keeps listening there so that the port works, and the API is open to the containers of applications, protected by the token alone; `shipwick doctor` says so. On Docker 28 and later the port arrives on the control network and nothing is open. Upgrade Docker, or give the API a hostname and remove the port. See [Who can reach the API](/docs/security#what-leaves-the-api-open-to-applications).
+:::
 
 If the agent runs as a service of the host instead — [installed from a package](/docs/getting-started/install-from-a-package), or as a plain binary — there is nothing to do: it listens on `127.0.0.1:9000` by default.
 

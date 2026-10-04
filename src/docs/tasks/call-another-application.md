@@ -60,7 +60,7 @@ A replica carries its application's name exactly while it is ready for traffic: 
 - **A replica is on the network from its first second.** It can reach `payments` while its own health check is still pending, which matters when passing that check requires a peer. It is findable by others only once it is ready itself.
 - **During a rolling deployment, both versions answer.** A new replica takes the name when it is ready; the one it replaces keeps answering until it is stopped. The two versions of `payments` must be able to serve `orders` side by side for that moment.
 - **During a `recreate` deployment, nobody answers.** The name is carried by no replica from the moment the old version is stopped until the new one is ready, and a lookup fails. Give the caller a retry, or a connection pool that reconnects.
-- **What the proxy resolves is the same mechanism.** Caddy is told `payments_8080`, the name with the port, and asks Docker's DNS for it on every request. Your applications use the plain name. See [Routing and HTTPS](/docs/concepts/routing-and-https).
+- **What the proxy resolves is the same mechanism.** Caddy is told `payments_8080`, the name with the port, and asks Docker's DNS for it again every second. Your applications use the plain name. See [Routing and HTTPS](/docs/concepts/routing-and-https).
 
 Requests in flight on a replica that dies are lost with it, as they would be with any server. Everything after goes to the surviving replicas.
 
@@ -78,5 +78,5 @@ name:
 
 - [Run a database or other stateful application](/docs/tasks/stateful-applications) and reach it at `postgres:5432`.
 - [Expose a service that is not HTTP](/docs/tasks/non-http-services) when something outside the server must reach it too.
-- [Routing and HTTPS](/docs/concepts/routing-and-https) explains the two networks and how the names are given and taken.
+- [Routing and HTTPS](/docs/concepts/routing-and-https) explains the networks and how the names are given and taken.
 - The [deploy.yaml reference](/docs/reference/deploy-yaml#name) for the rules on names.

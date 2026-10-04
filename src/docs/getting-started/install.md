@@ -8,7 +8,7 @@ description: Set up the Shipwick agent, Caddy and the dashboard on a Linux serve
 <div class="wick-note">
 <img src="/img/wick-tools.svg" alt="Wick, the Shipwick flame, with tools: setting up the server" width="64" height="64">
 
-<p>One command sets up a server: from your laptop over SSH, or on the server itself. This page covers both, what the installer puts on the machine, the API token, DNS, Cloudflare and the firewall, and the ways to install without it.</p>
+<p>One command sets up a server: from your laptop over SSH, or on the server itself. This page covers both, what the installer needs and puts on the machine, the API token, DNS, Cloudflare and the firewall, and the ways to install without it.</p>
 
 </div>
 
@@ -17,7 +17,7 @@ description: Set up the Shipwick agent, Caddy and the dashboard on a Linux serve
 You need:
 
 - A Linux server you can reach as root over SSH, with a public address. Ubuntu or Debian is the well-trodden path; any Linux with Docker works.
-- Docker with the Compose plugin on it. `shipwick server install`, from your laptop, installs Docker when it is missing. The installer run on the server itself does not: that decision belongs to the server's owner there, and it stops and points you to `curl -fsSL https://get.docker.com | sh`.
+- Docker Engine with the Compose plugin on it, the plugin in version 2.23.1 or later: see [What the server needs](#what-the-server-needs). `shipwick server install`, from your laptop, installs Docker when it is missing. The installer run on the server itself does not: that decision belongs to the server's owner there, and it stops and points you to `curl -fsSL https://get.docker.com | sh`.
 - `curl` or `wget` on the server.
 - Ports 80 and 443 free on the server and reachable from the internet. Automatic HTTPS depends on them, so Shipwick cannot share a server with another web server, reverse proxy or deployment platform that holds them. The installer checks this first and changes nothing if a port is taken.
 - Two DNS names that point at the server: one for the API, one for the dashboard. Both are optional, and both are what makes the rest comfortable: without the first, `shipwick` reaches the server only through an [SSH tunnel](/docs/tasks/access-without-a-hostname). Every application you give a `domain` later needs a DNS record too.
@@ -61,7 +61,7 @@ Next: in your project, run: shipwick init
 | `--agent-domain <host>` | Hostname for the API. Without it the API is not exposed, and the context points at `http://127.0.0.1:9000` for the [SSH tunnel](/docs/tasks/access-without-a-hostname) |
 | `--dashboard-domain <host>` | Hostname for the dashboard |
 | `--context <name>` | Name to save the server under; default: its hostname |
-| `--version <tag>` | Release to install, such as `v0.7.0`; default: the latest |
+| `--version <tag>` | Release to install, such as `v0.8.0`; default: the latest |
 
 The remote commands are fixed; the hostnames and the version are validated first and reach the installer as environment assignments. Running the command again upgrades the server: the token is then unchanged and not printed again, and the context keeps the one it has.
 
@@ -96,6 +96,7 @@ The installer prints the API token once; you sign in from your laptop with it, `
 Shipwick installer (shipwick/shipwick@latest)
 
 ✓ Docker 29.8.0 with Compose 5.5.1
+  The release's signature was not checked: cosign is not installed. Every file is checked against the release's checksums.
 ✓ Installed /opt/shipwick/compose.yml
 ✓ Wrote /opt/shipwick/.env
 ✓ Started the Shipwick services
@@ -127,23 +128,43 @@ curl -fsSL https://get.shipwick.com | SHIPWICK_CLOUDFLARE_API_TOKEN=... sh
 
 The installer checks that the value has the form of a token — letters, digits, `-` and `_` only, without quotes — before it writes anything, keeps it in `/opt/shipwick/.env`, and ends with `Certificates are obtained through Cloudflare DNS: hostnames may be proxied by Cloudflare. Set the zone's SSL/TLS mode to Full (strict).` instead of the three lines about DNS records above. See [Put Cloudflare in front](/docs/tasks/cloudflare) for the token's permissions.
 
+The second line is there on every server without cosign, which is every new one: since 0.8.0 a release is signed, and the installer verifies the signature where cosign is installed. See [The signature](#the-signature).
+
+## What the server needs
+
+Docker Engine and the Compose plugin, the plugin in version 2.23.1 or later: an older Compose cannot read Shipwick's compose file, and the installer says so before it changes anything.
+
+```text
+Docker Compose 2.17.3 does not accept this release's compose file:
+  …
+  A Compose older than 2.23.1 cannot read it: upgrade the Compose plugin ('docker-compose-plugin' from Docker's
+  repository) and run this installer again. The compose file in use was not replaced.
+```
+
+The Engine may be as old as 20.10, the one Debian 12 packages. Its package brings no Compose plugin, which then comes from Docker's repository.
+
+Before every release the agent's integration tests are run against Docker 20.10, 26.1, 28 and 29, and the installer on Debian 12 and 13, Ubuntu 22.04, 24.04 and 26.04, Rocky Linux 8, 9 and 10, Fedora and Alpine, on amd64 and arm64. The distributions are run as containers there: what is tested is the installer with their shell and tools, not their kernels or their own packages of Docker.
+
+What the installer does not do, and the server needs before it carries real data — SSH keys, security updates, swap, a firewall, backups elsewhere — is in [Prepare a server](/docs/tasks/prepare-a-server).
+
 ## What the installer does
 
 1. Checks for Linux, root, a running Docker and the Compose plugin, and that the HTTP and HTTPS ports are free, unless its own Caddy holds them, which is an upgrade.
-2. Writes `/opt/shipwick/compose.yml`. This is the release's `compose.production.yml`, in which the three images — the agent, the dashboard and the proxy, Shipwick's build of Caddy — are pinned to the release's version. The file is verified against the release's `checksums.txt` before it replaces anything.
-3. On the first run only, writes `/opt/shipwick/.env` with a freshly generated API token and the two hostnames. Settings given in the environment of that run are written there too, so that an upgrade does not lose them: the webhook, the Cloudflare token, the backup passphrase and bucket, the ports, images of your own. The file has mode `0600` and the directory `0700`.
-4. Pulls the images, starts the services, and waits for the agent to report healthy.
-5. On an upgrade, removes the agent, dashboard and proxy images of earlier releases, once the upgraded agent is healthy: `Removed 2 image(s) of earlier Shipwick releases`. The images that are running, and anything else on the server, are kept.
-6. Installs `shipwick` to `/usr/local/bin`, verified the same way. A checksum mismatch installs nothing and leaves a running installation as it was.
-7. With a hostname for the API, signs that `shipwick` in: see [The CLI on the server](#the-cli-on-the-server).
-8. Prints the token, only in the run that generated it, and the next steps.
+2. Downloads the release's `checksums.txt` and, where cosign is installed, verifies the release's signature of it; see [The signature](#the-signature).
+3. Writes `/opt/shipwick/compose.yml`. This is the release's `compose.production.yml`, in which the three images — the agent, the dashboard and the proxy, Shipwick's build of Caddy — are pinned to the release's version. The file is verified against the release's `checksums.txt`, and Compose is asked to read it, before it replaces anything.
+4. On the first run only, writes `/opt/shipwick/.env` with a freshly generated API token and the two hostnames. Settings given in the environment of that run are written there too, so that an upgrade does not lose them: the webhook, the Cloudflare token, the backup passphrase and bucket, the ports, images of your own. The file has mode `0600` and the directory `0700`.
+5. Pulls the images, starts the services, and waits for the agent to report healthy.
+6. On an upgrade, removes the agent, dashboard and proxy images of earlier releases, once the upgraded agent is healthy: `Removed 2 image(s) of earlier Shipwick releases`. The images that are running, and anything else on the server, are kept.
+7. Installs `shipwick` to `/usr/local/bin`, verified the same way. A checksum mismatch installs nothing and leaves a running installation as it was.
+8. With a hostname for the API, signs that `shipwick` in: see [The CLI on the server](#the-cli-on-the-server).
+9. Prints the token, only in the run that generated it, and the next steps.
 
 Three containers run afterwards, defined in `/opt/shipwick/compose.yml`:
 
 | Service | What it is |
 |---|---|
-| `agent` | The Shipwick agent. It has the Docker socket mounted and publishes no port: the only ways in are Caddy and the server itself. |
-| `caddy` | The reverse proxy. It publishes ports 80 and 443 (TCP) and 443 (UDP), obtains and renews certificates on its own, and serves the folders of [static applications](/docs/reference/deploy-yaml#static) itself. Since 0.5 its image is Shipwick's own build of Caddy, [`ghcr.io/shipwick/caddy`](/docs/reference/agent-configuration#shipwick-caddy-image): Caddy with the Cloudflare DNS module and nothing else added, on every installation whether or not a Cloudflare token is set. |
+| `agent` | The Shipwick agent. It has the Docker socket mounted and publishes no port: the only ways in are Caddy and the server itself. Since 0.8 it listens on a network of its own, `shipwick-control`, which Caddy and the dashboard are on and no application is; see [Who can reach the API](/docs/security#who-can-reach-the-api). |
+| `caddy` | The reverse proxy. It publishes ports 80 and 443 (TCP) and 443 (UDP), obtains and renews certificates on its own, and serves the folders of [static applications](/docs/reference/deploy-yaml#static) itself. Since 0.5 its image is Shipwick's own build of Caddy, [`ghcr.io/shipwick/caddy`](/docs/reference/agent-configuration#shipwick-caddy-image): Caddy with the Cloudflare DNS module and, since 0.8, Shipwick's own way of [finding replicas](/docs/concepts/routing-and-https#replicas-are-found-by-name), and nothing else added, on every installation whether or not a Cloudflare token is set. |
 | `dashboard` | The web dashboard. It is reached only through Caddy, at the dashboard hostname, and has no credentials of its own. |
 
 State lives in Docker volumes: the agent's SQLite database `shipwick.db` and its `encryption.key` in `agent-data`, certificates in `caddy-data`, the folders of static applications in `caddy-static`. The agent creates `encryption.key` on its first start and encrypts every deployment's `env` values, and every secret, registry password and certificate key stored on the server, with it before they are written to the database; without the key the database cannot be read, and the agent refuses to start against it. Back up `encryption.key` together with `shipwick.db`, back up `caddy-data`, and do not delete either volume casually. With `SHIPWICK_BACKUP_PASSPHRASE` set, the agent backs up the database and the key itself, encrypted, once a day, and `shipwick doctor` says when it does not; the backups it takes are kept in `agent-data` too, and in a bucket when one is configured. See [Back up and restore volumes](/docs/tasks/backups). `caddy-static` holds nothing you cannot upload again with `shipwick deploy`.
@@ -153,6 +174,7 @@ The installer accepts these environment variables:
 | Variable | Default | |
 |---|---|---|
 | `SHIPWICK_VERSION` | `latest` | Release to install |
+| `SHIPWICK_REQUIRE_SIGNATURE` | — | Since 0.8. Set to `1`: install nothing unless cosign is here and verifies the release's signature. Unset, the signature is verified when cosign is installed, and the installer says so when it is not. See [The signature](#the-signature) |
 | `SHIPWICK_AGENT_DOMAIN` | — | Hostname for the API; asked for when run in a terminal |
 | `SHIPWICK_DASHBOARD_DOMAIN` | — | Hostname for the dashboard; likewise |
 | `SHIPWICK_INSTALL_DIR` | `/opt/shipwick` | Where `compose.yml` and `.env` are written |
@@ -196,7 +218,7 @@ Point DNS at the server for the API hostname, the dashboard hostname, and the do
 
 At Cloudflare the records must be *DNS only*, unless the agent has a Cloudflare API token: `SHIPWICK_CLOUDFLARE_API_TOKEN`, given to the installer like the hostnames, or added to `/opt/shipwick/.env` later and followed by `cd /opt/shipwick && docker compose up -d`. Caddy then obtains certificates through a DNS record, and a record may stay proxied. Set the zone's SSL/TLS mode to *Full (strict)*. See [Put Cloudflare in front](/docs/tasks/cloudflare).
 
-In your firewall, open ports 80 and 443 (and 443/udp, for HTTP/3), and nothing else. The agent's own port, 9000, speaks plain HTTP and must never be exposed to the internet.
+In your firewall, open ports 80 and 443 (and 443/udp, for HTTP/3), and nothing else. The agent's own port, 9000, speaks plain HTTP and must never be exposed to the internet. The commands, and what Docker does to a firewall on the server, are in [Prepare a server](/docs/tasks/prepare-a-server#a-firewall-and-what-docker-does-to-it).
 
 Once the records exist, `shipwick doctor` from your laptop checks the whole path in one screen: the versions, the token, Docker, the proxy, ports 80 and 443, and for every domain whether DNS points at the server and HTTPS answers. It exits non-zero when something is broken and says what to do about each line; see [Your first deployment](/docs/getting-started/first-deployment#when-the-domain-is-not-ready).
 
@@ -207,10 +229,24 @@ If you skipped the API hostname, the API is not exposed at all. See [Reach the A
 Everything the installer fetches comes from one [release](https://github.com/shipwick/shipwick/releases) — never from a branch — and each file is verified against that release's checksums. By default that is the latest release. To choose one:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.7.0 sh
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.8.0 sh
 ```
 
-Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade). From your laptop, `shipwick server install user@host --version v0.7.0` does the same over SSH.
+Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade), and how you [go back](/docs/tasks/upgrade#go-back-to-the-release-before). From your laptop, `shipwick server install user@host --version v0.8.0` does the same over SSH.
+
+### The signature
+
+From 0.8.0 on, a release's `checksums.txt` is signed by the workflow that published it. Where [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) (2.4 or later) is installed, the installer verifies that signature before it uses the checksums, and stops if it is not the workflow's:
+
+```text
+✓ The release is signed by the release workflow of github.com/shipwick/shipwick
+```
+
+Where it is not, which is every new server, the installer says so in one line and goes by the checksums alone, as before. Nothing installs cosign for you, and nothing needs it.
+
+To make the check a condition, set `SHIPWICK_REQUIRE_SIGNATURE=1` for the installer: it then installs nothing without cosign, from a release without a signature, or from one whose signature does not verify. Without that setting a release that has no signature is installed with a warning — releases before 0.8.0 have none, and the installer cannot tell one of those from a release whose signature somebody removed.
+
+What the signature proves, and the commands to check it yourself, images included: [Verify a release](/docs/tasks/verify-a-release).
 
 ## Other ways to install
 
@@ -233,6 +269,10 @@ docker compose -f compose.production.yml up -d
 Generate the token yourself, as shown. The token must be at least 16 characters. If you let the agent generate one, it prints it to its log, and under Docker that log stays readable through `docker logs` for as long as the container exists. On its first start the agent also creates `encryption.key` in its data directory; back it up together with the database, or manage the key yourself with `SHIPWICK_ENCRYPTION_KEY` (64 hexadecimal characters). The compose file gives Caddy a `caddy-static` volume, mounted at `/srv/shipwick`, where the agent puts the folders of static applications. The backup, export and alert variables it passes to the agent are all optional; see [Agent configuration](/docs/reference/agent-configuration#the-production-compose-file).
 
 The compose file attached to a release pins the three images — agent, dashboard and Caddy — to that release. The copy in the repository refers to `latest`.
+
+A compose file of your own needs the `shipwick-control` network as that file has it since 0.8 — the agent on it alone, Caddy on all three networks, the dashboard on it alone — and no `SHIPWICK_LISTEN_ADDR` for the agent's container. Without them the API is open to the containers of applications, protected by the token alone, and `shipwick doctor` says so; see [Who can reach the API](/docs/security#what-leaves-the-api-open-to-applications).
+
+Two overlays on that file give the agent less than the Docker socket, a socket proxy and rootless Docker: see [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket).
 
 ### From source
 
@@ -257,6 +297,7 @@ As a process of the host the agent listens on `127.0.0.1:9000` by default and ke
 
 - [Deploy your first application](/docs/getting-started/first-deployment).
 - If you ran the installer on the server: [sign in from your laptop](/docs/getting-started/install-cli#log-in) with the token it printed.
+- [Prepare a server](/docs/tasks/prepare-a-server): what the installer leaves to you before the server carries real data.
 - [Create tokens for CI and teammates](/docs/tasks/tokens) instead of handing out the root token.
 - [Install from a package](/docs/getting-started/install-from-a-package): the agent as a systemd service.
 - [Open the dashboard](/docs/tasks/dashboard), and let people [sign in with your company's accounts](/docs/tasks/sign-in).

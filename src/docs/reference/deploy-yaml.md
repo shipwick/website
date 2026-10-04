@@ -100,6 +100,10 @@ Two places can fill it in. `shipwick` replaces every `${NAME}` it has a value fo
 | [`deploy.strategy`](#deploy) | string | no | `rolling` |
 | [`deploy.stop_timeout`](#deploy) | duration | no | `10s` |
 | [`init`](#init) | boolean | no | `false` |
+| [`security.read_only`](#security) | boolean | no | `false` |
+| [`security.tmpfs[]`](#security) | list of paths, or of `{path, size}` | no | |
+| [`security.capabilities`](#security) | `none`, or a list of strings | no | Docker's default set |
+| [`security.non_root`](#security) | boolean | no | `false` |
 | [`after`](#several-applications-shipwick-yaml) | list of strings | no; `shipwick.yaml` only | |
 
 With `static`, only `name`, `static`, `domain`, `aliases`, `redirects`, `path` and `proxy` apply; a field that describes a container is an error next to it.
@@ -187,7 +191,7 @@ A folder served by the proxy as it is: a built frontend. There is no container, 
 | Required | no. Replaces `image`. Requires `domain`: `is required for a static application: the proxy serves the files at it`. |
 | `static.dir` | Required as a map. A folder relative to `deploy.yaml`, inside its directory: `dist/`, `build`, `out/public`. Read on the machine where `shipwick deploy` runs, at deploy time. Backslashes are read as slashes; trailing slashes are dropped. |
 | `static.fallback` | A file in the folder, answered with status 200 for every path that names no file: `index.html` for a single-page application. Relative to the folder, at most 200 characters, with letters, digits, dots, dashes, underscores and tildes between the slashes. Without it such a path is a `404`. |
-| Excludes | `image`, `build`, `port`, `replicas`, `env`, `health`, `resources`, `volumes`, `publish`, `entrypoint`, `command`, `user`, `logging`, `pre_deploy`, `jobs`, `backups`, `deploy.stop_timeout` and `init`. Each is refused with `does not apply to a static application: the proxy serves the files, there is no container`. |
+| Excludes | `image`, `build`, `port`, `replicas`, `env`, `health`, `resources`, `volumes`, `publish`, `entrypoint`, `command`, `user`, `logging`, `pre_deploy`, `jobs`, `backups`, `deploy.stop_timeout`, `init` and `security`. Each is refused with `does not apply to a static application: the proxy serves the files, there is no container`. |
 
 ```yaml
 name: web
@@ -835,6 +839,39 @@ The replaced container shipwick_my-api_6_1 did not exit within 10s of SIGTERM an
 
 A value that is not a boolean, `init: tini`, is a syntax error reported with its line number. Next to [`static`](#static) the field is refused, whatever its value: `does not apply to a static application: the proxy serves the files, there is no container`. See [Deployments](/docs/concepts/deployments).
 
+### security
+
+Takes away what the application does not need, in every container made from it. Each key narrows and none widens: a `deploy.yaml` with the block is never less confined than one without it. Since 0.8.
+
+```yaml
+user: "1000:1000"
+security:
+  read_only: true                  # the root filesystem cannot be written
+  tmpfs:                           # scratch space, in memory
+    - /tmp
+    - path: /var/cache/api
+      size: 200mb                  # 1mb to 1gb; 64mb unless set
+  capabilities: none               # or the ones to keep: [CHOWN, SETGID, SETUID]
+  non_root: true                   # a container that would run as root is refused
+```
+
+| Key | Default | |
+|---|---|---|
+| `read_only` | `false` | `true` mounts the root filesystem read-only in every container of the application. Volumes and `tmpfs` stay writable |
+| `tmpfs[]` | — | Up to 10 directories kept in memory, for what has to be written under a read-only root: a path (`/tmp`), or `{path, size}` with `size` from `1mb` to `1gb`, `64mb` unless set. Empty at every start; mounted `nosuid`, `nodev` and `noexec`, writable by every user; what is written there counts against [`resources.memory`](#resources) |
+| `capabilities` | Docker's default set | `none`, or a list of the Linux capabilities to keep out of Docker's default set; every other one is dropped. Nothing outside that set is accepted: the key takes away, it cannot add |
+| `non_root` | `false` | `true` refuses to start a container that would run as root: [`user`](#user), or without it the image's `USER`, has to be a numeric id other than 0 |
+
+The block holds for every container of the application: replicas, the [`pre_deploy`](#pre-deploy) command, [`jobs`](#jobs), `shipwick run`, the container of `backups.before_in: container` and the one a backup is verified in. `shipwick validate` shows what it takes away, `shipwick init` writes it as a commented example, and the `spec` in API responses carries it.
+
+- **Docker's default set** is `AUDIT_WRITE`, `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `KILL`, `MKNOD`, `NET_BIND_SERVICE`, `NET_RAW`, `SETFCAP`, `SETGID`, `SETPCAP`, `SETUID` and `SYS_CHROOT`. A name may be written in lower case and with `CAP_` in front. An application that runs as another user than root and listens on a port above 1024 needs none; what nginx, Node, PostgreSQL and Redis need is in [Containers locked down further](/docs/security#containers-locked-down-further).
+- **`capabilities: none` and no key are different.** `none` keeps nothing; without the key the containers keep Docker's default set. An empty list is refused rather than read as either.
+- **A `tmpfs` path** is an absolute path inside the container, other than `/`, at which no volume and no other entry is mounted.
+- **`non_root` is checked twice.** `shipwick validate` refuses `user: root`, the id 0 or a name next to it. What the image says is known once the image is on the server: a deployment of an image that would run as root fails there, after the pull and before anything is started, with the previous version still serving, and the message says what to set.
+- **An agent older than 0.8 refuses a file with the block**, as it refuses every key it does not know, and `shipwick deploy` says that the server is older than the file and how to upgrade it.
+
+Next to [`static`](#static) the block is refused: `does not apply to a static application: the proxy serves the files, there is no container`. The seccomp and AppArmor profiles are Docker's defaults with or without the block. See [Containers locked down further](/docs/security#containers-locked-down-further) for what each key protects against.
+
 ## Units
 
 ### Sizes
@@ -885,7 +922,7 @@ Other forms the report takes:
 | A build path that is absolute or leaves the project | `build.context:` / `invalid value "/srv/app": must be relative to deploy.yaml`; `build.dockerfile:` / `invalid value "../Dockerfile": must stay inside the directory of deploy.yaml` |
 | `build` and `static` together | `build:` / `cannot be combined with static: a static application has no image to build` |
 | A static application without a domain | `domain:` / `is required for a static application: the proxy serves the files at it` |
-| A container field next to `static` | `port:` / `does not apply to a static application: the proxy serves the files, there is no container`; the same on `backups`, `deploy.stop_timeout` and `init` |
+| A container field next to `static` | `port:` / `does not apply to a static application: the proxy serves the files, there is no container`; the same on `backups`, `deploy.stop_timeout`, `init` and `security` |
 | A static folder that is absolute or leaves the project | `static:` / `must be a relative path: the folder is found next to deploy.yaml`; `must stay inside the directory of deploy.yaml`, expected `dist/, build/, out/ — a folder relative to deploy.yaml` |
 | A `fallback` without a folder | `static.dir:` / `is required: the folder the fallback page is in`, expected `dist` |
 | A `fallback` that is not a file in the folder | `static.fallback:` / `invalid value "/index.html": must be relative to the folder`; `invalid value "../index.html": name a file inside the folder, with letters, digits, dots, dashes, underscores and tildes between the slashes`, expected `index.html, 200.html, app/index.html — a file in the folder` |
@@ -943,6 +980,15 @@ Other forms the report takes:
 | A `stop_timeout` out of range | `deploy.stop_timeout:` / `invalid value "15m": out of range`, expected `10s, 30s, 5m, ... (1s to 10m)` |
 | An `init` that is not a boolean | `line 3:` / `cannot unmarshal … into the expected type` |
 | `init` next to `static` | `init:` / `does not apply to a static application: the proxy serves the files, there is no container` |
+| A key of `security` that does not exist | `security:` / expected `read_only, tmpfs, capabilities, non_root` |
+| A capability outside Docker's default set | `security.capabilities[0]:` / `invalid value "SYS_ADMIN": not in Docker's default set, and nothing is added to it` |
+| A capability listed twice | `security.capabilities[1]:` / `"CHOWN" is listed twice` |
+| An empty list of capabilities | `security.capabilities:` / `must not be empty; write none to keep no capability, or omit it to keep Docker's default set` |
+| A `tmpfs` path that is not absolute, or is `/` | `security.tmpfs[0].path:` / `invalid value "tmp"`, expected `an absolute path inside the container, e.g. /tmp` |
+| A `tmpfs` path a volume or another entry is mounted at | `security.tmpfs[1].path:` / `"/data" is already mounted: …` |
+| A `tmpfs` size outside 1 MB to 1 GB | `security.tmpfs[0].size:` / `invalid value "2gb": out of range` |
+| More than 10 `tmpfs` entries | `security.tmpfs:` / `too many (11)`, expected `at most 10` |
+| `user: root`, the id 0 or a name under `non_root: true` | `user:` / `invalid value "app" next to security.non_root: it is a name, and which id a name stands for is in the image's /etc/passwd, which is not read` |
 | More than 10 volumes | `volumes:` / `too many (11)`, expected `at most 10` |
 | A volume name used twice | `volumes[1].name:` / `"data" is used twice` |
 | A volume path that is not absolute and clean | `volumes[0].path:` / `invalid value "data/"`, expected `an absolute path inside the container, e.g. /var/lib/postgresql/data` |
@@ -1201,6 +1247,33 @@ deploy:
 # it out for an image that brings its own init (tini, s6-overlay).
 # init: true
 
+# Take away what the application does not need, in every container made from
+# it: replicas, the pre_deploy hook, jobs, one-off commands. Each key narrows
+# and none widens; leave out the ones the application cannot live with.
+#
+# read_only: the root filesystem cannot be written. Volumes can, and so can
+# every tmpfs path: a directory in memory, empty at each start, mounted
+# nosuid, nodev and noexec, counted against resources.memory. A path alone
+# gets 64mb; size is 1mb to 1gb. nginx needs /var/cache/nginx and /var/run.
+#
+# capabilities: `none`, or the ones to keep out of Docker's default set
+# (AUDIT_WRITE CHOWN DAC_OVERRIDE FOWNER FSETID KILL MKNOD NET_BIND_SERVICE
+# NET_RAW SETFCAP SETGID SETPCAP SETUID SYS_CHROOT); the rest is dropped. An
+# application that runs as another user than root on a port above 1024 needs
+# none; nginx started as root needs [CHOWN, SETGID, SETUID].
+#
+# non_root: a container that would run as root is refused, and the deployment
+# fails before anything starts. The user — `user` above, or else the image's
+# USER — must be a numeric id other than 0: a name cannot be checked.
+# security:
+#   read_only: true
+#   tmpfs:
+#     - /tmp
+#     - path: /var/cache/api
+#       size: 200mb
+#   capabilities: none
+#   non_root: true
+
 # Ship logs to a collector instead of the server's disk: json-file (default),
 # local, syslog, journald, gelf, fluentd, awslogs or splunk, with the driver's
 # own options. Addresses are scheme://host:port; no sockets or files on the
@@ -1282,6 +1355,6 @@ apps:
 | An entry | A complete `deploy.yaml`, validated by the same rules, so every field on this page can be set in one, `path`, `proxy` and `backups` included; problems are reported with the entry's index in front, `apps[1].port`. Names must be unique within the file. `build` and `static` paths are relative to `shipwick.yaml`. |
 | `after` | A list of names of other entries in the file. An unknown name, an entry that waits for itself, or a cycle through several entries is an error on `apps[i].after`. |
 
-`shipwick deploy` uses the file when there is no `deploy.yaml` in the directory; `-f shipwick.yaml` names it explicitly, and it cannot be combined with other `-f` files. Applications whose dependencies are done start at once, up to four at a time (`--parallel N`): `postgres` and `web` above start together, `api` when `postgres` has deployed. Every line of output carries the name of the application it belongs to. An application whose dependency did not deploy is skipped, the others finish, and the command exits non-zero if any failed or was skipped. `${NAME}` placeholders work in every entry, `--image` does not apply, and `shipwick validate` checks the file and prints the order.
+`shipwick deploy` uses the file when there is no `deploy.yaml` in the directory; `-f shipwick.yaml` names it explicitly, and it cannot be combined with other `-f` files. Since 0.8 `shipwick deploy api` deploys the named application of the file and nothing else, and `shipwick deploy api web` those two: `after` still orders the named ones, an application that is left out is not waited for and is assumed to be running, which the output says in one line, and `--image` applies when exactly one is named. `shipwick validate` takes the same names. See [`shipwick deploy`](/docs/reference/cli#some-applications-of-a-shipwick-yaml). Applications whose dependencies are done start at once, up to four at a time (`--parallel N`): `postgres` and `web` above start together, `api` when `postgres` has deployed. Every line of output carries the name of the application it belongs to. An application whose dependency did not deploy is skipped, the others finish, and the command exits non-zero if any failed or was skipped. `${NAME}` placeholders work in every entry, `--image` does not apply, and `shipwick validate` checks the file and prints the order.
 
 The agent never sees the file. Each entry is an ordinary deployment with its own record, lock, health checks and rollback; the CLI holds the order. `after` is about readiness, not reachability: names on the services network resolve whatever the order, so `after: [postgres]` belongs on an application that would exit without its database, not on every consumer of another service. Several `deploy.yaml` files — `shipwick deploy -f api/deploy.yaml -f web/deploy.yaml` — still deploy one after the other, in the order given, stopping at the first failure.

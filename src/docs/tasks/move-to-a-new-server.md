@@ -90,7 +90,7 @@ Images from a registry are pulled on the new server with the credentials the exp
 
 An application that fails does not stop the rest, and the command exits non-zero when anything failed. `shipwick import --status` shows the import that is running or ran last. A server takes one import at a time, and none while it is being [promoted](/docs/tasks/standby#a-promotion-is-followed).
 
-Since 0.6 an application's configuration is checked on the new server by every rule a `deploy.yaml` is checked by, before anything of the application is touched. One that does not pass — an export from a newer Shipwick, a damaged file — fails with the fields named, as `shipwick validate` would name them.
+Since 0.6 an application's configuration is checked on the new server by every rule a `deploy.yaml` is checked by, before anything of the application is touched. One that does not pass — an export from a newer Shipwick, a damaged file — fails with the fields named, as `shipwick validate` would name them. One difference is not caught this way: an agent older than 0.8 that imports an export written by a newer one reads the applications without their [`security`](/docs/reference/deploy-yaml#security) block, so import into an agent that is at least as new as the one that wrote the export.
 
 An import ends with its upload. If the agent is restarted under one, the import has failed and says so in `shipwick import --status`, which the restarted agent still answers. What it had finished is in place, the deployment it was at is resumed like any deployment — an application that was being deployed stopped stays stopped — and running the import again with `--overwrite` does the rest.
 

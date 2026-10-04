@@ -1,11 +1,11 @@
 ---
 title: Security
-description: The trust model of a Shipwick installation, how to expose the API safely, what Shipwick does to protect the server, how secrets, registry credentials, certificate keys and backups are encrypted and how the key is rotated, what the proxy logs, tokens with limits and an end, signing in through a provider, the audit trail, what Shipwick does not do yet, and how to report a vulnerability.
+description: The trust model of a Shipwick installation, how to expose the API safely and who can reach it, what Shipwick does to protect the server, how containers are confined and locked down further with the security block, how secrets, registry credentials, certificate keys and backups are encrypted and how the key is rotated, what the proxy logs, tokens with limits and an end, signing in through a provider, the audit trail, signed releases, what Shipwick does not do yet, and how to report a vulnerability.
 ---
 
 # Security
 
-The agent holds the Docker socket, which makes it root on the server it runs on. This page describes the trust model that follows from that, how to expose the API safely, what Shipwick does and does not do — tokens and roles, signing in through a provider, the audit trail, what is encrypted at rest and how the key is rotated, backups and exports, what the proxy sees and logs — and how to report a vulnerability.
+The agent holds the Docker socket, which makes it root on the server it runs on. This page describes the trust model that follows from that, how to expose the API safely and who can reach it, what Shipwick does and does not do — tokens and roles, signing in through a provider, the audit trail, what is encrypted at rest and how the key is rotated, backups and exports, what the proxy sees and logs, what a container goes without, how a release is verified — and how to report a vulnerability.
 
 ## Trust model
 
@@ -18,6 +18,8 @@ The agent holds the Docker socket, which makes it root on the server it runs on.
 - **Whoever holds the backup passphrase and the bucket holds everything**: every application's data, and the agent's database together with the key to it. See [Backups and exports](#backups-and-exports).
 
 The agent container runs as root because it needs the Docker socket, which already is root-equivalent access to the host.
+
+Since 0.8 two arrangements give the agent less than that socket: a socket proxy that answers only the calls the agent makes, and rootless Docker, where the daemon and everything it starts is an ordinary user of the server. Neither is what the installer sets up, and the first does not stop whoever takes the agent over from becoming root. See [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket).
 
 ## Exposing the API
 
@@ -38,6 +40,32 @@ On the server, open ports 80 and 443 and nothing else, plus whatever `publish` d
 **Caddy's admin API is as sensitive as the agent's.** Whoever reaches it controls all routing and the certificate store. Shipwick talks to it over a unix socket in a volume shared by the agent and Caddy only. Do not move it to a TCP port on the application network: every application container could then reconfigure the proxy.
 
 **The dashboard** should be served over HTTPS too, which `SHIPWICK_DASHBOARD_DOMAIN` does. Signing in sends the token to the dashboard's server; over plain HTTP on anything but loopback that is a root credential in clear text.
+
+## Who can reach the API
+
+The proxy, the dashboard and the server itself; not the applications.
+
+The agent has to be on the `shipwick` network, where it probes replicas, and until 0.8 it listened there: any application's container could reach port 9000 and try tokens against it. Since 0.8 the API has a network of its own, `shipwick-control`, which the agent, Caddy and the dashboard are on and no application is. The agent listens on its address there and on loopback, and on nothing else; from inside an application's container a connection to the agent is refused, and the dashboard is not reachable from there either. The installer sets this up, on an upgrade as well, with the applications left running.
+
+- **A request from an application's container that reaches the agent all the same is answered `403 APPLICATION_CALLER`** before its token is looked at, `GET /health` included, and it is not counted as a failed attempt.
+- **Which requests those are is decided by network, not by the caller's address alone.** On a bridge it shares with other containers, a container can answer for any address of that bridge — the proxy's, the gateway's — and complete a request under it, with the capabilities every container has by default. So on the control network the agent answers the addresses of that network and no others, and what arrives from an address of `shipwick` or `shipwick-services` is an application, whoever it claims to be.
+- **An application that is meant to call the API** — a deployment tool you run on Shipwick — does so at the API's hostname, `https://<SHIPWICK_AGENT_DOMAIN>`, through the proxy, as anything outside the server does.
+
+### What leaves the API open to applications
+
+Three arrangements leave the API open to applications, protected by the token alone. The agent then works as it did before 0.8, refuses the containers it manages by their addresses — which stops a mistake, not someone who claims another address — writes a warning to its log when it starts, and says so: `shipwick doctor` reports it, and `GET /server` carries `open_to_applications`.
+
+```text
+! Application containers can reach the agent's API: it listens on a network they are on, and only the token keeps them out. On the server, run the installer again; if this stays, the agent's log says why, and "Who can reach the API" in the handbook (Security) what to change
+```
+
+| Arrangement | What to change |
+|---|---|
+| A compose file of your own without the control network | Add it as [`compose.production.yml`](https://github.com/shipwick/shipwick/blob/main/configs/compose.production.yml) has it: the agent on `shipwick-control` alone (it joins `shipwick` by itself), Caddy on all three networks, the dashboard on `shipwick-control` alone |
+| `SHIPWICK_LISTEN_ADDR` set for the agent's container | Leave it unset: the image's default lets the agent choose the control network |
+| The API's port published (`ports: ["127.0.0.1:9000:9000"]`) on Docker before 28 | Upgrade Docker, or give the API a hostname and remove the port. Docker forwards a published port to the network a container's default route goes through, and before 28 that is the `shipwick` network for the agent; the agent keeps listening there so that the port works. On Docker 28 and later the port arrives on the control network and nothing is open |
+
+An agent installed [from a package](/docs/getting-started/install-from-a-package) is a process of the host, and the addresses of a host are reachable from every container on it. It refuses every address of the two application networks, and on the address it has on the control network every address that is not of that network; nothing is open.
 
 ## What Shipwick does
 
@@ -121,6 +149,7 @@ A value for `${NAME}` in `env` can be stored on the server once, with `shipwick 
 - The agent fills it into the `env` values of a deployment when the deployment is recorded, so the record holds the value and a rollback restores what that deployment ran with. A `${NAME}` that is set neither where `shipwick` runs nor on the server refuses the deployment before anything is recorded.
 - Storing and removing a secret needs the `admin` role; listing the names needs `read`. In the dashboard, the value is cleared from the page the moment the request is sent.
 - Since 0.7 the agent remembers, with each deployment, which values it filled in and how the document wrote them — `postgres://app:${DB_PASSWORD}@db:5432/app` — encrypted like a secret. That text, never the value, is what [`shipwick config`](/docs/tasks/get-the-configuration-back) gives back. The text around a reference is more than a reader is shown elsewhere, which is why getting the document takes the `deploy` role, and a limited token gets the documents of its applications only.
+- Since 0.8 that document also carries the `env` values that stood in the deployed file as it was sent — `LOG_LEVEL: debug` — as they are. The agent cannot tell such a value from a password; `shipwick deploy` can, because it knows which values it filled in and which it found written, and says so with the deployment. A value it filled in from the environment or `--env-file`, a basic-auth password, and every value nobody spoke for stay masked. **What is written in `deploy.yaml` in plain sight is therefore readable by everyone who may deploy the application**: a password belongs in `${NAME}`, not in the file.
 
 ### Passwords of the proxy
 
@@ -188,7 +217,7 @@ See [Traffic](/docs/tasks/traffic).
 
 - A proxy's URL in `HTTPS_PROXY` may hold a password. The agent logs the proxy's host and port and nothing else of it, `GET /server` reports the same, and no error repeats the URL. See [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network).
 - Tokens, `Authorization` headers, request bodies and environment values are never logged. The request log holds the method, path, status, duration and remote address.
-- Environment values and basic-auth passwords are masked as `********` in every API response. Validation errors never echo a value.
+- Environment values and basic-auth passwords are masked as `********` in every API response. The one exception, since 0.8, is the document `GET /applications/:name/config` returns to a token that may deploy the application: the `env` values its deployment named as written in plain sight are in it as they are; see [Secrets kept on the server](#secrets-kept-on-the-server). Validation errors never echo a value.
 - The mask is refused as a value, since 0.7: a configuration copied out of an answer cannot be deployed with `********` for a password. A document that holds it as an `env` value or a basic-auth password is `400 INVALID_CONFIG`, whoever sends it.
 - The log archive, since 0.7, holds what applications printed, and is as sensitive as the logs themselves. Reading it takes the role that reads the logs. It puts nothing into events, notifications or the audit trail, and nothing of what its endpoints return is written to the agent's log; the request log holds the path, not the query. The files are not encrypted, like the logs Docker keeps next to them: they are gzip files under `logs/` in the data directory. They are removed with their application, and are in neither the backup of the agent's state nor an export. See [Find out why it died](/docs/tasks/find-out-why-it-died#where-it-is-and-where-it-is-not).
 - `GET /metrics`, the Prometheus endpoint, is authenticated like the rest of the API: a token with the `read` role. It carries numbers and names — statuses, replica counts, CPU, memory, restarts, the disk, the active alerts — and no values. Give the scraper a `read` token of its own.
@@ -216,7 +245,7 @@ The Caddy configuration is built as data and serialized, never assembled from st
 
 ### Unprivileged containers
 
-Application containers are never privileged, run with `no-new-privileges` and get no host mounts; `volumes` are named Docker volumes, never a host path. Their logs are size-capped at 3 files of 10 MB, so an application cannot fill the disk by logging.
+Application containers are never privileged, run with `no-new-privileges` and get no host mounts; `volumes` are named Docker volumes, never a host path. Their logs are size-capped at 3 files of 10 MB, so an application cannot fill the disk by logging. This holds for every container and cannot be switched off; the `security` block of `deploy.yaml` takes away more, per application: see [Containers locked down further](#containers-locked-down-further).
 
 **Published ports are the one exception to "no host ports".** `publish` binds exactly the listed container ports on the server, for services the proxy cannot serve because they are not HTTP. The agent refuses a port it or the proxy listens on, and one another application already publishes, before anything is started; validation refuses `publish` without `recreate` and one replica.
 
@@ -226,15 +255,85 @@ On most distributions Docker inserts its own iptables rules ahead of ufw's or fi
 
 **Logging drivers refuse sockets and files.** `logging` hands replica logs to a Docker logging driver, whose options reach the daemon as written. The driver list is closed to the ones whose options are checked, a collector address must be `scheme://host:port` (a socket is a path on the server, which Shipwick never mounts), and options that name a certificate or CA file on the server are refused: no application gets to make the daemon read a file.
 
+### Containers locked down further
+
+Since 0.8 the [`security`](/docs/reference/deploy-yaml#security) block of `deploy.yaml` takes away more than the above, for an application that can do without it. Each of its keys narrows; there is none that widens — no capability can be added, nothing of the server mounted, no privilege asked for — so a `deploy.yaml` with the block is never less confined than one without it.
+
+```yaml
+user: "1000:1000"
+security:
+  read_only: true                  # the root filesystem cannot be written
+  tmpfs:                           # scratch space, in memory
+    - /tmp
+    - path: /var/cache/api
+      size: 200mb                  # 1mb to 1gb; 64mb unless set
+  capabilities: none               # or the ones to keep: [CHOWN, SETGID, SETUID]
+  non_root: true                   # a container that would run as root is refused
+```
+
+The block applies to every container made from the application: its replicas, the `pre_deploy` hook, jobs, `shipwick run`, the container of `backups.before_in: container` and the one a backup is verified in. A job is not a way around it. `shipwick validate` says what the block takes away, and `GET /applications/:name` returns it with the rest of the spec.
+
+**`read_only`.** An attacker who can write files inside a container can replace the application's code and leave something behind for the next request; with a read-only root there is nowhere to write it.
+
+- **Volumes stay writable**, and most applications need a little more: a `tmpfs` entry is a directory in memory, empty when a container starts and gone when it stops, never shared between replicas.
+- **A `tmpfs` is mounted `nosuid`, `nodev` and `noexec`** — a file there cannot be executed — and writable by every user, like `/tmp`.
+- **What is written to it is memory.** It counts against `resources.memory` as the process's own does, and an application that fills a `tmpfs` beyond its memory limit is stopped for it: 48 MB written into a `tmpfs` of 64 MB under `memory: 32mb` ended with the writer killed for memory.
+- **Data that must be executed, shared or kept belongs in a volume.**
+- **An application that fails under `read_only` names the path in its log** (`Read-only file system`); that path is the `tmpfs` entry it needs.
+
+**`capabilities`.** A process that runs as root inside a container is root with fourteen of the kernel's capabilities, Docker's default set: `AUDIT_WRITE`, `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `KILL`, `MKNOD`, `NET_BIND_SERVICE`, `NET_RAW`, `SETFCAP`, `SETGID`, `SETPCAP`, `SETUID`, `SYS_CHROOT`. `capabilities: none` drops all of them; a list keeps the ones it names and drops the rest. A name outside the set is refused. An application that runs as another user than root and listens on a port above 1024 needs none.
+
+What some common images need was found by starting the Alpine variant of each under `read_only` with one set after another, on Docker 29.8:
+
+| Image, as it is started | `capabilities` | `tmpfs` |
+|---|---|---|
+| `nginx`, as root (the image's default) | `[CHOWN, SETGID, SETUID]` | `/var/cache/nginx`, `/var/run` |
+| `node`, with `user: "1000:1000"`, listening on 3000 | `none` | `/tmp`, if the application writes there |
+| `postgres:17`, as root (the image's default) | `[CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]` | `/var/run/postgresql`, `/tmp` |
+| `postgres:17`, with `user: "70:70"` (the Alpine image's `postgres`) | `none` | `/var/run/postgresql`, `/tmp` |
+| `redis:7`, as root (the image's default), a volume at `/data` | `[SETGID, SETUID]` | — |
+| `redis:7`, with `user: "999:1000"` (the Alpine image's `redis`), a volume at `/data` | `none` | — |
+
+- **An image that starts as root to give its files to another user and then become that user** — what these three do — needs `CHOWN`, `SETGID` and `SETUID` for exactly that, and nothing once it runs; started as the other user to begin with, it needs none.
+- **PostgreSQL was restarted on its filled volume as well**: with fewer than the five capabilities it starts on an empty volume and not again.
+- **`NET_BIND_SERVICE` is missing from the list for nginx on purpose.** Docker lets every user in a container listen on every port (the containers here had `net.ipv4.ip_unprivileged_port_start` at 0), so port 80 needs no capability.
+- **A dropped capability shows as `Operation not permitted`** in the application's log, next to the call that needed it.
+
+**`non_root`.** The agent reads the user from `user` in `deploy.yaml` and, when that is not set, from the image's own configuration, and refuses to create a container that would run as root: a user that is missing, `root` or the id 0. A user given by name is refused as well. Which id a name stands for is written in the image's `/etc/passwd`, which the agent does not read, and an image is free to give the id 0 a second name; a numeric id is the one thing that can be held to. The remedy is in the message: `user: "1000:1000"`, with the id the image's user has.
+
+`shipwick validate` already refuses `user: root` or a name next to `non_root`. What the image says is known once it is on the server, so a deployment of an image that runs as root fails there, after the pull and before anything is started, with the previous version still serving:
+
+```text
+security.non_root refuses image nginx:1.27: it names no user, and a container without one runs as root; set user in deploy.yaml to a numeric id the image can run as, e.g. user: "1000:1000", or build the image with a USER instruction
+```
+
+Every container made later from the same deployment — a restart, a job, a command — is held to the same check when it is created, because a tag can come to name another image.
+
+**What the block does not touch.** The seccomp and AppArmor profiles are Docker's defaults for every container, with or without it, and there is no key to change them; user namespaces are the daemon's to configure.
+
+**An agent older than 0.8 does not know `security`** and refuses a `deploy.yaml` that has it, as it refuses every key it does not know: the application is not deployed without what the block asks for, and `shipwick deploy` says that the server is older than the file and how to upgrade it. An export is the exception: an agent older than 0.8 that imports an export written by a newer one reads the applications without the block.
+
 ### A distroless agent image
 
 The agent image contains the agent binary and CA certificates. It has no shell and no package manager. The binary is statically linked.
 
 ### Verified installation
 
-Everything the installer fetches comes from one release and is verified against that release's checksums. Downloads are HTTPS-only. A checksum mismatch installs nothing and leaves a running installation as it was. The three images — the agent, the dashboard and the proxy, Shipwick's own build of Caddy with the Cloudflare DNS module and nothing else added — are pinned to the release's version.
+Everything the installer fetches comes from one release and is verified against that release's checksums. Downloads are HTTPS-only. A checksum mismatch installs nothing and leaves a running installation as it was. The three images — the agent, the dashboard and the proxy, Shipwick's own build of Caddy with the Cloudflare DNS module and Shipwick's own way of finding replicas, and nothing else added — are pinned to the release's version.
 
-Since 0.7 the images of a [bundle](/docs/tasks/corporate-network#install-on-a-server-with-no-way-out) are proven too. A release publishes `image-digests.txt`, listed in its `checksums.txt`; `shipwick server bundle` checks the archive of images against it before it writes the bundle, and the installer checks what Docker loaded before it replaces anything. The Debian and RPM packages of the agent are files of the release, verified against `checksums.txt` like the others; they are not signed.
+Since 0.7 the images of a [bundle](/docs/tasks/corporate-network#install-on-a-server-with-no-way-out) are proven too. A release publishes `image-digests.txt`, listed in its `checksums.txt`; `shipwick server bundle` checks the archive of images against it before it writes the bundle, and the installer checks what Docker loaded before it replaces anything. The Debian and RPM packages of the agent are files of the release, verified against `checksums.txt` like the others; they carry no signature of their own.
+
+### Signed releases
+
+The checksums say that the files are the ones the release lists. Since 0.8.0 a signature says who wrote the list: `checksums.txt` — and through it every binary, package, the compose file, the installer and the digests of the images — is signed by the workflow that published the release, and so is each image, by digest.
+
+- **No key is stored anywhere.** GitHub tells Sigstore which workflow is running and for which tag, Sigstore issues a certificate for that identity that is valid for ten minutes, and the signature goes into a public log.
+- **What it proves** is that the file or image was produced by that workflow file, at that tag, in that repository: a commit you can read. It does not prove that the commit is good.
+- **The installer, `shipwick upgrade` and `shipwick server bundle` verify it when cosign (2.4 or later) is installed**, and stop if the signature is not the release workflow's. Without cosign, which is every new server, they say that the signature was not checked and go by the checksums, as before.
+- **`SHIPWICK_REQUIRE_SIGNATURE=1` makes the installer refuse anything short of a verified signature.** Without it a release that has no signature is installed with a warning: releases before 0.8.0 have none, and the installer cannot tell one of those from a release whose signature somebody removed.
+- **Each file and each image has a provenance attestation**, kept by GitHub, and each binary and image a bill of materials in SPDX.
+
+The commands, with the identity they must match: [Verify a release](/docs/tasks/verify-a-release).
 
 With a hostname for the API, the installer saves the URL and the token as a context of the user who runs it, so that `shipwick` works on the server. The token goes to the CLI on standard input, never as an argument, and the CLI writes its own file, mode `0600`.
 
@@ -258,7 +357,7 @@ Everything else that leaves the server does so because you configured it: the we
 - `shipwick login` verifies the token against the agent before saving it, unless `--no-check` says not to, for a hostname whose DNS record or certificate does not exist yet. `shipwick server status` shows which token and role you are using.
 - The values `shipwick` stores on the server are never arguments either: a secret, a registry password and the passphrase of an export are asked for without echo or piped in, and a certificate's key is read from a file.
 - `shipwick token create` prints the new token once, to standard output, and never stores it; put it in the CI secret and move on.
-- `shipwick upgrade` writes the new binary next to the old one and renames it over only once its SHA-256 matches the release's `checksums.txt`. A binary under Homebrew's or winget's directories is left to the package manager.
+- `shipwick upgrade` writes the new binary next to the old one and renames it over only once its SHA-256 matches the release's `checksums.txt`. With cosign on the machine, `checksums.txt` is first verified against the release's [signature](#signed-releases), and a signature that does not verify changes nothing; cosign is run as a program with arguments, never through a shell. A binary under Homebrew's or winget's directories is left to the package manager.
 
 ### Session handling in the dashboard
 
@@ -313,7 +412,8 @@ Vulnerabilities:
 - input in `deploy.yaml` or an API request that executes something on the server itself, escapes the fields it belongs to (proxy configuration, container names, file paths, logging options), or yields a privileged container, a host mount, or a published host port that `publish` did not ask for;
 - an application container that can reconfigure the proxy, reach the agent's data, or claim a hostname or a server port held by another application;
 - the CLI sending a saved token somewhere other than the agent it was saved for;
-- the installer, or `shipwick upgrade`, fetching or running something it did not verify.
+- the installer, or `shipwick upgrade`, fetching or running something it did not verify;
+- a file or an image that verifies as signed by this repository's release workflow and was not produced by it, or a way to make the installer or `shipwick upgrade` accept a signature that is not that workflow's; see [Signed releases](#signed-releases).
 
 Expected behavior, not vulnerabilities:
 
@@ -321,6 +421,7 @@ Expected behavior, not vulnerabilities:
 - anyone with access to the Docker socket, the agent's data directory or Caddy's admin socket doing the same;
 - root on the server reading `encryption.key`, or `docker inspect` showing a running container's environment;
 - a port published with `publish` being reachable despite the host firewall;
-- exposing port 9000 to the internet against the documentation's advice.
+- exposing port 9000 to the internet against the documentation's advice;
+- an installation without cosign going by the release's checksums alone: the installer says so, and `SHIPWICK_REQUIRE_SIGNATURE=1` refuses instead.
 
 If you are unsure which list something belongs to, report it privately anyway.

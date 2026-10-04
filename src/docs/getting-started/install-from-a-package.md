@@ -24,7 +24,7 @@ You need:
 
 ## Install the package
 
-Each release has four packages: `shipwick-agent_amd64.deb`, `shipwick-agent_arm64.deb`, `shipwick-agent_amd64.rpm` and `shipwick-agent_arm64.rpm`. They are files of the release, listed in its `checksums.txt` like the others. They are not signed, and there is no package repository.
+Each release has four packages: `shipwick-agent_amd64.deb`, `shipwick-agent_arm64.deb`, `shipwick-agent_amd64.rpm` and `shipwick-agent_arm64.rpm`. They are files of the release, listed in its `checksums.txt` like the others. Since 0.8.0 that file is signed, and [Verify a release](/docs/tasks/verify-a-release#verify-the-files) has the command that verifies it; the packages carry no signature of their own, and there is no package repository.
 
 ```bash
 curl -fsSLO https://github.com/shipwick/shipwick/releases/latest/download/shipwick-agent_amd64.deb
@@ -71,7 +71,7 @@ systemctl enable --now shipwick-agent
 docker compose --env-file /etc/shipwick/agent.env -f /usr/share/shipwick/compose.yml up -d
 ```
 
-In that order: the agent creates the two Docker networks the compose file joins. The agent finds the proxy by the compose project `shipwick` and the service `caddy`, and talks to it through a socket in `/run/shipwick`.
+In that order: the agent creates the three Docker networks the compose file joins. The agent finds the proxy by the compose project `shipwick` and the service `caddy`, and talks to it through a socket in `/run/shipwick`.
 
 The API token is `SHIPWICK_AGENT_TOKEN` in `/etc/shipwick/agent.env`. It is the [root token](/docs/getting-started/install#the-api-token): keep the file private.
 
@@ -85,7 +85,12 @@ shipwick login --url http://127.0.0.1:9000
 
 A laptop reaches it through an [SSH tunnel](/docs/tasks/access-without-a-hostname).
 
-The proxy and the dashboard are containers, and a container does not reach the host's loopback. To serve the API at a hostname, or to use the dashboard, the agent listens on the address of Docker's bridge instead. `ip -4 addr show docker0` shows it; it is `172.17.0.1` unless Docker was configured otherwise:
+The proxy and the dashboard are containers, and a container does not reach the host's loopback.
+
+- **For the API at a hostname**, set `SHIPWICK_AGENT_DOMAIN`. Since 0.8 the agent then also listens on the address the server has on the `shipwick-control` network, which is where the proxy is sent; there it answers the addresses of that network only.
+- **For the dashboard**, the agent listens on the address of Docker's bridge instead of loopback. `ip -4 addr show docker0` shows it; it is `172.17.0.1` unless Docker was configured otherwise.
+
+With both:
 
 ```bash
 # /etc/shipwick/agent.env
@@ -100,7 +105,7 @@ Then restart the agent:
 systemctl restart shipwick-agent
 ```
 
-That address is reachable from the containers of this server and from nowhere else. A firewall on the server that filters traffic from Docker's networks (`ufw`, `firewalld`) must let port 9000 through from them.
+Those addresses are reachable from the containers of this server and from nowhere else, and the agent refuses the containers of applications there: see [Who can reach the API](/docs/security#who-can-reach-the-api). A firewall on the server that filters traffic from Docker's networks (`ufw`, `firewalld`) must let port 9000 through from the `shipwick-control` network.
 
 ::: warning Never give the API a public address
 The API is plain HTTP. On a public address the token travels in clear text, and an admin token is root on the server. The ways in are the proxy, over HTTPS, and the server itself.
@@ -123,6 +128,12 @@ sudo apt install ./shipwick-agent_amd64.deb
 docker compose --env-file /etc/shipwick/agent.env -f /usr/share/shipwick/compose.yml up -d
 ```
 
+::: warning Coming from 0.7, the compose command is not optional
+It moves the proxy and the dashboard onto the `shipwick-control` network. Until it has run, the agent refuses both, as it refuses any container that calls from an application network.
+:::
+
+The upgrade of the installer's installation was walked from every release; the packages were not. See [Upgrade Shipwick](/docs/tasks/upgrade#what-an-upgrade-does).
+
 The [notice about a newer release](/docs/tasks/upgrade#a-notice-when-a-newer-release-exists) in `shipwick server status` names the installer. On a server installed from a package, the package is what to install.
 
 ## Remove
@@ -139,3 +150,4 @@ An installation made by the installer keeps its data in a Docker volume; one mad
 - [Agent configuration](/docs/reference/agent-configuration): every variable that can go into `agent.env`.
 - [Upgrade Shipwick](/docs/tasks/upgrade): what happens to running applications while the agent restarts.
 - [Security](/docs/security): what the API token is worth.
+- [Prepare a server](/docs/tasks/prepare-a-server): SSH keys, security updates, swap, a firewall, backups elsewhere.

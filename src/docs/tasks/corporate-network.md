@@ -150,20 +150,21 @@ shipwick server bundle --arch amd64
 ```
 
 ```text
-✓ Release v0.7.0: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
-✓ The three images are the ones release v0.7.0 published for linux/amd64
-✓ Wrote shipwick-v0.7.0-linux-amd64.tar.gz (113 MB)
+✓ Release v0.8.0: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
+✓ Release v0.8.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)
+✓ The three images are the ones release v0.8.0 published for linux/amd64
+✓ Wrote shipwick-v0.8.0-linux-amd64.tar.gz (113 MB)
 
 Copy it to the server, and there, as root:
-  tar -xzf shipwick-v0.7.0-linux-amd64.tar.gz
-  sh shipwick-v0.7.0-linux-amd64/install.sh
+  tar -xzf shipwick-v0.8.0-linux-amd64.tar.gz
+  sh shipwick-v0.8.0-linux-amd64/install.sh
 The server needs Docker Engine and the Compose plugin; nothing is downloaded there.
 checksums.txt of the release: sha256 646205a7…
 ```
 
-This is the output for a release from 0.7.0 on. The bundle of 0.6.0 has no second line: see [The images are proven too](#the-images-are-proven-too).
+This is the output for a release from 0.8.0 on, on a machine with cosign. Without cosign the second line reads `The release's signature was not checked: cosign is not installed on this machine.`, and for a release before 0.8.0 `Release v0.7.0 has no signature: releases before 0.8.0 were not signed.`: see [The signature is checked where the bundle is made](#the-signature-is-checked-where-the-bundle-is-made). The bundle of 0.6.0 has no line about its images: see [The images are proven too](#the-images-are-proven-too).
 
-The bundle holds the release's compose file, installer and checksums, the `shipwick` binary for the server, and the three images in one archive, pulled for the server's architecture.
+The bundle holds the release's compose file, installer, checksums and, since 0.8.0, their signature, the `shipwick` binary for the server, and the three images in one archive, pulled for the server's architecture.
 
 | Flag | |
 |---|---|
@@ -189,12 +190,18 @@ Two bundles are not proven, and both the command and the installer say so: one m
 
 Everything in a bundle follows from its `checksums.txt`, and the bundle brings that file itself: on the server, the checks tell a damaged or mixed-up bundle, not one that somebody rebuilt on purpose. Against that, both ends print the SHA-256 of `checksums.txt`. Compare the line `shipwick server bundle` printed with the one the installer prints.
 
+### The signature is checked where the bundle is made
+
+Since 0.8.0 a release's `checksums.txt` is signed by the workflow that published it. With cosign (2.4 or later) installed on the machine that makes the bundle, `shipwick server bundle` verifies that signature before it downloads anything else, and says which it was: verified, not checked for want of cosign, or a release from before releases were signed. A signature that does not verify, and with cosign installed a release from 0.8.0 on that has none, stops the command, and no bundle is written.
+
+The signature travels in the bundle as `checksums.txt.sigstore.json`. The installer on the server does not verify it by itself: cosign asks Sigstore for the keys it trusts, and that server reaches nothing. With `SHIPWICK_REQUIRE_SIGNATURE=1` it does, for a server whose cosign was given those keys beforehand. See [Verify a release](/docs/tasks/verify-a-release).
+
 ### On the server
 
 Copy the file by whatever means the network allows, unpack it and run the installer inside it. It is the same installer and asks the same questions; it downloads nothing and pulls nothing:
 
 ```text
-✓ The bundle is complete (/root/shipwick-v0.7.0-linux-amd64)
+✓ The bundle is complete (/root/shipwick-v0.8.0-linux-amd64)
   checksums.txt of the release: sha256 646205a7…
 ✓ Docker 29.8.2 with Compose 5.5.1
 ✓ Loaded the images from the bundle
@@ -212,7 +219,7 @@ Copy the file by whatever means the network allows, unpack it and run the instal
 
 What such a server needs besides:
 
-- **Docker.** The bundle does not bring it. Install Docker Engine and the Compose plugin from your distribution's packages, copied to the server, or from Docker's static binaries ([docs.docker.com/engine/install/binaries](https://docs.docker.com/engine/install/binaries/)); the installer checks for both before it changes anything.
+- **Docker.** The bundle does not bring it. Install Docker Engine and the Compose plugin, 2.23.1 or later, from your distribution's packages, copied to the server, or from Docker's static binaries ([docs.docker.com/engine/install/binaries](https://docs.docker.com/engine/install/binaries/)); the installer checks for both before it changes anything.
 - **Your applications' images.** With `build:` in `deploy.yaml`, `shipwick deploy` builds on your machine and sends the image through the agent: no registry is involved. An `image:` has to come from a registry the server reaches, inside the company; its certificate and credentials are Docker's, as above, and [`shipwick registry login`](/docs/tasks/private-registries).
 - **Certificates.** Let's Encrypt is out of reach: an ACME server of your own, or certificates you supply, as above.
 - **Nothing else.** DNS falls back to the server's resolver by itself. The webhook, the bucket and the sign-in provider, if you use them, are inside the company, with `SHIPWICK_CA_FILE` when their certificates are. `shipwick doctor` on such a network reports that it could not check for a newer release, and goes on. The agent's own daily question about one goes unanswered and unnoticed; `SHIPWICK_UPDATE_CHECK=off` spares it the attempt.
