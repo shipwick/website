@@ -109,6 +109,7 @@ See [Restore a backup the server keeps](/docs/tasks/backups#restore-a-backup-the
 - **Static applications** are deployed again from their folders, with `shipwick deploy`.
 - **Hostnames** point at the old server's address: change their DNS records to the new one. Certificates are obtained again once they do.
 - API tokens other than the one in `.env` come back with the database, as do the access rules and the audit trail.
+- **The log archive** is not in the backup: seven daily copies of every line would be most of it. A restored database starts with an empty archive. See [Find out why it died](/docs/tasks/find-out-why-it-died#where-it-is-and-where-it-is-not).
 
 ## In the dashboard
 

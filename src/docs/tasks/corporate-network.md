@@ -19,8 +19,9 @@ A server whose way to the internet is a proxy has several programs that go out, 
 | Notifications to the webhook, backups to the bucket | the agent | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`; `SHIPWICK_CA_FILE` |
 | Certificates: the certificate authority, Cloudflare's API | Caddy | the same three variables; `SHIPWICK_ACME_DIRECTORY` |
 | Whether a hostname points at the server | the agent, by DNS | `SHIPWICK_DNS_RESOLVERS` |
+| Whether a newer release exists, once a day, since 0.7 | the agent, to GitHub | the same three variables; `SHIPWICK_CA_FILE`. `SHIPWICK_UPDATE_CHECK=off` stops it |
 | The installer's downloads | `curl` or `wget` | `HTTPS_PROXY` |
-| `shipwick` to the agent and to GitHub (`upgrade`, `doctor`) | the CLI | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`; `SHIPWICK_CA_FILE` |
+| `shipwick` to the agent and to GitHub (`upgrade`, `doctor`, `server bundle`) | the CLI | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`; `SHIPWICK_CA_FILE` |
 
 Health checks, requests from Caddy to replicas, the Docker socket and Caddy's admin socket never go through a proxy, whatever the variables say. Neither does a request to a name without a dot — a container or an application on the server's own networks — so those need no entry in `NO_PROXY`. The dashboard talks to the agent only, inside the server, and to nothing else.
 
@@ -149,14 +150,18 @@ shipwick server bundle --arch amd64
 ```
 
 ```text
-✓ Release v0.6.0: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
-✓ Wrote shipwick-v0.6.0-linux-amd64.tar.gz (… MB)
+✓ Release v0.7.0: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
+✓ The three images are the ones release v0.7.0 published for linux/amd64
+✓ Wrote shipwick-v0.7.0-linux-amd64.tar.gz (113 MB)
 
 Copy it to the server, and there, as root:
-  tar -xzf shipwick-v0.6.0-linux-amd64.tar.gz
-  sh shipwick-v0.6.0-linux-amd64/install.sh
+  tar -xzf shipwick-v0.7.0-linux-amd64.tar.gz
+  sh shipwick-v0.7.0-linux-amd64/install.sh
 The server needs Docker Engine and the Compose plugin; nothing is downloaded there.
+checksums.txt of the release: sha256 646205a7…
 ```
+
+This is the output for a release from 0.7.0 on. The bundle of 0.6.0 has no second line: see [The images are proven too](#the-images-are-proven-too).
 
 The bundle holds the release's compose file, installer and checksums, the `shipwick` binary for the server, and the three images in one archive, pulled for the server's architecture.
 
@@ -165,16 +170,35 @@ The bundle holds the release's compose file, installer and checksums, the `shipw
 | `--arch` | `amd64` or `arm64`: the server's architecture. `amd64` unless you say otherwise. |
 | `--version <tag>` | A release other than the latest. A bundle can be made of 0.6.0 and later. |
 | `-o <file>` | Where to write the bundle. Default: `shipwick-<version>-linux-<arch>.tar.gz` in the current directory. |
-| `--no-pull` | Save the images this machine has under the release's names instead of pulling them. |
+| `--no-pull` | Save the images this machine has under the release's names instead of pulling them. They are not checked against the release's digests. |
 
 The release's files are verified against its checksums when the bundle is made and again by the installer on the server; the image archive carries a checksum of its own, so a copy that arrived damaged is refused before anything is changed.
+
+### The images are proven too
+
+From 0.7.0 on, a release publishes `image-digests.txt`, listed in its `checksums.txt` like every other file: for each image the digest of its manifest list and, for each platform, the digest of the manifest and of the image's configuration, read back from the registry after the release pushed them.
+
+- **`shipwick server bundle` reads the archive `docker save` wrote** before it goes into the bundle. It must hold the configuration the release published for the server's platform and the layers that configuration lists, and name that image, and no other, by the release's tag. An archive that does not is refused, and no bundle is written.
+- **The installer checks once more what Docker made of the archive** — the ID of each loaded image against the same file — before it replaces the compose file. An image that is not the release's is removed again, and the installation is left as it was.
+
+Two bundles are not proven, and both the command and the installer say so: one made with `--no-pull`, whose images are whatever the machine had under the release's names, and one of a release before 0.7.0, which published no digests. The installer's line:
+
+```text
+! The images in this bundle were not checked against the release's digests: it was made with --no-pull, or of a release before 0.7.0.
+```
+
+Everything in a bundle follows from its `checksums.txt`, and the bundle brings that file itself: on the server, the checks tell a damaged or mixed-up bundle, not one that somebody rebuilt on purpose. Against that, both ends print the SHA-256 of `checksums.txt`. Compare the line `shipwick server bundle` printed with the one the installer prints.
+
+### On the server
 
 Copy the file by whatever means the network allows, unpack it and run the installer inside it. It is the same installer and asks the same questions; it downloads nothing and pulls nothing:
 
 ```text
-✓ The bundle is complete (/root/shipwick-v0.6.0-linux-amd64)
+✓ The bundle is complete (/root/shipwick-v0.7.0-linux-amd64)
+  checksums.txt of the release: sha256 646205a7…
 ✓ Docker 29.8.2 with Compose 5.5.1
 ✓ Loaded the images from the bundle
+✓ The images are the ones the release published
 ✓ Installed /opt/shipwick/compose.yml
 ✓ Wrote /opt/shipwick/.env
 ✓ Started the Shipwick services
@@ -191,7 +215,7 @@ What such a server needs besides:
 - **Docker.** The bundle does not bring it. Install Docker Engine and the Compose plugin from your distribution's packages, copied to the server, or from Docker's static binaries ([docs.docker.com/engine/install/binaries](https://docs.docker.com/engine/install/binaries/)); the installer checks for both before it changes anything.
 - **Your applications' images.** With `build:` in `deploy.yaml`, `shipwick deploy` builds on your machine and sends the image through the agent: no registry is involved. An `image:` has to come from a registry the server reaches, inside the company; its certificate and credentials are Docker's, as above, and [`shipwick registry login`](/docs/tasks/private-registries).
 - **Certificates.** Let's Encrypt is out of reach: an ACME server of your own, or certificates you supply, as above.
-- **Nothing else.** DNS falls back to the server's resolver by itself. The webhook, the bucket and the sign-in provider, if you use them, are inside the company, with `SHIPWICK_CA_FILE` when their certificates are. `shipwick doctor` on such a network reports that it could not check for a newer release, and goes on.
+- **Nothing else.** DNS falls back to the server's resolver by itself. The webhook, the bucket and the sign-in provider, if you use them, are inside the company, with `SHIPWICK_CA_FILE` when their certificates are. `shipwick doctor` on such a network reports that it could not check for a newer release, and goes on. The agent's own daily question about one goes unanswered and unnoticed; `SHIPWICK_UPDATE_CHECK=off` spares it the attempt.
 
 ## What's next
 

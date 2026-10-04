@@ -1,6 +1,6 @@
 ---
 title: REST API
-description: Reference of the Shipwick agent's REST API, covering authentication and roles, tokens, signing in and the audit trail, the response and error envelopes, every error code and endpoint, the asynchronous deployment pattern, log streaming, volume archives and backups, traffic, certificates, registries, export and import, the Prometheus endpoint, jobs and runs, and the wire types.
+description: Reference of the Shipwick agent's REST API, covering authentication and roles, tokens, signing in and the audit trail and its export, the log archive and its search, the document of what an application runs, the response and error envelopes, every error code and endpoint, the asynchronous deployment pattern, log streaming, volume archives and backups, traffic, certificates, registries, export and import, the Prometheus endpoint, jobs and runs, and the wire types.
 ---
 
 # REST API
@@ -36,11 +36,11 @@ A token has a **role**, and every endpoint requires one. A role includes the one
 
 | Role | May |
 |---|---|
-| `read` | See everything: `GET /server`, `/applications…`, `/deployments…`, logs, events, metrics, traffic and requests, volumes, the list of backups, jobs and runs, the names of the secrets, the registries that have a credential, the supplied certificates, the volumes on the server, what a standby holds (`/standby` and `/standby/promotion`), and `GET /metrics` |
-| `deploy` | And change what runs: `deploy`, `validate`, `redeploy`, `rollback`, `stop`, `start`, run a job or a one-off command, upload an image or a static folder, take a backup and verify one |
-| `admin` | And everything else: `DELETE /applications/:name`, the volume archives, restoring, downloading and removing a backup, removing a volume, the `/tokens` endpoints, setting and removing `/secrets`, `/registries` and `/certificates`, `POST /server/rotate-key`, the backups of the agent's own state, adopting backups, export, import, pulling and promoting a standby, `GET /audit`, and the `/access` endpoints |
+| `read` | See everything: `GET /server`, `/applications…`, `/deployments…`, logs, the log archive and its search, events, metrics, traffic and requests, volumes, the list of backups, jobs and runs, the names of the secrets, the registries that have a credential, the supplied certificates, the volumes on the server, what a standby holds (`/standby` and `/standby/promotion`), and `GET /metrics` |
+| `deploy` | And change what runs: `deploy`, `validate`, `redeploy`, `rollback`, `stop`, `start`, run a job or a one-off command, upload an image or a static folder, take a backup and verify one; since 0.7 `POST /applications` and `POST /validate`, which take a document that names its application, and `GET /applications/:name/config`, the document of what runs |
+| `admin` | And everything else: `DELETE /applications/:name`, the volume archives, restoring, downloading and removing a backup, removing a volume, the `/tokens` endpoints, setting and removing `/secrets`, `/registries` and `/certificates`, `POST /server/rotate-key`, the backups of the agent's own state, adopting backups, export, import, pulling and promoting a standby, `GET /audit`, `GET /audit/export`, and the `/access` endpoints |
 
-A `deploy` token may be **limited to applications**. It then has the `deploy` row for the applications it names and the `read` row for everything. Every endpoint of the `deploy` row is under `/applications/:name`, and `:name` is what is checked, also when a `deploy` would create the application. For another application the answer is `403 TOKEN_LIMITED`:
+A `deploy` token may be **limited to applications**. It then has the `deploy` row for the applications it names and the `read` row for everything. An endpoint of the `deploy` row is under `/applications/:name`, and `:name` is what is checked, also when a `deploy` would create the application; or, since 0.7, it takes a `deploy.yaml` as its body (`POST /applications`, `POST /validate`), and the `name` in that document is what is checked, before anything else of the document is read. For another application the answer is `403 TOKEN_LIMITED`:
 
 ```json
 {
@@ -52,9 +52,9 @@ A `deploy` token may be **limited to applications**. It then has the `deploy` ro
 }
 ```
 
-An endpoint that takes `deploy` and is not about one application is refused to a limited token in the same way, without `application` in the details; there is none today. The role is judged first: what takes `admin` is `403 FORBIDDEN` for a limited token as for any other `deploy` token. `read` and `admin` tokens cannot be limited.
+An endpoint that takes `deploy` and is not about one application is refused to a limited token in the same way, without `application` in the details; there is none today. So is a document without a name that can be read — not YAML, no `name`, not a valid name — with a message that ends in `and the document does not name an application`; a token that is not limited gets the `400 INVALID_CONFIG` of the document instead. The role is judged first: what takes `admin` is `403 FORBIDDEN` for a limited token as for any other `deploy` token. `read` and `admin` tokens cannot be limited.
 
-There are two kinds of token. The **root token** is the one the agent is configured with: `SHIPWICK_AGENT_TOKEN`, or the one generated on first start. It has the `admin` role and the name `root`, is not stored in the database and cannot be revoked through the API. Every other token is created with [`POST /tokens`](#post-tokens), named, given a role, optionally a list of applications and a time at which it expires, and shown exactly once.
+There are two kinds of token. The **root token** is the one the agent is configured with: `SHIPWICK_AGENT_TOKEN`, or the one generated on first start. It has the `admin` role and the name `root`, is not stored in the database and cannot be revoked through the API. Every other token is created with [`POST /tokens`](#post-tokens), named, given a role, optionally a list of applications and a time at which it expires, and shown exactly once. Since 0.7 its applications and its expiry can be changed with [`PUT /tokens/:name`](#put-tokens-name); its role and its value cannot.
 
 The agent holds only the SHA-256 hash of each token. The presented token is hashed, the root token's hash is compared in constant time, and a stored token is found by its hash and compared in constant time as well, so neither a token's content nor its length leaks through timing. Each use of a stored token is recorded, to the minute, as its `last_used_at`.
 
@@ -93,9 +93,9 @@ Only the token itself gets this answer, so it tells nothing to anyone who does n
            "applications": ["my-api"], "expires_at": "2027-01-01T00:00:00Z" }
 ```
 
-`kind` is `"token"`, or `"user"` for a person who [signed in](#post-auth-exchange): `name` is then the e-mail address, and what follows is said of the session. `applications` is the list a token is limited to, and empty for one that is not limited; `expires_at` is `null` for one that does not expire. From these a client knows what to offer: what takes `deploy` on an application is allowed when `role` is `admin`, or when `role` is `deploy` and `applications` is empty or names that application. An agent before 0.6 sends `name` and `role` only.
+`kind` is `"token"`, or `"user"` for a person who [signed in](#post-auth-exchange): `name` is then the person's name — the e-mail address, or what the agent names people by — and what follows is said of the session. `applications` is the list a token is limited to, and empty for one that is not limited; `expires_at` is `null` for one that does not expire. From these a client knows what to offer: what takes `deploy` on an application is allowed when `role` is `admin`, or when `role` is `deploy` and `applications` is empty or names that application. An agent before 0.6 sends `name` and `role` only.
 
-Next to it, `"sign_in": {"configured": true, "issuer": "https://accounts.example.com"}` says whether people can sign in at all; an agent before 0.6 leaves it out. With an OpenID Connect provider configured on the agent, a person signs in at the provider and the agent issues a **session**: a credential that is presented exactly like a token, `Authorization: Bearer sws_…`, and is the same kind of caller, with a role, optionally a list of applications, and an `expires_at`. Everything in this section holds for it: the role table, the application limit, `GET /server` → `token`, the [audit trail](#get-audit). A session that is refused for its role or its limit gets the same codes as a token, `FORBIDDEN` and `TOKEN_LIMITED`, with "this session" in the message. Tokens are not affected by sign-in. See [`POST /auth/exchange`](#post-auth-exchange).
+Next to it, `"sign_in": {"configured": true, "issuer": "https://accounts.example.com", "name_claim": "email"}` says whether people can sign in at all; an agent before 0.6 leaves it out. `name_claim` is the ID token claim people are named by, `""` without a provider; an agent before 0.7 leaves it out, and names people by `email`. With an OpenID Connect provider configured on the agent, a person signs in at the provider and the agent issues a **session**: a credential that is presented exactly like a token, `Authorization: Bearer sws_…`, and is the same kind of caller, with a role, optionally a list of applications, and an `expires_at`. Everything in this section holds for it: the role table, the application limit, `GET /server` → `token`, the [audit trail](#get-audit). A session that is refused for its role or its limit gets the same codes as a token, `FORBIDDEN` and `TOKEN_LIMITED`, with "this session" in the message. Tokens are not affected by sign-in. See [`POST /auth/exchange`](#post-auth-exchange).
 
 See [Agent configuration](/docs/reference/agent-configuration#api-token), [Create tokens for CI and teammates](/docs/tasks/tokens) and [Sign in with your company's accounts](/docs/tasks/sign-in).
 
@@ -123,26 +123,26 @@ Failure. `details` is always an object, empty when there is nothing to add:
 }
 ```
 
-Five kinds of response have no envelope: `204 No Content` from `DELETE`, from the volume restore and from setting a secret or a registry credential; the NDJSON stream of followed logs; a tar archive, which is the body of `GET` and `PUT …/volumes/:volume/archive` both ways and of a backup's archive; the export that `POST /export` streams; and the Prometheus text of `GET /metrics`. Errors are the JSON envelope everywhere.
+Six kinds of response have no envelope: `204 No Content` from `DELETE`, from the volume restore and from setting a secret or a registry credential; the NDJSON stream of followed logs; a tar archive, which is the body of `GET` and `PUT …/volumes/:volume/archive` both ways and of a backup's archive; the export that `POST /export` streams; the CSV or NDJSON that `GET /audit/export` streams; and the Prometheus text of `GET /metrics`. Errors are the JSON envelope everywhere.
 
 ## Error codes
 
 | HTTP | `code` | Meaning |
 |---|---|---|
-| 400 | `INVALID_REQUEST` | Malformed application name, volume name, job name, deployment or run id, or query parameter; the name in the document differs from the name in the URL; an invalid or oversized JSON body (the limit is 4096 bytes), or an unknown field in it; an invalid `image` in a redeploy or rollback request; a missing or invalid `command` in a run request, or a `name` or `role` in a token request, `applications` on a token that is not a `deploy` token, or an `expires_at` that has passed; an access rule whose `kind`, `subject`, `role` or `applications` breaks the rules, or a 201st rule; a sign-in request with a missing or malformed field, or a `redirect_uri` that is not the configured one; `DELETE /auth/session` sent with a token; an invalid `since` or `before` of the audit trail; a restore body that is not `Content-Type: application/x-tar` or does not start with a tar header; an image archive that is not sent as `application/x-tar`, or that does not carry exactly one image tagged `shipwick.local/<name>:<tag>`; a `deploy.yaml` with `build` but no `image`, or a redeploy of such an application with an image from elsewhere; a static upload that is not `application/x-tar`, holds no files, or holds anything but files and directories; a static `deploy` without `?static=`, or `?static=` on a container application; a secret's name or value that breaks the rules, or a 501st secret; a volume name that is not `shipwick_<application>_<volume>`; revoking `root`; a backup or export id that is not a positive number; a `layers` list that is empty, longer than 256 or holds anything but diff IDs; a registry name with a scheme or a path, a username or password that breaks the rules, or a 51st registry; a certificate's hostname that is not one, a missing or oversized `certificate` or `key`, or a 51st certificate; an export passphrase shorter than 12 characters; an import that is not sent as `application/octet-stream` or carries no passphrase header; a key rotation asked of an agent that has no encryption key. |
-| 400 | `INVALID_CONFIG` | `deploy.yaml` failed validation. `details.fields` lists every problem as `{field, message, expected}`; `expected` is omitted when there is nothing to suggest. Also returned when a hostname is already served by another application (as its domain, an alias or a redirect), by the agent or by the dashboard: one entry whose `field` names the offending line, `domain`, `aliases[0]`, `redirects[1]`, and whose `message` names the owner. And with the field `publish[i].host` when a server port the configuration publishes is already published by another application, or is one the agent or the proxy listens on. Returned by `redeploy` and `rollback` too, since a stored configuration's hostnames and ports may have been taken since. Also when an `env` value refers to a `${NAME}` that is not among the stored [secrets](#get-secrets): one entry per reference, `field` `env.<VARIABLE>`, `expected` the command that stores it; the same for a password of `proxy.basic_auth`, under the field `proxy.basic_auth[i].password`. When two applications want the same path of a hostname, the field is `path`, or `domain` or `aliases[i]` for an application that names no path. And for a wildcard hostname (`*.example.com` as `domain` or an alias) that no certificate can be had for: the agent has no DNS challenge configured and no supplied [certificate](#put-certificates-hostname) covers it; `expected` says both ways out. |
+| 400 | `INVALID_REQUEST` | Malformed application name, volume name, job name, deployment or run id, or query parameter; the name in the document differs from the name in the URL; an invalid or oversized JSON body (the limit is 4096 bytes), or an unknown field in it; an invalid `image` in a redeploy or rollback request; a missing or invalid `command` in a run request, or a `name` or `role` in a token request, `applications` on a token that is not a `deploy` token, or an `expires_at` that has passed; an access rule whose `kind`, `subject`, `role` or `applications` breaks the rules, or a 201st rule; a sign-in request with a missing or malformed field, or a `redirect_uri` that is not the configured one; `DELETE /auth/session` sent with a token; an invalid `since`, `before`, `actor_kind`, `action` or `outcome` of the audit trail, more than 20 actions, an export of it without `format` or with `limit` or `before`; a token update that names nothing to change, names both `expires_at` and `never_expires`, or is asked of `root`; a search of the logs whose `q` is longer than 256 bytes or has a line break, whose times are not RFC 3339, whose `until` is before its `since`, or whose `cursor` no answer returned; a restore body that is not `Content-Type: application/x-tar` or does not start with a tar header; an image archive that is not sent as `application/x-tar`, or that does not carry exactly one image tagged `shipwick.local/<name>:<tag>`; a `deploy.yaml` with `build` but no `image`, or a redeploy of such an application with an image from elsewhere; a static upload that is not `application/x-tar`, holds no files, or holds anything but files and directories; a static `deploy` without `?static=`, or `?static=` on a container application; a secret's name or value that breaks the rules, or a 501st secret; a volume name that is not `shipwick_<application>_<volume>`; revoking `root`; a backup or export id that is not a positive number; a `layers` list that is empty, longer than 256 or holds anything but diff IDs; a registry name with a scheme or a path, a username or password that breaks the rules, or a 51st registry; a certificate's hostname that is not one, a missing or oversized `certificate` or `key`, or a 51st certificate; an export passphrase shorter than 12 characters; an import that is not sent as `application/octet-stream` or carries no passphrase header; a key rotation asked of an agent that has no encryption key. |
+| 400 | `INVALID_CONFIG` | `deploy.yaml` failed validation. `details.fields` lists every problem as `{field, message, expected}`; `expected` is omitted when there is nothing to suggest. Also returned when a hostname is already served by another application (as its domain, an alias or a redirect), by the agent or by the dashboard: one entry whose `field` names the offending line, `domain`, `aliases[0]`, `redirects[1]`, and whose `message` names the owner. And with the field `publish[i].host` when a server port the configuration publishes is already published by another application, or is one the agent or the proxy listens on. Returned by `redeploy` and `rollback` too, since a stored configuration's hostnames and ports may have been taken since. Also when an `env` value refers to a `${NAME}` that is not among the stored [secrets](#get-secrets): one entry per reference, `field` `env.<VARIABLE>`, `expected` the command that stores it; the same for a password of `proxy.basic_auth`, under the field `proxy.basic_auth[i].password`. When two applications want the same path of a hostname, the field is `path`, or `domain` or `aliases[i]` for an application that names no path. And for a wildcard hostname (`*.example.com` as `domain` or an alias) that no certificate can be had for: the agent has no DNS challenge configured and no supplied [certificate](#put-certificates-hostname) covers it; `expected` says both ways out. Since 0.7 also for a document that holds `"********"`, the mask, as an `env` value or a basic-auth password: one entry per field, see [`GET /applications/:name/config`](#get-applications-name-config); and, from `POST /applications` and `POST /validate`, for a document whose name cannot be read, with the field `name`. |
 | 400 | `REGISTRY_LOGIN_FAILED` | A registry did not accept the credential of a [`PUT /registries/:registry`](#put-registries-registry), or could not be asked; `details: {registry, refused}`. Nothing was stored. |
 | 400 | `INVALID_CERTIFICATE` | The certificate or key in a [`PUT /certificates/:hostname`](#put-certificates-hostname) cannot serve that hostname; `message` is a sentence that says why. |
 | 400 | `INVALID_EXPORT` | The body of an import is not an export, its passphrase does not match, or it breaks off. |
 | 401 | `UNAUTHORIZED` | Missing, wrong or revoked token. |
 | 401 | `TOKEN_EXPIRED` | The token is a real one, past its `expires_at`; `details: {name, expired_at}`. |
 | 401 | `SESSION_EXPIRED` | The session of a person who signed in is past its ten hours; `details: {name, expired_at}`. |
-| 401 | `SESSION_ENDED` | The session was ended before its time: its rule was removed or changed, or an admin signed the person out; `details: {name, reason}`. See [`POST /auth/exchange`](#post-auth-exchange). |
+| 401 | `SESSION_ENDED` | The session was ended before its time: its rule was removed or changed, an admin signed the person out, or, since 0.7, the agent names people by another claim or no longer accepts the tenant the session came from; `details: {name, reason}`. See [`POST /auth/exchange`](#post-auth-exchange). |
 | 401 | `SIGN_IN_FAILED` | A sign-in the provider or the ID token did not carry; `details: {reason}`. |
 | 403 | `FORBIDDEN` | The token's role does not cover this endpoint. `details` is `{role, required}`. |
 | 403 | `TOKEN_LIMITED` | The role would do, and the token is limited to other applications; `details: {applications}`, and `application` when the request was about one. |
-| 403 | `ACCESS_NOT_GRANTED` | A person signed in whom no [access rule](#get-access-rules) gives a role; `details: {email}`. |
-| 404 | `NOT_FOUND` | Unknown application, deployment, volume, job, run, token, secret, backup or export, including a rollback's `deployment_id` that does not exist; a `deploy` whose `?static=` digest names no upload the agent has; a registry or a hostname nothing is stored for; `latest` when the application has no successful backup; `GET /import` when the server has run no import; `GET /standby/promotion` on a server that was never promoted; a standby pull when the bucket holds no export. |
+| 403 | `ACCESS_NOT_GRANTED` | A person signed in whom no [access rule](#get-access-rules) gives a role; `details: {name, email}`, both the person's name: `name` since 0.7, `email` kept for older clients. |
+| 404 | `NOT_FOUND` | Unknown application, deployment, volume, job, run, token, secret, backup or export, or an entry of the log archive that does not exist, belongs to another application or has aged out, including a rollback's `deployment_id` that does not exist; a `deploy` whose `?static=` digest names no upload the agent has; a registry or a hostname nothing is stored for; `latest` when the application has no successful backup; `GET /import` when the server has run no import; `GET /standby/promotion` on a server that was never promoted; a standby pull when the bucket holds no export. |
 | 404 | `ENDPOINT_NOT_FOUND` | The agent has no such operation: an older agent, a typo in the path, or a method the path does not support. There is no `405`. Answered without checking the token. |
 | 409 | `DEPLOYMENT_IN_PROGRESS` | Another operation holds this application. |
 | 409 | `NOT_DEPLOYED` | The application has no active deployment to act on. |
@@ -180,7 +180,7 @@ Paths are relative to `/api/v1`. The role is the least a token needs.
 | Method | Path | Role | |
 |---|---|---|---|
 | `GET` | [`/health`](#get-health) | none | Liveness. No token. |
-| `GET` | [`/server`](#get-server) | `read` | Facts about the host, the agent, the proxy, the disk, backups, notifications and the network, the active alerts, whether people can sign in, and the caller's own token |
+| `GET` | [`/server`](#get-server) | `read` | Facts about the host, the agent, the proxy, the disk, backups, notifications and the network, the active alerts, whether people can sign in, the caller's own token, and since 0.7 the log archive and whether a newer release exists |
 | `POST` | [`/server/rotate-key`](#post-server-rotate-key) | `admin` | Replace the key stored secrets are encrypted with and re-encrypt them |
 | `GET` | [`/server/backups`](#get-server-backups) | `admin` | The backups of the agent's own state |
 | `GET` | [`/server/backups/:id`](#get-server-backups-id) | `admin` | One of them |
@@ -190,6 +190,9 @@ Paths are relative to `/api/v1`. The role is the least a token needs.
 | `GET` | [`/applications/:name`](#get-applications-name) | `read` | One application in detail, with the certificate of each hostname |
 | `POST` | [`/applications/:name/deploy`](#post-applications-name-deploy) | `deploy` | Start a deployment from a `deploy.yaml`; `?static=<digest>` for a static application |
 | `POST` | [`/applications/:name/validate`](#post-applications-name-validate) | `deploy` | Ask whether a deployment of a `deploy.yaml` would be accepted, without deploying it |
+| `POST` | [`/applications`](#post-applications) | `deploy` | Start a deployment of the document in the body, for the application the document names. Since 0.7 |
+| `POST` | [`/validate`](#post-validate) | `deploy` | `validate` for such a document. Since 0.7 |
+| `GET` | [`/applications/:name/config`](#get-applications-name-config) | `deploy` | The `deploy.yaml` that describes what the application runs, with references to stored secrets kept and other secret values masked. Since 0.7 |
 | `POST` | [`/applications/:name/images`](#post-applications-name-images) | `deploy` | Load an image archive built by the client |
 | `POST` | [`/applications/:name/images/missing`](#post-applications-name-images-missing) | `deploy` | Which layers of an image about to be sent the server lacks |
 | `PUT` | [`/applications/:name/static`](#put-applications-name-static) | `deploy` | Upload the folder of a static application |
@@ -199,6 +202,9 @@ Paths are relative to `/api/v1`. The role is the least a token needs.
 | `POST` | [`/applications/:name/start`](#post-applications-name-start) | `deploy` | Start a stopped application |
 | `DELETE` | [`/applications/:name`](#delete-applications-name) | `admin` | Remove containers and history |
 | `GET` | [`/applications/:name/logs`](#get-applications-name-logs) | `read` | Last log lines, or a live stream |
+| `GET` | [`/applications/:name/logs/archive`](#get-applications-name-logs-archive) | `read` | What is kept of the output of ended containers and runs, newest first, without the lines. Since 0.7 |
+| `GET` | [`/applications/:name/logs/archive/:id`](#get-applications-name-logs-archive-id) | `read` | One entry with its lines. Since 0.7 |
+| `GET` | [`/applications/:name/logs/search`](#get-applications-name-logs-search) | `read` | Lines that contain a text, in the archive and in the replicas that exist, a page at a time. Since 0.7 |
 | `GET` | [`/applications/:name/events`](#get-applications-name-events) | `read` | The application's event feed |
 | `GET` | [`/applications/:name/metrics`](#get-applications-name-metrics) | `read` | Point-in-time CPU and memory |
 | `GET` | [`/applications/:name/metrics/history`](#get-applications-name-metrics-history) | `read` | CPU and memory of each replica over the last hour, day or week |
@@ -223,16 +229,18 @@ Paths are relative to `/api/v1`. The role is the least a token needs.
 | `GET` | [`/deployments/:id`](#get-deployments-id) | `read` | One deployment with configuration and events |
 | `GET` | [`/tokens`](#get-tokens) | `admin` | The stored tokens, without their values |
 | `POST` | [`/tokens`](#post-tokens) | `admin` | Create a token; the value is in this response and nowhere else |
+| `PUT` | [`/tokens/:name`](#put-tokens-name) | `admin` | Change the applications a token is limited to, its expiry, or both; the role and the value stay. Since 0.7 |
 | `DELETE` | [`/tokens/:name`](#delete-tokens-name) | `admin` | Revoke a token |
 | `GET` | [`/audit`](#get-audit) | `admin` | Who changed what, newest first |
+| `GET` | [`/audit/export`](#get-audit-export) | `admin` | Everything that matches the same filters, streamed as CSV or as one JSON object per line; itself recorded. Since 0.7 |
 | `GET` | [`/auth`](#get-auth) | none | Whether people can sign in, and what an authorization request needs. No token. |
 | `POST` | [`/auth/exchange`](#post-auth-exchange) | none | Turn the code the provider sent the browser back with into a session. No token. |
 | `DELETE` | [`/auth/session`](#delete-auth-session) | `read` | Forget the session the request is made with |
 | `GET` | [`/access/rules`](#get-access-rules) | `admin` | Who may sign in, and as what |
-| `POST` | [`/access/rules`](#post-access-rules) | `admin` | Give an address, a group or a domain a role, creating or replacing the rule |
+| `POST` | [`/access/rules`](#post-access-rules) | `admin` | Give an address, a group, a domain or a name a role, creating or replacing the rule |
 | `DELETE` | [`/access/rules/:id`](#delete-access-rules-id) | `admin` | Remove a rule; sessions that rested on it end with their next request |
 | `GET` | [`/access/sessions`](#get-access-sessions) | `admin` | Who is signed in right now |
-| `DELETE` | [`/access/sessions/:email`](#delete-access-sessions-email) | `admin` | End every session of a person |
+| `DELETE` | [`/access/sessions/:email`](#delete-access-sessions-email) | `admin` | End every session of a person, named as the sessions list them |
 | `GET` | [`/secrets`](#get-secrets) | `read` | The secrets stored on the server, names and dates only |
 | `PUT` | [`/secrets/:name`](#put-secrets-name) | `admin` | Store a secret, creating or replacing it |
 | `DELETE` | [`/secrets/:name`](#delete-secrets-name) | `admin` | Remove a secret |
@@ -267,7 +275,7 @@ Liveness, for load balancers and `shipwick server status`. It takes no token and
 | `200` | [`Health`](#health) |
 
 ```json
-{ "data": { "status": "ok", "version": "v0.6.0" } }
+{ "data": { "status": "ok", "version": "v0.7.0" } }
 ```
 
 ### GET /server
@@ -279,13 +287,13 @@ Liveness, for load balancers and `shipwick server status`. It takes no token and
 ```json
 {
   "data": {
-    "agent_version": "v0.6.0", "hostname": "vps-1",
+    "agent_version": "v0.7.0", "hostname": "vps-1",
     "os": "linux", "kernel": "6.8.0", "architecture": "amd64", "docker_version": "29.8.0",
     "cpus": 4, "memory_bytes": 8589934592, "applications": 3, "containers": 5,
     "proxy": { "enabled": true, "reachable": true, "error": "", "routes": 4, "dns_challenge": false },
     "token": { "name": "ci", "role": "deploy", "kind": "token",
                "applications": ["my-api"], "expires_at": "2027-01-01T00:00:00Z" },
-    "sign_in": { "configured": true, "issuer": "https://accounts.example.com" },
+    "sign_in": { "configured": true, "issuer": "https://accounts.example.com", "name_claim": "email" },
     "notifications": { "webhook": true },
     "dashboard_url": "https://dashboard.example.com",
     "disk": { "total_bytes": 42949672960, "used_bytes": 37580963840 },
@@ -310,6 +318,13 @@ Liveness, for load balancers and `shipwick server status`. It takes no token and
 }
 ```
 
+An agent of 0.7 adds two objects:
+
+```json
+"log_archive": { "enabled": true, "entries": 278, "bytes": 63974240, "max_bytes": 1073741824, "retention_days": 14 },
+"update": { "enabled": true, "latest_version": "v0.7.1", "checked_at": "2026-10-04T09:00:00Z", "available": true }
+```
+
 `token` is the token, or the session, this request was made with, so that a client knows what it may do before it tries: its role, the applications it is limited to and when it expires, as [Authentication](#authentication) describes. `sign_in` says whether people can sign in with an OpenID Connect provider, and with which. `notifications.webhook` says whether `SHIPWICK_WEBHOOK_URL` is set on the agent. `architecture` is what a client building an image for this server passes to `docker build --platform`; see [Images built by the client](#post-applications-name-images).
 
 - `proxy.dns_challenge` is `true` when certificates are obtained through a DNS record ([`SHIPWICK_CLOUDFLARE_API_TOKEN`](/docs/reference/agent-configuration#shipwick-cloudflare-api-token)), so hostnames may be proxied by Cloudflare and may be wildcards.
@@ -323,10 +338,17 @@ Liveness, for load balancers and `shipwick server status`. It takes no token and
   - `ca_file` is true when certificate authorities of your own are trusted in addition to the system's (`SHIPWICK_CA_FILE`).
   - `dns_resolvers` are the name servers asked whether a hostname points at the server: addresses with their port, or `["system"]`. `[]` means the public ones.
   - `acme_directory` is the ACME server certificates are obtained from; `""` is Let's Encrypt.
+- `sign_in.name_claim`, since 0.7, is the ID token claim people are named by: `email` unless the agent is configured otherwise ([`SHIPWICK_OIDC_NAME_CLAIM`](/docs/reference/agent-configuration#sign-in)), `""` without a provider.
+- `log_archive`, since 0.7, reports the [log archive](#get-applications-name-logs-archive) as a whole. `enabled` is `false` when `SHIPWICK_LOG_RETENTION_SIZE` is `0`; `entries` is how many are kept; `bytes` is what they take on the disk, `max_bytes` what they may take, `retention_days` how long each is kept.
+- `update`, since 0.7, says whether a newer release than the agent exists. The agent asks GitHub itself, once a day; nothing can be asked of the agent to make it check now.
+  - `enabled` is false when the agent was told not to ask ([`SHIPWICK_UPDATE_CHECK=off`](/docs/reference/agent-configuration#shipwick-update-check)); the other three are then `""`, `null` and `false`.
+  - `latest_version` is the tag of the latest release that is not a pre-release, with its `v`; `""` until the agent has been able to ask — the first seconds after its first start, or for as long as it cannot reach GitHub.
+  - `checked_at` is when GitHub last answered, `null` until then. An attempt that failed does not move it: a server that lost its way out keeps the last answer and the time it is from.
+  - `available` is true when `latest_version` is newer than `agent_version` by semantic versioning. It is false for an agent that runs the latest release, a pre-release of a later one, or a development build.
 
 A pull that fails before the registry answers (no route, a proxy that refuses, a certificate the daemon does not trust) fails the deployment with the daemon's message followed by what to change on the server; it has no error code of its own. See [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network).
 
-An agent before 0.5 sends none of `dashboard_url`, `disk`, `alerts`, `backups` and `proxy.dns_challenge`. An agent before 0.6 sends no `network` and no `sign_in`, and only `name` and `role` in `token`. See [Alerts and metrics](/docs/tasks/alerts-and-metrics).
+An agent before 0.5 sends none of `dashboard_url`, `disk`, `alerts`, `backups` and `proxy.dns_challenge`. An agent before 0.6 sends no `network` and no `sign_in`, and only `name` and `role` in `token`. An agent before 0.7 sends no `log_archive`, no `update` and no `sign_in.name_claim`. See [Alerts and metrics](/docs/tasks/alerts-and-metrics).
 
 ### POST /server/rotate-key
 
@@ -347,7 +369,7 @@ curl -X POST …/server/rotate-key
             "key_source": "file", "key_file": "/var/lib/shipwick/encryption.key" } }
 ```
 
-`values` counts the re-encrypted secrets, registry passwords and certificate keys, `deployments` the deployment records whose `env` was re-encrypted. `key_source` is `file` when the agent keeps the key in its data directory; it has then replaced `key_file`, and the key is not in the response.
+`values` counts the re-encrypted secrets, registry passwords, certificate keys and, since 0.7, the references kept for deployments — one for each deployment whose document referred to a secret, see [`GET /applications/:name/config`](#get-applications-name-config) — `deployments` the deployment records whose `env` was re-encrypted. `key_source` is `file` when the agent keeps the key in its data directory; it has then replaced `key_file`, and the key is not in the response.
 
 With the key in [`SHIPWICK_ENCRYPTION_KEY`](/docs/reference/agent-configuration#shipwick-encryption-key), `key_source` is `environment`: the agent cannot change its own environment, so the response carries the new key, this once, for you to put there, and `key_file` is a copy the agent keeps in its data directory until it has been started with the new key:
 
@@ -576,6 +598,99 @@ curl -X POST http://localhost:9000/api/v1/applications/my-api/validate \
 
 It is meant to be asked before an image is built or a folder uploaded, so it does not ask for either: a document with `build` and no `image` is valid here, where `deploy` refuses it, and a static application needs no `?static=`. An agent that predates the endpoint answers `404 ENDPOINT_NOT_FOUND`; deploy without asking then.
 
+### POST /applications
+
+Since 0.7. [`POST /applications/:name/deploy`](#post-applications-name-deploy) for a caller that has a document and has not parsed it: the application is the one the document's `name` says. Body, query (`?static=<digest>` for a static application), answers and errors are those of the endpoint it stands for.
+
+```bash
+curl -X POST http://localhost:9000/api/v1/applications \
+  -H "Authorization: Bearer $SHIPWICK_AGENT_TOKEN" \
+  --data-binary @deploy.yaml
+```
+
+| Status | Body |
+|---|---|
+| `202` | As [`deploy`](#post-applications-name-deploy) |
+| `400 INVALID_CONFIG` | As `deploy`; also a document whose name cannot be read, with the field `name` |
+| `403 TOKEN_LIMITED` | The token is limited to other applications than the one the document names, or the document names none that can be read |
+
+The name is read from the document before the request is authorized, and nothing else of the document is: a token [limited to applications](#authentication) is checked against it, and the [audit trail](#get-audit) records the deployment under it, as if it had been in the address. The audit entry of a document whose name cannot be read has no application. An agent before 0.7 answers `404 ENDPOINT_NOT_FOUND`; use the endpoint with the name then.
+
+### POST /validate
+
+Since 0.7. [`POST /applications/:name/validate`](#post-applications-name-validate) for a document that names its application, in the same way as [`POST /applications`](#post-applications): body, answers and errors are those of `validate`, and a limited token is checked against the document's `name`. An agent before 0.7 answers `404 ENDPOINT_NOT_FOUND`.
+
+### GET /applications/:name/config
+
+Since 0.7. Writes the configuration of the active deployment as the `deploy.yaml` that describes it, in the key order and style `shipwick init` uses.
+
+| Parameter | Default | |
+|---|---|---|
+| `escape` | `false` | `true` writes the document for a file that `shipwick deploy` reads: the CLI fills in `${NAME}` everywhere, the agent only in the secret values, so a literal `${NAME}` elsewhere — in a `command`, say — is written `$${NAME}`. Without it the document is what the agent itself reads, and what goes back to `POST /applications`. The secret values are the same in both. |
+
+| Status | Body |
+|---|---|
+| `200` | [`ApplicationConfig`](#applicationconfig) |
+| `403 TOKEN_LIMITED` | The token is limited to other applications |
+| `404 NOT_FOUND` | Unknown application |
+| `409 NOT_DEPLOYED` | No active deployment |
+
+```json
+{
+  "data": {
+    "application": "my-api",
+    "deployment_id": 12, "sequence": 7, "version": "1.4.2",
+    "document": "# A value shown as \"********\" was given when …\n\nname: my-api\n\nimage: ghcr.io/company/my-api:1.4.2\n\n…",
+    "masked": ["env.LOG_LEVEL", "proxy.basic_auth[0].password"]
+  }
+}
+```
+
+`document`, for an application deployed with one reference and one literal:
+
+```yaml
+# A value shown as "********" was given when the application was deployed and
+# is not handed out. Write it again, or store it on the server with
+# shipwick secret set NAME and refer to it as ${NAME}. A deployment of this
+# file is refused until every such value has been replaced.
+
+name: my-api
+
+image: ghcr.io/company/my-api:1.4.2
+
+port: 8080
+
+replicas: 1
+
+env:
+  DATABASE_URL: postgres://app:${DB_PASSWORD}@db:5432/app
+  LOG_LEVEL: "********" # not handed out: write the value again, or refer to a secret as ${NAME}
+
+restart:
+  policy: always
+```
+
+The secret values of a configuration, `env` values and the passwords of `proxy.basic_auth`, are never in it:
+
+- **A value the deployed document wrote with a `${NAME}` that the agent filled in from its [secrets](#get-secrets)** is that text again, the placeholders in place. The agent keeps it next to the deployment, encrypted like a secret; a redeploy and a rollback carry it on, and so do a key rotation, an export and an import.
+- **Every other value** — typed into the file, or filled in by the CLI from its environment or `--env-file`, which the agent cannot tell apart — is the mask, `"********"`, with a comment on its line. `masked` names those fields, in the order of the document; it is `[]` when there are none. The comment at the top is there only when there are some.
+
+The text around a reference is given back as it arrived, which [`GET /applications/:name`](#get-applications-name) masks along with the rest. That is why the endpoint takes `deploy`, and a limited token gets the documents of its applications only: whoever may deploy an application can read its environment by running a command in it.
+
+Deployed again unchanged — to [`POST /applications`](#post-applications) or to [`POST /applications/:name/deploy`](#post-applications-name-deploy) — a document without masks gives the same configuration, its references filled in from the secrets as they are then. A document that holds a mask is refused, by every endpoint that takes a document and whoever wrote it:
+
+```json
+{ "error": { "code": "INVALID_CONFIG", "message": "invalid deploy.yaml",
+             "details": { "fields": [ {
+               "field": "env.LOG_LEVEL",
+               "message": "******** is what the server shows in the place of this value, not the value",
+               "expected": "the value itself, or ${NAME} with the value stored by shipwick secret set NAME" } ] } } }
+```
+
+So `"********"` cannot be a value of `env` or a basic-auth password; a stored secret may hold it.
+
+For a static application `static_digest` is the folder the active deployment serves (`"sha256:…"`); a deployment of the document names it in `?static=`. The field is absent otherwise. An application deployed by an agent before 0.7 has no references kept, and all its secret values are masked until it is deployed again. An agent before 0.7 answers `404 ENDPOINT_NOT_FOUND`. See [Get deploy.yaml back from the server](/docs/tasks/get-the-configuration-back).
+
 ### POST /applications/:name/images
 
 Loads an image archive for an application whose `deploy.yaml` has `build:`. The image is built where `shipwick deploy` runs and sent here; the agent never builds. The CLI does three things, and any client may do the same:
@@ -764,6 +879,160 @@ Logs of the replicas of the active deployment.
 | `409 STATIC_APPLICATION` | The proxy serves this application from a folder; it has no containers and no logs. The metrics, the metrics history, the jobs and `run` answer the same. |
 
 Without `follow`, `tail=N` is the merged total: the last N lines across all replicas. With `follow=true` it applies per replica.
+
+### GET /applications/:name/logs/archive
+
+Since 0.7. The agent keeps the last output of every container whose run ended — a replica that crashed, was restarted, stopped or replaced, the replicas of a deployment that failed, a run of a job or a command — for [`SHIPWICK_LOG_RETENTION_DAYS`](/docs/reference/agent-configuration#shipwick-log-retention-days-and-shipwick-log-retention-size) and within `SHIPWICK_LOG_RETENTION_SIZE`. This endpoint lists the entries, newest first and without their lines. See [Find out why it died](/docs/tasks/find-out-why-it-died).
+
+| Parameter | Default | |
+|---|---|---|
+| `kind` | both | `replica` or `run` |
+| `deployment` | all | Only the entries of this deployment, by its id |
+| `replica` | all | Only the entries of this replica |
+| `run` | all | Only the entry of this run, by its id |
+| `limit` | `50` | 1 to 500 |
+| `before` | none | The `id` of an entry: the list continues after it |
+
+| Status | Body |
+|---|---|
+| `200` | Array of [`LogArchiveEntry`](#logarchiveentry) |
+| `400 INVALID_REQUEST` | An invalid parameter |
+| `404 NOT_FOUND` | Unknown application |
+
+```json
+{
+  "data": [
+    {
+      "id": 41,
+      "application": "my-api",
+      "kind": "replica",
+      "deployment_id": 12,
+      "deployment": 3,
+      "version": "1.4.2",
+      "replica": 2,
+      "job": "",
+      "run_id": null,
+      "container": "shipwick_my-api_3_2",
+      "reason": "crashed",
+      "exit_code": 1,
+      "oom_killed": false,
+      "ended_at": "2026-10-03T23:18:58.930797736Z",
+      "first_line_at": "2026-10-03T23:18:53.929370317Z",
+      "last_line_at": "2026-10-03T23:18:58.929928842Z",
+      "lines": 153,
+      "bytes": 20311,
+      "stored_bytes": 3100,
+      "truncated": false
+    }
+  ]
+}
+```
+
+`reason` of a replica:
+
+| `reason` | |
+|---|---|
+| `crashed` | The process exited by itself with a code other than 0 |
+| `exited` | The process exited by itself with code 0 |
+| `oom_killed` | Killed for exceeding its memory limit |
+| `unhealthy` | Restarted by the agent after failing its health check |
+| `stopped` | The application was stopped |
+| `replaced` | A newer deployment took its place |
+| `deployment_failed` | A replica of a deployment that failed, removed with it; `exit_code` and `oom_killed` say whether it had died by itself |
+| `removed` | Removed for another reason: a leftover, a rollback that failed |
+| `restarted` | The run ended while no agent was running, and the container was running again when one started; why it ended is not known |
+
+For a run, `reason` is the run's `status`: `succeeded`, `failed`, `timed_out` or `interrupted`. An entry with `lines: 0` is a replica that died without printing anything.
+
+Nothing of what the three log archive endpoints return is written to the agent's log, to events or to the audit trail; the request log holds the path, not the query. Deleting an application removes its entries and their files. An agent older than 0.7 answers all three `404 ENDPOINT_NOT_FOUND`.
+
+### GET /applications/:name/logs/archive/:id
+
+Since 0.7. One entry with its lines, oldest first.
+
+| Parameter | Default | |
+|---|---|---|
+| `tail` | all | Keep the last `n` lines: 1 to 10000 |
+
+| Status | Body |
+|---|---|
+| `200` | [`LogArchiveDetail`](#logarchivedetail) |
+| `400 INVALID_REQUEST` | An invalid `:id` or `tail` |
+| `404 NOT_FOUND` | Unknown application; an entry that does not exist, belongs to another application, or has aged out |
+
+```json
+{
+  "data": {
+    "id": 41,
+    "application": "my-api",
+    "kind": "replica",
+    "…": "the entry's fields, as in the list",
+    "output": [
+      {"replica": 2, "container": "shipwick_my-api_3_2", "stream": "stderr", "time": "2026-10-03T23:18:58.929928842Z", "message": "panic: connection refused"}
+    ]
+  }
+}
+```
+
+### GET /applications/:name/logs/search
+
+Since 0.7. Looks through the archive and through the logs of the replicas that exist, from where their last archived run ended, so that no line is found twice.
+
+| Parameter | Default | |
+|---|---|---|
+| `q` | every line | Text to look for inside lines, whatever its case; at most 256 bytes, one line |
+| `since`, `until` | no limit | Only lines at or after, at or before, a time in RFC 3339 |
+| `deployment`, `replica`, `run` | all | Only the output of that deployment (its id), replica or run. With `run`, and with a `deployment` that is not the active one, only the archive is read |
+| `limit` | `200` | Lines in one answer, at most 1000 |
+| `cursor` | none | The `next` of the answer this one continues |
+
+| Status | Body |
+|---|---|
+| `200` | [`LogSearchResult`](#logsearchresult) |
+| `400 INVALID_REQUEST` | A `q` that is too long or has a line break, a time that is not RFC 3339, `until` before `since`, a `cursor` no answer returned |
+| `404 NOT_FOUND` | Unknown application; a `deployment` of another one |
+
+```json
+{
+  "data": {
+    "lines": [
+      {
+        "replica": 1,
+        "container": "shipwick_my-api_4_1",
+        "stream": "stdout",
+        "time": "2026-10-03T23:19:03.850907531Z",
+        "message": "dial tcp 10.0.0.5:5432: connect: connection refused",
+        "archive_id": null,
+        "deployment_id": 14,
+        "deployment": 4,
+        "job": "",
+        "run_id": null
+      },
+      {
+        "replica": 2,
+        "container": "shipwick_my-api_3_2",
+        "stream": "stderr",
+        "time": "2026-10-03T23:18:58.929928842Z",
+        "message": "panic: connection refused",
+        "archive_id": 41,
+        "deployment_id": 12,
+        "deployment": 3,
+        "job": "",
+        "run_id": null
+      }
+    ],
+    "next": "a41.151",
+    "sources": 3,
+    "bytes": 21544
+  }
+}
+```
+
+- A line is a [`LogLine`](#logline) with where it comes from: `archive_id` is the entry that holds it, `null` for a line read from a container that exists.
+- The order is by source, newest first, and within a source by time, newest first: the replicas that exist, from the highest index down, then the archive's entries from the newest to the oldest. Read backwards, an answer is in the order things were printed in each container.
+- `next` is `""` when everything the question admits has been looked at. Otherwise the search goes on with `cursor=<next>` and the same other parameters. An answer is bounded twice — by `limit`, and by how much it reads, about 128 MB of output — so a page can hold fewer lines than `limit`, none included, and still have a `next`: keep asking until it is empty.
+- `sources` and `bytes` are how many containers' output this request read and how much of it.
+- Of a container that exists, its last 50,000 lines are looked at. The container of a job that is still running is not searched; its output is in the archive when the run has ended.
 
 ### GET /applications/:name/events
 
@@ -1024,7 +1293,7 @@ One backup. `:id` must be a positive integer.
 
 ### POST /applications/:name/backups
 
-Takes a backup now. No body. It works without a `backups` block in `deploy.yaml`; with one, its `before` command runs first, for at most `before_timeout` (`"1h0m0s"` in the stored configuration unless set; an older deployment has no such field, and an hour), and `stop` is honoured.
+Takes a backup now. No body. It works without a `backups` block in `deploy.yaml`; with one, its `before` command runs first, for at most `before_timeout` (`"1h0m0s"` in the stored configuration unless set; an older deployment has no such field, and an hour), and `stop` is honoured. Since 0.7 `before_in` says where the command runs: absent from the stored configuration, inside the replica, where the command is not ended at the limit (`error`: `backups.before did not finish within 1h; the backup was given up …`); `"container"`, in a container of its own beside the replica, which is stopped and removed at the limit (`… did not finish within 1h and was stopped; …`).
 
 | Status | Body |
 |---|---|
@@ -1248,7 +1517,7 @@ Two optional fields narrow the token:
 | `applications` | array of strings | Optional. Limits a `deploy` token to those applications, see [Authentication](#authentication): one to 50 application names, which need not exist yet. With another role it is `400`. |
 | `expires_at` | timestamp | Optional. An RFC 3339 time in the future, after which the token is `401 TOKEN_EXPIRED`. A time that has passed is `400`. |
 
-The body is limited to 4096 bytes. Unknown fields are rejected. Neither `applications` nor `expires_at` can be changed afterwards. An agent before 0.6 answers a request with either field `400 INVALID_REQUEST`, `unknown field`, and creates nothing.
+The body is limited to 4096 bytes. Unknown fields are rejected. Since 0.7 `applications` and `expires_at` can be changed afterwards with [`PUT /tokens/:name`](#put-tokens-name). An agent before 0.6 answers a request with either field `400 INVALID_REQUEST`, `unknown field`, and creates nothing.
 
 | Status | Body |
 |---|---|
@@ -1267,6 +1536,31 @@ The body is limited to 4096 bytes. Unknown fields are rejected. Neither `applica
 
 The answer carries `applications` sorted, each once. Values are 32 random bytes in unpadded base64url behind the prefix `swk_`, which is not part of the secret; it exists so that a token is recognizable where it must not be, such as a log or a repository.
 
+### PUT /tokens/:name
+
+Since 0.7. Changes what the body names and leaves the rest. The value and the role do not change.
+
+```bash
+curl -X PUT …/tokens/ci -d '{"applications": ["my-api", "web", "worker"]}'
+curl -X PUT …/tokens/ci -d '{"applications": []}'                      # lifts the limit
+curl -X PUT …/tokens/ci -d '{"expires_at": "2027-04-01T00:00:00Z"}'
+curl -X PUT …/tokens/ci -d '{"never_expires": true}'
+```
+
+| Field | Type | |
+|---|---|---|
+| `applications` | array of strings | Replaces the list the token is limited to; `[]` lifts the limit. Checked as on [`POST /tokens`](#post-tokens): valid names, at most 50, and only for a `deploy` token |
+| `expires_at` | timestamp | Moves the end; it must be in the future. A token that has expired works again from its next request |
+| `never_expires` | boolean | `true` takes the end away. Not together with `expires_at` |
+
+| Status | Body |
+|---|---|
+| `200` | [`Token`](#token), as `GET /tokens` lists it |
+| `400 INVALID_REQUEST` | A body that names none of the three; `expires_at` together with `never_expires`; an `expires_at` that has passed; `applications` on a token that is not a `deploy` token, or names that are not application names, or more than 50; an unknown field, the role and the value among them; `:name` is `root` |
+| `404 NOT_FOUND` | No token by that name |
+
+The change holds from the token's next request. In the audit trail the action is `token.update`, the target the token, and the detail what changed, as it was and as it is: `applications my-api -> my-api web worker`, `applications my-api web -> all`, `expires 2026-10-02T12:00:00Z -> 2027-04-01T00:00:00Z`, `expires … -> never`, or `nothing changed`. An agent before 0.7 has no `PUT` on this path and changes nothing.
+
 ### DELETE /tokens/:name
 
 Revokes a token. Requests with it are `401` from then on. A token may revoke itself.
@@ -1284,15 +1578,20 @@ Every request that changes something leaves an entry, whatever became of it. Thi
 | Parameter | Default | |
 |---|---|---|
 | `application` | all applications | Matches exactly |
-| `actor` | all callers | A token's name, or the e-mail address of a person who signed in. Matches exactly. |
+| `actor` | all callers | A token's name, or the name of a person who signed in. Matches exactly. |
+| `actor_kind` | both | `token` or `user`. Since 0.7 |
+| `action` | all actions | An action as listed below, or the start of a family with its dot: `token.` is `token.create`, `token.update` and `token.revoke`. Several are given by repeating the parameter or separated by commas, at most 20; an entry matches when one of them does. Since 0.7 |
+| `outcome` | all outcomes | `ok`, `refused`, `failed`; several the same way. Since 0.7 |
 | `since` | no limit | A number of days or hours back (`7d`, `24h`), a date (`2026-09-01`, from its start in UTC) or an RFC 3339 time |
 | `limit` | `50` | 1 to 500 |
-| `before` | none | The `id` of the last entry of the page before; the list continues after it. A page shorter than `limit` is the last. |
+| `before` | none | The `id` of the last entry of the page before; the list continues after it. |
+
+Each parameter narrows the others.
 
 | Status | Body |
 |---|---|
-| `200` | Array of [`AuditEntry`](#auditentry) |
-| `400 INVALID_REQUEST` | Invalid `application`, `actor`, `since`, `limit` or `before` |
+| `200` | Array of [`AuditEntry`](#auditentry), and since 0.7 `more` next to `data` |
+| `400 INVALID_REQUEST` | Invalid `application`, `actor`, `actor_kind`, `action`, `outcome`, `since`, `limit` or `before` |
 
 ```json
 { "data": [
@@ -1301,12 +1600,14 @@ Every request that changes something leaves an entry, whatever became of it. Thi
     "address": "172.18.0.3", "forwarded_for": "203.0.113.40",
     "action": "deploy", "application": "my-api", "target": "",
     "outcome": "ok", "status": 202, "code": "", "detail": "deployment 12" }
-] }
+], "more": true }
 ```
+
+`more`, since 0.7, says whether entries older than the last one match as well: `false` on the last page, also when that page is exactly full. An agent before 0.7 leaves it out, and there a page shorter than `limit` is the only sign of the end. Such an agent does not know `actor_kind`, `action` and `outcome` either, and ignores them: a client that sends one and finds no `more` in the answer has been given the unfiltered trail.
 
 | Field | |
 |---|---|
-| `actor` | Who made the request: `kind` is `"token"` and `name` the token's name (`root` for the agent's own), or `kind` is `"user"` and `name` the e-mail address of a person who signed in |
+| `actor` | Who made the request: `kind` is `"token"` and `name` the token's name (`root` for the agent's own), or `kind` is `"user"` and `name` the name of a person who signed in: the e-mail address, or what `SHIPWICK_OIDC_NAME_CLAIM` names them by |
 | `address` | Where the connection came from. Behind the proxy this is the proxy. |
 | `forwarded_for` | The client address the proxy reported in `X-Forwarded-For`, `""` without one. On a connection that does not come through the proxy the header is the caller's own word, which is why both are kept. |
 | `action` | What was asked for, see below |
@@ -1316,11 +1617,39 @@ Every request that changes something leaves an entry, whatever became of it. Thi
 | `status`, `code` | The HTTP status of the answer, and the error code of one that was not 2xx |
 | `detail` | What was started (`deployment 12`, `run 4`, `backup 7`, `export 3`), or what was asked for: a created token's role, applications and expiry; the volume of a backup download; `stopped` and `overwrite` of an import; the applications of an export |
 
-Actions: `deploy`, `redeploy`, `rollback`, `stop`, `start`, `application.delete`, `run`, `job.run`, `image.upload`, `static.upload`, `backup.create`, `backup.verify`, `backup.restore`, `backup.download`, `backup.delete`, `server.backup`, `backup.adopt`, `volume.download`, `volume.restore`, `volume.delete`, `secret.set`, `secret.delete`, `registry.login`, `registry.logout`, `certificate.set`, `certificate.delete`, `token.create`, `token.revoke`, `key.rotate`, `export.download` (`POST /export`), `export.create` (`POST /exports`), `import`, `standby.pull`, `standby.promote`, and `signin`, `signout`, `access.grant`, `access.revoke` and `access.signout`, which are described with [their endpoints](#post-auth-exchange). Every endpoint that is not a `GET` is recorded, except `validate` and `images/missing`, which change nothing; of the `GET`s, the two that hand out an application's data, a volume's archive and a backup's, are.
+Actions: `deploy`, `redeploy`, `rollback`, `stop`, `start`, `application.delete`, `run`, `job.run`, `image.upload`, `static.upload`, `backup.create`, `backup.verify`, `backup.restore`, `backup.download`, `backup.delete`, `server.backup`, `backup.adopt`, `volume.download`, `volume.restore`, `volume.delete`, `secret.set`, `secret.delete`, `registry.login`, `registry.logout`, `certificate.set`, `certificate.delete`, `token.create`, `token.update`, `token.revoke`, `key.rotate`, `export.download` (`POST /export`), `export.create` (`POST /exports`), `import`, `standby.pull`, `standby.promote`, `audit.export`, and `signin`, `signout`, `access.grant`, `access.revoke` and `access.signout`, which are described with [their endpoints](#post-auth-exchange). Every endpoint that is not a `GET` is recorded, except `validate` and `images/missing`, which change nothing; of the `GET`s, the three that hand data out whole — a volume's archive, a backup's, and the export of this trail — are.
 
 Not recorded: reading; a request without a valid token, which has no actor (it is in the agent's log, and counted by the rate limit); what the agent does on its own, such as scheduled jobs, backups and exports, and restarts by the supervisor. Nothing from a request's body is kept except names: no `env`, no secret's value, no command, no passphrase.
 
 Entries are kept for a year, and the newest 100,000 at most. An agent before 0.6 answers `404 ENDPOINT_NOT_FOUND`. See [See who changed what](/docs/tasks/audit).
+
+### GET /audit/export
+
+Since 0.7. Streams everything that matches, newest first, as it is read from the database, 500 entries at a time. It takes the filters of [`GET /audit`](#get-audit) — `application`, `actor`, `actor_kind`, `action`, `outcome`, `since` — without `limit` and `before`, which are `400` here.
+
+| Parameter | Default | |
+|---|---|---|
+| `format` | required | `csv` or `json` |
+
+| `format` | `Content-Type` | |
+|---|---|---|
+| `csv` | `text/csv; charset=utf-8` | A header row, then one row per entry with the columns below; `at` in UTC to the second. A cell that begins with `=`, `+`, `-`, `@`, a tab or a carriage return gets an apostrophe in front, so that a spreadsheet shows it as text instead of running it as a formula |
+| `json` | `application/x-ndjson` | One entry per line, the object `GET /audit` returns, values as recorded. Nothing matching is an empty body |
+
+```text
+id,at,actor_kind,actor,address,forwarded_for,action,application,target,outcome,status,code,detail
+42,2026-10-03T17:20:17Z,token,ci,172.18.0.3,203.0.113.40,deploy,my-api,,ok,202,,deployment 12
+41,2026-10-03T17:19:02Z,token,root,172.18.0.3,203.0.113.9,token.revoke,,'=HYPERLINK(…),failed,400,INVALID_REQUEST,
+```
+
+| Status | Body |
+|---|---|
+| `200` | The stream, not wrapped in `data`, with `Content-Disposition: attachment; filename="shipwick-audit-<time>.csv"` (`.ndjson`) |
+| `400 INVALID_REQUEST` | No `format`, or one that is neither; `limit` or `before`; an invalid filter |
+
+An export that breaks off after its first byte cannot change its status any more: it announces the trailer `X-Shipwick-Export-Error` and sets it, as [`POST /export`](#post-export) does, and a client must treat a body with that trailer as incomplete. Errors before the first byte are regular error responses.
+
+The export is recorded as `audit.export` with the format, the filters and the number of entries in `detail` (`csv, action token., since 2026-01-01T00:00:00Z, 214 entries`); the entry is written when the export ends and is not part of it. An agent before 0.7 answers `404 ENDPOINT_NOT_FOUND`.
 
 ### GET /auth
 
@@ -1368,7 +1697,7 @@ Content-Type: application/json
 | `200` | [`SignedIn`](#signedin) |
 | `400 INVALID_REQUEST` | A field is missing or malformed, or `redirect_uri` is not the configured one (`details: {redirect_uri}`) |
 | `401 SIGN_IN_FAILED` | The sign-in itself was refused; `details.reason` says why, see below |
-| `403 ACCESS_NOT_GRANTED` | The person is who they say, and no rule gives them a role; `details: {email}`. The message is written to be forwarded to an admin. |
+| `403 ACCESS_NOT_GRANTED` | The person is who they say, and no rule gives them a role; `details: {name, email}`, both the person's name (`name` since 0.7; `email` is kept for clients from before). The message is written to be forwarded to an admin. |
 | `409 SIGN_IN_NOT_CONFIGURED` | The agent has no provider |
 | `429 RATE_LIMITED` | Failed sign-ins count like wrong tokens, see [Authentication](#authentication); a limited address is answered without the provider being asked |
 | `502 SIGN_IN_UNAVAILABLE` | The provider could not be reached, did not answer like one, calls itself by another issuer, or refused the agent's client id or secret |
@@ -1383,6 +1712,10 @@ Content-Type: application/json
 
 The agent redeems the code at the provider's token endpoint with the client secret and the verifier, and believes the ID token only if it is signed by one of the provider's keys (RS256 or ES256), was issued by the configured issuer for this client, is within its time and at most ten minutes old, and carries `nonce`. It accepts each nonce once. An `email_verified: false` is refused; a provider that does not send the claim is taken at its word. Then the [access rules](#get-access-rules) are asked what the person may do.
 
+The person's name — `identity.name`, the actor in the audit trail, `by` on a deployment — is the `email` claim in lowercase, or, since 0.7, the value of the claim the agent is configured with (`SHIPWICK_OIDC_NAME_CLAIM`; `sign_in.name_claim` in [`GET /server`](#get-server)), which is kept as the provider wrote it: at most 254 characters of letters, digits and `. _ % + ' @ | : = # ~ -`. With another claim than `email`, `email_verified` is not looked at.
+
+With Microsoft Entra's issuer for several tenants (`https://login.microsoftonline.com/organizations/v2.0`, or `common`), whose discovery document names `https://login.microsoftonline.com/{tenantid}/v2.0` as its issuer, "issued by the configured issuer" reads, since 0.7: the token's `iss` is that template with the token's own `tid` in the placeholder's place, `tid` is a tenant id, a key that names the issuer it signs for names that one, and `tid` is among `SHIPWICK_OIDC_TENANTS`. No other provider's discovery document may name an issuer other than the configured one.
+
 | `details.reason` of `SIGN_IN_FAILED` | Meaning |
 |---|---|
 | `code_rejected` | The provider refused the code: used before, expired, issued to another client or for another verifier |
@@ -1391,6 +1724,8 @@ The agent redeems the code at the provider's token endpoint with the client secr
 | `nonce_reused` | This sign-in was completed before |
 | `email_missing` | The ID token names no usable address |
 | `email_not_verified` | The provider says the address is not verified |
+| `name_missing` | People are named by another claim than `email`, and the ID token lacks it or holds something that cannot be a name; `details.claim` says which claim. Since 0.7 |
+| `tenant_not_allowed` | The account's tenant is not among `SHIPWICK_OIDC_TENANTS`. Since 0.7 |
 
 A session lasts ten hours from the sign-in, whatever its use. It rests on what the rules gave the person then: every request asks the rules again, and a session whose answer has changed is ended with that request, not at its expiry. A session that no longer works says why, to its holder only, like an expired token, and like it not counted by the rate limit:
 
@@ -1404,9 +1739,9 @@ A session lasts ten hours from the sign-in, whatever its use. It rests on what t
 }
 ```
 
-`reason` is `rule_removed`, `access_changed` (the rules give the person something else now: sign in again to get it) or `signed_out` (an admin ended it). A session past its time is `401 SESSION_EXPIRED` with `details: {name, expired_at}`. A session nobody issued is a wrong token: `401 UNAUTHORIZED`, counted.
+`reason` is `rule_removed`, `access_changed` (the rules give the person something else now: sign in again to get it), `signed_out` (an admin ended it) or, since 0.7, `sign_in_changed` (the agent now names people by another claim than when the session began, or no longer accepts the tenant it came from). A session past its time is `401 SESSION_EXPIRED` with `details: {name, expired_at}`. A session nobody issued is a wrong token: `401 UNAUTHORIZED`, counted.
 
-A sign-in is recorded in the [audit trail](#get-audit) as `signin`: the actor is the person, and the outcome is `ok` with what they got in `detail`, or `refused` with `ACCESS_NOT_GRANTED`. A sign-in the provider did not vouch for has no actor and is not recorded. See [Sign in with your company's accounts](/docs/tasks/sign-in).
+A sign-in is recorded in the [audit trail](#get-audit) as `signin`: the actor is the person, and the outcome is `ok` with what they got in `detail`, or `refused` with `ACCESS_NOT_GRANTED`. A `signin` from a provider with tenants has `tenant <id>` at the end of its detail. A sign-in the provider did not vouch for has no actor and is not recorded. See [Sign in with your company's accounts](/docs/tasks/sign-in).
 
 ### DELETE /auth/session
 
@@ -1440,15 +1775,18 @@ Who may sign in, and as what.
 
 | `kind` | `subject` | Matches |
 |---|---|---|
-| `email` | An address, lowercase | The person whose ID token carries that `email` |
-| `group` | A group's name as the provider sends it, case and all | A person whose groups claim (`SHIPWICK_OIDC_GROUPS_CLAIM`, `groups` by default) lists it |
-| `domain` | The part after the `@` | Every address at exactly that domain; a subdomain is another domain |
+| `email` | An address, lowercase | The person whose name is that address, in any case |
+| `group` | A group's name as the provider sends it, case and all | A person whose groups claim (`SHIPWICK_OIDC_GROUPS_CLAIM`, `groups` by default) lists it. Not read where every tenant may sign in (`SHIPWICK_OIDC_TENANTS=*`) |
+| `domain` | The part after the `@` | Every name that is an address at exactly that domain; a subdomain is another domain |
+| `name` | A name as the provider's claim holds it, case and all | The person whose name is exactly that: for names that are not addresses (`SHIPWICK_OIDC_NAME_CLAIM`). Since 0.7 |
 
-The most specific kind that matches decides, and the others are not looked at: the rule for the address, else the rules for the person's groups, else the rule for the domain. A rule for an address can therefore give one person less than their group has. Of several groups the highest role counts; where that is `deploy`, a group without `applications` lifts the limit, and the lists of the others add up. Nobody without a matching rule gets in.
+The name is the `email` claim unless the agent is configured otherwise; a name that does not read as an address is matched by `name` and `group` rules only.
+
+The most specific kind that matches decides, and the others are not looked at: the rule for the name, else the rule for the address, else the rules for the person's groups, else the rule for the domain. A rule for an address can therefore give one person less than their group has. Of several groups the highest role counts; where that is `deploy`, a group without `applications` lifts the limit, and the lists of the others add up. Nobody without a matching rule gets in.
 
 ### POST /access/rules
 
-Gives an address, a group or a domain a role: creates the rule, or replaces the one with the same kind and subject.
+Gives an address, a group, a domain or a name a role: creates the rule, or replaces the one with the same kind and subject.
 
 ```json
 { "kind": "group", "subject": "backend", "role": "deploy", "applications": ["my-api", "worker"] }
@@ -1456,8 +1794,8 @@ Gives an address, a group or a domain a role: creates the rule, or replaces the 
 
 | Field | Type | |
 |---|---|---|
-| `kind` | string | Required. `email`, `group` or `domain`. |
-| `subject` | string | Required. The address, the group's name or the domain; see [`GET /access/rules`](#get-access-rules). |
+| `kind` | string | Required. `email`, `group`, `domain` or, since 0.7, `name`. |
+| `subject` | string | Required. The address, the group's name, the domain or the name; see [`GET /access/rules`](#get-access-rules). |
 | `role` | string | Required. `read`, `deploy` or `admin`. |
 | `applications` | array of strings | Optional. For `deploy` only, as on a [token](#post-tokens). |
 
@@ -1467,7 +1805,7 @@ Gives an address, a group or a domain a role: creates the rule, or replaces the 
 | `200` | [`AccessRule`](#accessrule), when it replaced the one with the same kind and subject |
 | `400 INVALID_REQUEST` | A missing or invalid `kind`, `subject` or `role`; `applications` with a role other than `deploy`; invalid JSON; the 201st rule |
 
-At most 200 rules are stored. Rules can be written before a provider is configured. Recorded in the audit trail as `access.grant`: the target is the subject as the CLI writes it (`ada@example.com`, `group:backend`, `*@example.com`), the detail the role and applications.
+At most 200 rules are stored. Rules can be written before a provider is configured. Recorded in the audit trail as `access.grant`: the target is the subject as the CLI writes it (`ada@example.com`, `group:backend`, `*@example.com`, `name:svc-deploy`), the detail the role and applications.
 
 ### DELETE /access/rules/:id
 
@@ -1495,20 +1833,22 @@ Who is signed in right now.
               "last_used_at": "2026-10-03T09:41:00Z" } ] }
 ```
 
+`email` is the person's name: the address, or with another name claim what that claim holds. The field keeps its name from when there was only one.
+
 ### DELETE /access/sessions/:email
 
-Ends every session of that person. It signs out and does not keep out: while a rule covers the person, they can sign in again.
+Ends every session of that person. The path takes the name as [`GET /access/sessions`](#get-access-sessions) shows it; an address is brought to lowercase where people are named by `email`, and any other name must match exactly. It signs out and does not keep out: while a rule covers the person, they can sign in again.
 
 | Status | Body |
 |---|---|
 | `200` | [`SignedOut`](#signedout): the number of sessions ended |
-| `400 INVALID_REQUEST` | `:email` is not an e-mail address |
+| `400 INVALID_REQUEST` | `:email` is not an e-mail address, or, where people are named by another claim, not a name |
 
 ```json
 { "data": { "sessions": 2 } }
 ```
 
-Recorded in the audit trail as `access.signout`, with the address as the target.
+Recorded in the audit trail as `access.signout`, with the name as the target.
 
 ### GET /secrets
 
@@ -2065,6 +2405,31 @@ All types are defined in [`pkg/api/types.go`](https://github.com/shipwick/shipwi
 | `disk` | [`DiskUsage`](#diskusage) or null | Null where the agent cannot measure it |
 | `backups` | [`BackupStatus`](#backupstatus) | Where backups go, and how the agent's own state is backed up |
 | `network` | [`NetworkStatus`](#networkstatus) | How the agent and the Docker daemon reach what is outside the server. Absent from agents before 0.6. |
+| `log_archive` | [`LogArchiveStatus`](#logarchivestatus) | What the agent keeps of ended containers' output. Absent from agents before 0.7. |
+| `update` | [`UpdateStatus`](#updatestatus) | What the agent knows about newer releases. Absent from agents before 0.7. |
+
+### LogArchiveStatus
+
+What the log archive holds and may hold. Since 0.7.
+
+| Field | Type | |
+|---|---|---|
+| `enabled` | boolean | `false` when `SHIPWICK_LOG_RETENTION_SIZE` is `0`: nothing is kept |
+| `entries` | integer | How many entries are kept |
+| `bytes` | integer | What they take on the disk |
+| `max_bytes` | integer | What they may take |
+| `retention_days` | integer | How long an entry is kept after its container ended |
+
+### UpdateStatus
+
+What the agent knows about newer releases. Since 0.7.
+
+| Field | Type | |
+|---|---|---|
+| `enabled` | boolean | `false` when the agent was told not to ask (`SHIPWICK_UPDATE_CHECK=off`) |
+| `latest_version` | string | The latest release, `v0.7.1`; `""` until the agent has been able to ask |
+| `checked_at` | timestamp or null | When GitHub last answered; null until then |
+| `available` | boolean | `latest_version` is newer than the agent itself |
 
 ### Alert
 
@@ -2103,7 +2468,7 @@ The answer to [`POST /server/rotate-key`](#post-server-rotate-key).
 
 | Field | Type | |
 |---|---|---|
-| `values` | integer | The re-encrypted values outside deployments: secrets, registry passwords and the keys of supplied certificates |
+| `values` | integer | The re-encrypted values outside deployments: secrets, registry passwords, the keys of supplied certificates and, since 0.7, the references kept for deployments |
 | `deployments` | integer | The deployment records whose environment values were re-encrypted |
 | `key_source` | string | `file` when the agent keeps its key in the data directory and has replaced it there; `environment` when the key is set in the agent's environment, which the agent cannot change |
 | `key_file` | string | The file on the server that holds the new key: the key file, or, for `environment`, the file the agent keeps it in until it has been started with it |
@@ -2115,7 +2480,7 @@ Who a request was made as. An agent before 0.6 sends `name` and `role` only.
 
 | Field | Type | |
 |---|---|---|
-| `name` | string | The token's name; `root` for the token the agent is configured with; the e-mail address of a person who signed in |
+| `name` | string | The token's name; `root` for the token the agent is configured with; the name of a person who signed in: the e-mail address, or what the agent names people by |
 | `role` | string | `read`, `deploy` or `admin` |
 | `kind` | string | `token`, or `user` for a person who signed in |
 | `applications` | array of strings | The applications a `deploy` token or session is limited to; empty when it is not limited |
@@ -2129,6 +2494,7 @@ The `sign_in` object of [`GET /server`](#get-server).
 |---|---|---|
 | `configured` | boolean | The agent has an OpenID Connect provider |
 | `issuer` | string | The provider's issuer; empty when none is configured |
+| `name_claim` | string | The ID token claim people are named by: `email` unless the operator chose another. `""` on an agent without sign-in, and absent from agents before 0.7, which knew only `email` |
 
 ### NetworkStatus
 
@@ -2276,7 +2642,7 @@ The JSON form of a validated `deploy.yaml`, with defaults applied. It is what th
 | `pre_deploy` | object | Omitted when not set. `{command, timeout}`; the default timeout is `"10m0s"`. |
 | `jobs` | array | Omitted when empty. `[{name, schedule, command, timeout}]`; `schedule` is five cron fields, read in UTC; the default timeout is `"1h0m0s"`. |
 | `logging` | object | Omitted when not set. `{driver, options}`; `options` is omitted when empty. |
-| `backups` | object | Omitted when not set. `{schedule, keep, before, before_timeout, stop}`: `schedule` is five cron fields, read in UTC; `keep` is how many successful backups are kept, `7` unless set; `before` (the command run in the replica first) and `stop` are omitted when not set; `before_timeout` is how long `before` may run, `"1h0m0s"` unless set, and absent from a deployment recorded before the field existed, which means an hour. |
+| `backups` | object | Omitted when not set. `{schedule, keep, before, before_timeout, before_in, stop}`: `schedule` is five cron fields, read in UTC; `keep` is how many successful backups are kept, `7` unless set; `before` (the command run first) and `stop` are omitted when not set; `before_timeout` is how long `before` may run, `"1h0m0s"` unless set, and absent from a deployment recorded before the field existed, which means an hour; `before_in`, since 0.7, is `"container"` when `before` runs in a container of its own beside the replica, and omitted when it runs inside the replica. |
 | `restart` | object | `{policy}` |
 | `deploy` | object | `{strategy, stop_timeout}`. `stop_timeout` is omitted when not set, which means 10 seconds. |
 | `init` | boolean | `true` when `init: true` is set in `deploy.yaml`. Omitted when it is not set or `false`. |
@@ -2301,6 +2667,79 @@ The JSON form of a validated `deploy.yaml`, with defaults applied. It is what th
 | `stream` | string | `stdout` or `stderr` |
 | `time` | timestamp | |
 | `message` | string | |
+
+### LogArchiveEntry
+
+The kept output of one run of a container, as [`GET /applications/:name/logs/archive`](#get-applications-name-logs-archive) lists it. Since 0.7.
+
+| Field | Type | |
+|---|---|---|
+| `id` | integer | |
+| `application` | string | |
+| `kind` | string | `replica`: one run of a replica's container, from a start to the stop after it. `run`: a run of a job, a pre-deploy command or a one-off command |
+| `deployment_id` | integer or null | The deployment the container belonged to; null once the deployment is gone |
+| `deployment` | integer | Its number in the application's history, the `sequence` of a deployment; `0` once it is gone |
+| `version` | string | Its version; `""` once it is gone |
+| `replica` | integer | The replica's index; `0` for a run |
+| `job` | string | The job's name for a run, `pre-deploy` and `run` included; `""` for a replica |
+| `run_id` | integer or null | The run, for a run; null for a replica |
+| `container` | string | Container name |
+| `reason` | string | Why the run ended, see [`GET /applications/:name/logs/archive`](#get-applications-name-logs-archive) |
+| `exit_code` | integer or null | The process's exit code; null when it was still running as its container was removed, or when the agent did not see it exit |
+| `oom_killed` | boolean | The process was killed for exceeding its memory limit |
+| `ended_at` | timestamp | When the run ended |
+| `first_line_at`, `last_line_at` | timestamp or null | The times of the first and the last line kept; null when `lines` is 0 |
+| `lines` | integer | How many lines are kept |
+| `bytes` | integer | The size of their text |
+| `stored_bytes` | integer | What they take on the server's disk, compressed |
+| `truncated` | boolean | The run printed more than is kept; these are its last lines. A replica's run keeps 2,000 lines and 1 MB, a job's 10,000 lines and 4 MB; a line longer than 16 KB is cut |
+
+### LogArchiveDetail
+
+A [`LogArchiveEntry`](#logarchiveentry) with its lines.
+
+| Field | Type | |
+|---|---|---|
+| … | | Every field of [`LogArchiveEntry`](#logarchiveentry) |
+| `output` | array of [`LogLine`](#logline) | The lines kept, oldest first |
+
+### LogMatch
+
+One line found by [`GET /applications/:name/logs/search`](#get-applications-name-logs-search): a [`LogLine`](#logline) with where it comes from. Since 0.7.
+
+| Field | Type | |
+|---|---|---|
+| … | | Every field of [`LogLine`](#logline) |
+| `archive_id` | integer or null | The entry the line is kept in; null for a line read from a container that exists |
+| `deployment_id` | integer or null | The deployment the container belongs to |
+| `deployment` | integer | Its number in the application's history |
+| `job` | string | The job's name, for a line of a run; `""` otherwise |
+| `run_id` | integer or null | The run, for a line of a run |
+
+### LogSearchResult
+
+One page of a search, newest source first and within a source the newest line first.
+
+| Field | Type | |
+|---|---|---|
+| `lines` | array of [`LogMatch`](#logmatch) | May hold fewer lines than asked for, none included, and still have a `next`: a request reads a bounded amount |
+| `next` | string | Continues the search as `cursor`; `""` when everything that matches the question has been looked at |
+| `sources` | integer | How many containers' output this request read |
+| `bytes` | integer | How much of it |
+
+### ApplicationConfig
+
+The answer to [`GET /applications/:name/config`](#get-applications-name-config): the `deploy.yaml` that describes the application's active deployment. Since 0.7.
+
+| Field | Type | |
+|---|---|---|
+| `application` | string | |
+| `deployment_id` | integer | The deployment the document describes: the active one |
+| `sequence` | integer | Its number in the application's history |
+| `version` | string | Its version |
+| `document` | string | The `deploy.yaml`. A secret value that was written as a reference to a secret stored on the server is that reference again; any other secret value is the mask, `"********"` |
+| `masked` | array of strings | The fields whose value is the mask: `env.API_KEY`, `proxy.basic_auth[0].password`. A deployment of the document is refused until each has a value or a reference. `[]`: it deploys as it is |
+| `static_digest` | string | For a static application: the folder the active deployment serves, which a deployment of the document names in `?static=`. Omitted otherwise |
 
 ### Metrics
 
@@ -2612,6 +3051,16 @@ The body of `POST /applications/:name/run`.
 | `applications` | array of strings | The applications a `deploy` token is limited to; empty when it is not limited. Absent from agents before 0.6. |
 | `expires_at` | timestamp or null | Null for a token that does not expire. A token whose time has passed stays listed until it is revoked. Absent from agents before 0.6. |
 
+### UpdateTokenRequest
+
+The body of [`PUT /tokens/:name`](#put-tokens-name). What it leaves out stays as it is. Since 0.7.
+
+| Field | Type | |
+|---|---|---|
+| `applications` | array of strings | Replaces the applications a `deploy` token is limited to; an empty list lifts the limit |
+| `expires_at` | timestamp | Moves the token's end. A token that has expired works again when its end is moved into the future |
+| `never_expires` | boolean | Takes the end away. It cannot stand next to `expires_at` |
+
 ### CreatedToken
 
 The answer to `POST /tokens`, the one time the token value itself is shown.
@@ -2652,7 +3101,7 @@ Who did something: what kind of caller, and its name.
 | Field | Type | |
 |---|---|---|
 | `kind` | string | `token` or `user` |
-| `name` | string | The token's name, or the e-mail address of a person who signed in |
+| `name` | string | The token's name, or the name of a person who signed in: the e-mail address, or what the claim of the operator's choice says |
 
 ### SignInConfig
 
@@ -2689,13 +3138,13 @@ The answer to [`POST /auth/exchange`](#post-auth-exchange).
 
 ### AccessRule
 
-Gives a role to an address, a group or a domain.
+Gives a role to an address, a group, a domain or a name.
 
 | Field | Type | |
 |---|---|---|
 | `id` | integer | |
-| `kind` | string | `email`, `group` or `domain` |
-| `subject` | string | The address or the domain, in lowercase; a group as the provider sends it |
+| `kind` | string | `email`, `group`, `domain` or, since 0.7, `name` |
+| `subject` | string | The address or the domain, in lowercase; a group as the provider sends it; a name as the provider's claim holds it |
 | `role` | string | `read`, `deploy` or `admin` |
 | `applications` | array of strings | Limits a `deploy` rule as it limits a `deploy` token; empty when not limited |
 | `created_at` | timestamp | |
@@ -2708,7 +3157,7 @@ A person signed in right now, as [`GET /access/sessions`](#get-access-sessions) 
 | Field | Type | |
 |---|---|---|
 | `id` | integer | |
-| `email` | string | |
+| `email` | string | The person's name: the address, or with another name claim what that claim holds |
 | `role` | string | |
 | `applications` | array of strings | |
 | `created_at` | timestamp | |

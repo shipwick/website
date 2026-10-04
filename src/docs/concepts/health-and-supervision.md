@@ -188,6 +188,8 @@ WHEN      EVENT
 34s ago   Replica 2 is crash-looping: 5 restarts without staying up. Retrying every 5m
 ```
 
+Since 0.7 each attempt of a crash loop leaves its output behind: the agent copies what a replica printed when its run ends, and `shipwick logs my-api --previous` shows the last one. See [Find out why it died](/docs/tasks/find-out-why-it-died).
+
 There are three ways out of a crash loop:
 
 - The cause goes away and the replica has a stable run. The supervisor records "no longer crash-looping".

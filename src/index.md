@@ -181,7 +181,7 @@ Volumes for the things that keep data. The server backs them up on a schedule, e
 
 ### A dashboard, a CLI and an API
 
-Replicas, health, a week of CPU and memory, history, live logs, jobs, backups, secrets and access, for one server or several. Whatever one of the three does, the others can.
+Replicas, health, a week of CPU and memory, history, live logs and what a crashed container printed last, jobs, backups, secrets and access, for one server or several. Whatever one of the three does, the others can.
 
 </div>
 </div>
@@ -360,7 +360,7 @@ curl -fsSL https://get.shipwick.com | sh
 </div>
 </div>
 
-The CLI also comes with Homebrew, `brew install shipwick/tap/shipwick`, and for Windows as `shipwick_windows_amd64.exe` from the [latest release](https://github.com/shipwick/shipwick/releases/latest). With it installed, `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` sets up the server over SSH, saves the token for you and prints the DNS records to create; `shipwick doctor` checks the whole setup afterwards. Everything the installer downloads comes from one release and is verified against its checksums. A server with no connection is [installed from one file](/docs/tasks/corporate-network).
+The CLI also comes with Homebrew, `brew install shipwick/tap/shipwick`, and for Windows as `shipwick_windows_amd64.exe`, or `shipwick_windows_arm64.exe` on Arm, from the [latest release](https://github.com/shipwick/shipwick/releases/latest). With it installed, `shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com` sets up the server over SSH, saves the token for you and prints the DNS records to create; `shipwick doctor` checks the whole setup afterwards. Everything the installer downloads comes from one release and is verified against its checksums. A server with no connection is [installed from one file](/docs/tasks/corporate-network), and the agent also comes as a [Debian and an RPM package](/docs/getting-started/install-from-a-package).
 
 <div class="closing">
 <img src="/img/wick-wave.svg" alt="Wick, the Shipwick flame, waving" width="80" height="80">

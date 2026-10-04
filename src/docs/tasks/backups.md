@@ -45,6 +45,7 @@ backups:
   keep: 7                   # successful backups kept; default 7
   before: ["pg_dump", "-U", "postgres", "-f", "/var/lib/postgresql/data/backup.sql", "app"]
   before_timeout: 1h        # how long `before` may run; default 1h, up to 24h
+  before_in: replica        # where `before` runs: replica (default) or container
   stop: false               # stop the application for the archive; default false
 ```
 
@@ -54,14 +55,51 @@ backups:
 | `keep` | `7` | How many successful backups are kept, from 1 to 365. |
 | `before` | none | A command run inside the running replica before the archive is taken. |
 | `before_timeout` | `1h` | How long `before` may run, from 1s to 24h. Since 0.6. Needs `before`. |
+| `before_in` | `replica` | Where `before` runs: `replica`, inside the running replica, or `container`, in a container of its own beside it, which is stopped at the limit. Since 0.7. Needs `before`. See [A `before` that is ended at its limit](#a-before-that-is-ended-at-its-limit). |
 | `stop` | `false` | Stop the application while the archive is taken. |
 
 Two things decide whether what is in a backup can be trusted:
 
-- **`before`** runs inside the running replica first, as a list of arguments, never through a shell: a dump written into the volume, a checkpoint. If it exits non-zero the backup fails and nothing is archived, because an archive without the dump it was meant to hold is not the backup you asked for. It has an hour, or what `before_timeout` says, up to 24h; the application is held for as long as it runs. A command still running at the limit fails the backup the same way, with an error that names the key. Docker has no way to end a command once it was started in a container, so one that hangs stays there until it ends by itself or the application is deployed or restarted; the backup no longer waits for it.
+- **`before`** runs inside the running replica first, as a list of arguments, never through a shell: a dump written into the volume, a checkpoint. If it exits non-zero the backup fails and nothing is archived, because an archive without the dump it was meant to hold is not the backup you asked for. It has an hour, or what `before_timeout` says, up to 24h; the application is held for as long as it runs. A command still running at the limit fails the backup the same way, with an error that names the key. Docker has no way to end a command once it was started in a container, so one that hangs stays there until it ends by itself or the application is deployed or restarted; the backup no longer waits for it. `before_in: container` runs it where it can be ended: see below.
 - **`stop: true`** stops the application for as long as the archive takes and starts it again whatever happens, a failed backup included. This is the one way to a consistent copy of files a process keeps open and has no dump tool for. The application is down meanwhile, and its event feed says so.
 
 Both may be given: the command runs, then the application stops. Without either, the archive is taken from under the running process, which is fine for uploads and not for a database.
+
+### A `before` that is ended at its limit
+
+Since 0.7, with `before_in: container` the command does not run inside the replica but in a container of its own next to it, for as long as the command takes. At `before_timeout` that container is stopped — `SIGTERM`, and `SIGKILL` if it is still there ten seconds later — and removed, the backup fails, and nothing of the command is left. The same happens when the agent is stopped while it runs. The replica is not touched.
+
+```yaml
+backups:
+  schedule: "0 3 * * *"
+  before: ["pg_dump", "-U", "postgres", "-h", "localhost", "-f", "/var/lib/postgresql/data/backup.sql", "app"]
+  before_timeout: 30m
+  before_in: container
+```
+
+```text
+$ shipwick backups run postgres
+✗ Backup #13 of postgres failed: backups.before did not finish within 30m and was stopped; nothing was archived. Give the command longer with backups.before_timeout in deploy.yaml (up to 24h)
+```
+
+What the container shares with the replica, and what it does not:
+
+| | |
+|---|---|
+| The image, the `env` values, `user` and the `resources` limits | The same. The limits are its own: a dump's memory is not taken from the replica's |
+| The volumes | Mounted at the same paths, so a dump written into a volume is in the archive |
+| The network | The replica's own: `localhost` and `127.0.0.1` are the replica, on every port it listens on |
+| The rest of the replica's filesystem | Not there: the container starts from the image. A socket the application keeps under `/var/run` or `/tmp` cannot be reached |
+| The replica's processes | Not visible: a command that signals the application's process does not find it |
+| The image's entrypoint | Not run: the command is started as it is written, as it would be inside the replica |
+
+So a command that talks to the application over the network works unchanged: `redis-cli SAVE`, `psql -h localhost -c CHECKPOINT`.
+
+::: warning A command that looks for a socket must be told a host
+`pg_dump` and `psql` look for a socket by default, and the replica's socket is not in the container: they need `-h localhost`. `mysqldump` and `mysql` need `-h 127.0.0.1`. Add a password where the database asks for one over TCP: PostgreSQL's image trusts `localhost`; MySQL's wants `-p` or `MYSQL_PWD`.
+:::
+
+That difference is why `replica` remains the default: nothing changes for a configuration that does not ask. A scheduled job and the pre-deploy command were containers all along, and are stopped and removed at their `timeout` the same way.
 
 `shipwick validate` shows what the block will have the server do, in a `Backups` line such as `daily at 03:00 UTC, 7 kept, after pg_dump -U postgres -f /var/lib/postgresql/data/backup.sql app`. Once deployed, `shipwick status` has a line for it:
 

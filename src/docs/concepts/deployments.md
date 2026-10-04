@@ -303,7 +303,7 @@ While a deployment is in flight, the application's `deploying` field is `true` a
 
 A new replica that crashes, is killed for exceeding its memory limit, or never becomes ready fails the deployment. So does an image that cannot be obtained — one sent from a developer's machine that is no longer on the server included — a `pre_deploy` command that exits non-zero or times out, a proxy that cannot be updated, a static folder without an `index.html`, and a deployment that takes longer than 15 minutes in total, image pull included (plus the `pre_deploy` timeout, when there is one).
 
-If a replica crashed or never became healthy, its last 20 lines of output are saved with the deployment as a `log` event. The container is about to be deleted, and with it the only clue. A failed `pre_deploy` command leaves its last 20 lines the same way.
+If a replica crashed or never became healthy, its last 20 lines of output are saved with the deployment as a `log` event. The container is about to be deleted, and before 0.7 that was the only clue. A failed `pre_deploy` command leaves its last 20 lines the same way. Since 0.7 the agent also keeps more of it in its log archive, the last 2,000 lines of each replica of the failed deployment and the last 10,000 of the command: `shipwick logs my-api --deployment 13`. See [Find out why it died](/docs/tasks/find-out-why-it-died).
 
 What happens next depends on how far the rollout had come.
 

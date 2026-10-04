@@ -82,6 +82,7 @@ Two places can fill it in. `shipwick` replaces every `${NAME}` it has a value fo
 | [`backups.keep`](#backups) | integer | no | `7` |
 | [`backups.before`](#backups) | list of strings | no | none |
 | [`backups.before_timeout`](#backups) | duration | no; requires `backups.before` | `1h` |
+| [`backups.before_in`](#backups) | string | no; requires `backups.before` | `replica` |
 | [`backups.stop`](#backups) | boolean | no | `false` |
 | [`publish[].port`](#publish) | integer | with `publish` | |
 | [`publish[].host`](#publish) | integer | no | the same as `port` |
@@ -454,7 +455,7 @@ env:
   LOG_LEVEL: info
 ```
 
-Values are stored on the server with the deployment. They are never logged and never echoed in validation errors. In every API response they are masked as `********`; the names are kept.
+Values are stored on the server with the deployment. They are never logged and never echoed in validation errors. In every API response they are masked as `********`; the names are kept. Since 0.7 the mask is refused as a value: `"********"` cannot be an `env` value or a basic-auth password, so a configuration copied out of an answer cannot be deployed with it. [`shipwick config`](/docs/tasks/get-the-configuration-back) gives the file back with a value that referred to a stored secret as that `${NAME}` again, and every other value as the mask.
 
 A value that must not be in the file is written as a [placeholder](#placeholders), `${DATABASE_PASSWORD}` above, and filled in by `shipwick` when you deploy.
 
@@ -580,6 +581,7 @@ Backups of the application's volumes, taken by the agent on a schedule. A backup
 | `backups.keep` | integer | `7` | 1 to 365. How many successful backups are kept; the oldest go once a new one has succeeded. |
 | `backups.before` | list of strings | none | A command run inside the running replica before the archive is taken. Same rule as `pre_deploy.command`: 1 to 256 arguments, the first not blank, none containing a NUL byte or longer than 4096 bytes. A list, not a string. |
 | `backups.before_timeout` | duration | `1h` | `1s` to `24h`. How long `before` may run. Requires `backups.before`. Since 0.6. |
+| `backups.before_in` | string | `replica` | `replica` or `container`: where `before` runs. Requires `backups.before`. Since 0.7. |
 | `backups.stop` | boolean | `false` | Stop the application while the archive is taken, and start it again whatever happens. |
 
 `backups` requires [`volumes`](#volumes): a backup is an archive of them. An unknown key inside the block is an error.
@@ -597,15 +599,33 @@ backups:
   keep: 7                   # successful backups kept; default 7
   before: ["pg_dump", "-U", "postgres", "-f", "/var/lib/postgresql/data/backup.sql", "app"]
   before_timeout: 1h        # how long `before` may run; default 1h, up to 24h
+  before_in: replica        # where `before` runs: replica (default) or container
   stop: false               # stop the application for the archive; default false
 ```
 
 Two things decide whether what is in the archive can be trusted:
 
-- `before` runs inside the running replica first, as a list of arguments, never through a shell: a dump written into the volume, a checkpoint. If it exits non-zero the backup fails and nothing is archived. It has an hour, or what `before_timeout` says, up to 24 hours; the application is held for as long as it runs. A command still running at the limit fails the backup the same way, with an error that names the key: `backups.before did not finish within 1h; the backup was given up and nothing was archived. Give the command longer with backups.before_timeout in deploy.yaml (up to 24h)`. Docker has no way to end a command once it was started in a container, so one that hangs stays there until it ends by itself or the application is deployed or restarted; the backup no longer waits for it.
+- `before` runs inside the running replica first, as a list of arguments, never through a shell: a dump written into the volume, a checkpoint. If it exits non-zero the backup fails and nothing is archived. It has an hour, or what `before_timeout` says, up to 24 hours; the application is held for as long as it runs. A command still running at the limit fails the backup the same way, with an error that names the key: `backups.before did not finish within 1h; the backup was given up and nothing was archived. Give the command longer with backups.before_timeout in deploy.yaml (up to 24h)`. Docker has no way to end a command once it was started in a container, so one that hangs stays there until it ends by itself or the application is deployed or restarted; the backup no longer waits for it. `before_in: container` runs it where it can be ended.
 - `stop: true` stops the application for as long as the archive takes and starts it again whatever happens, a failed backup included. The application is down meanwhile.
 
 Both may be given: the command runs, then the application stops. Without either, the archive is taken from under the running process, which is fine for uploads and not for a database.
+
+**`before_in`** (since 0.7) says where `before` runs.
+
+| Value | |
+|---|---|
+| `replica` | The default. Inside the running replica, where a command that passes its limit stays until it ends by itself. |
+| `container` | In a container of its own beside the replica, for as long as the command takes. At `before_timeout` it is stopped — `SIGTERM`, and `SIGKILL` if it is still there ten seconds later — and removed, and the backup fails with `backups.before did not finish within 1h and was stopped; nothing was archived. Give the command longer with backups.before_timeout in deploy.yaml (up to 24h)`. The same happens when the agent is stopped while it runs. The replica is not touched. |
+
+The container has the replica's image, `env` values, `user` and `resources` limits, the limits being its own; the volumes at the same paths; and the replica's network, so `localhost` and `127.0.0.1` are the replica on every port it listens on. It does not have the rest of the replica's filesystem — it starts from the image, so a socket the application keeps under `/var/run` or `/tmp` cannot be reached — nor the replica's processes, and the image's entrypoint is not run. A command that looks for a socket by default must be told a host: `pg_dump` and `psql` need `-h localhost`, `mysqldump` and `mysql` `-h 127.0.0.1`. See [A `before` that is ended at its limit](/docs/tasks/backups#a-before-that-is-ended-at-its-limit).
+
+```yaml
+backups:
+  schedule: "0 3 * * *"
+  before: ["pg_dump", "-U", "postgres", "-h", "localhost", "-f", "/var/lib/postgresql/data/backup.sql", "app"]
+  before_timeout: 30m
+  before_in: container
+```
 
 Only successful backups count towards `keep`. A scheduled backup that fails is posted to the webhook as `backup.failed`. `shipwick backups <app>` lists the backups the server keeps, and `shipwick backups run <app>` takes one now, with or without a `backups` block; see the [CLI reference](/docs/reference/cli#backups).
 
@@ -930,13 +950,16 @@ Other forms the report takes:
 | Volumes without `recreate` | `deploy.strategy:` / `must be "recreate" for an application with volumes: two versions cannot write the same files at once` |
 | Volumes with more than one replica | `replicas:` / `must be 1 for an application with volumes, got 2: replicas cannot share a volume` |
 | `backups` that is not a block | `backups:` / `must be a block with a schedule` |
-| An unknown key under `backups` | `backups:` / `unknown field "schedul"`, expected `schedule, keep, before, before_timeout, stop` |
+| An unknown key under `backups` | `backups:` / `unknown field "schedul"`, expected `schedule, keep, before, before_timeout, before_in, stop` |
 | `backups` without a schedule | `backups.schedule:` / `is required`, expected `"0 3 * * *" (minute hour day-of-month month day-of-week, in UTC)` |
 | An invalid backup schedule | `backups.schedule:` / `invalid value "61 * * * *": minute: value 61 out of range 0-59`, expected `five cron fields in UTC, e.g. "0 3 * * *" (every day at 03:00)` |
 | A `keep` out of range | `backups.keep:` / `invalid value 0`, expected `a number between 1 and 365` |
 | An empty or oversized `before` command | `backups.before:` / `is required`; `too many arguments (257)`; `argument 2 is longer than 4096 bytes`; `argument 2 must not contain NUL bytes` |
 | A `before_timeout` without `before` | `backups.before_timeout:` / `needs backups.before: it is that command's time limit`, expected `10m, 1h, 6h, ... (1s to 24h)` |
 | A `before_timeout` out of range, or without a unit | `backups.before_timeout:` / `invalid value "25h": out of range`; `invalid value "90"`, expected `10m, 1h, 6h, ... (1s to 24h)` |
+| A `before_in` without `before` | `backups.before_in:` / `needs backups.before: it says where that command runs`, expected `replica (inside the running replica), container (in a container of its own, which can be ended)` |
+| A `before_in` that is neither | `backups.before_in:` / `invalid value "sidecar"`, with the same expectation |
+| `"********"` as an `env` value or a basic-auth password | `env.LOG_LEVEL:` / `******** is what the server shows in the place of this value, not the value`, expected `the value itself, or ${NAME} with the value stored by shipwick secret set NAME`. Since 0.7 |
 | `backups` without `volumes` | `backups:` / `needs volumes: a backup is an archive of the application's volumes` |
 | Published ports without `recreate` | `deploy.strategy:` / `must be "recreate" for an application that publishes ports: two versions cannot listen on the same server port` |
 | Published ports with more than one replica | `replicas:` / `must be 1 for an application that publishes ports, got 2: replicas cannot share a server port` |
@@ -1136,12 +1159,16 @@ deploy:
 # runs inside the running replica first — a dump, a checkpoint — and a non-zero
 # exit fails the backup; `stop: true` stops the application while the archive
 # is taken. `shipwick backups` lists them, `shipwick backups verify` proves
-# that one restores.
+# that one restores. With `before_in: container` the command runs in a
+# container of its own beside the replica and is ended at before_timeout; it
+# reaches the replica as localhost and sees the volumes, not the replica's
+# other files, so pg_dump needs `-h localhost` there.
 # backups:
 #   schedule: "0 3 * * *"
 #   keep: 7       # successful backups kept; default 7, up to 365
 #   before: ["pg_dump", "-U", "postgres", "-f", "/var/lib/postgresql/data/backup.sql", "app"]
 #   before_timeout: 1h   # how long `before` may run; default 1h, up to 24h
+#   before_in: replica   # replica (default) | container
 #   stop: false   # default false
 
 # Ports that are not HTTP, published on the server itself: a database reached

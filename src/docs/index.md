@@ -73,7 +73,7 @@ Shipwick is for one server, by design. It schedules nothing across machines, run
 When one server is no longer enough, you have outgrown Shipwick. Until then, it is the whole platform.
 
 ::: info Status: 0.x
-The current version is 0.6.0. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) says so when it happens, and how to upgrade.
+The current version is 0.7.0. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) says so when it happens, and how to upgrade.
 :::
 
 ## How the documentation is organized
@@ -85,6 +85,7 @@ Install the CLI and the server, then deploy an application.
 - [How it fits together](/docs/getting-started/how-it-fits) — what runs where, which parts you need, the order to set up a fresh server in, and the problems people meet on the way
 - [Install the CLI](/docs/getting-started/install-cli)
 - [Install Shipwick on a server](/docs/getting-started/install)
+- [Install from a package](/docs/getting-started/install-from-a-package)
 - [Your first deployment](/docs/getting-started/first-deployment)
 
 ### Concepts
@@ -107,7 +108,9 @@ How to do one specific thing.
 
 - [Deploy from CI](/docs/tasks/deploy-from-ci)
 - [Roll back and redeploy](/docs/tasks/roll-back)
+- [Get deploy.yaml back from the server](/docs/tasks/get-the-configuration-back)
 - [See what is running: applications, status and logs](/docs/tasks/inspect-and-logs)
+- [Find out why it died](/docs/tasks/find-out-why-it-died)
 - [Use the dashboard](/docs/tasks/dashboard)
 - [Run scheduled jobs and one-off commands](/docs/tasks/jobs)
 - [Call one application from another](/docs/tasks/call-another-application)

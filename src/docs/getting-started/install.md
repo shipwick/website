@@ -22,7 +22,7 @@ You need:
 - Ports 80 and 443 free on the server and reachable from the internet. Automatic HTTPS depends on them, so Shipwick cannot share a server with another web server, reverse proxy or deployment platform that holds them. The installer checks this first and changes nothing if a port is taken.
 - Two DNS names that point at the server: one for the API, one for the dashboard. Both are optional, and both are what makes the rest comfortable: without the first, `shipwick` reaches the server only through an [SSH tunnel](/docs/tasks/access-without-a-hostname). Every application you give a `domain` later needs a DNS record too.
 
-A server whose way to the internet is a proxy, or that has none, is covered in [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network).
+A server whose way to the internet is a proxy, or that has none, is covered in [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network). To run the agent as a systemd service of the host instead of a container, see [Install from a package](/docs/getting-started/install-from-a-package).
 
 ## Run the installer from your laptop
 
@@ -61,7 +61,7 @@ Next: in your project, run: shipwick init
 | `--agent-domain <host>` | Hostname for the API. Without it the API is not exposed, and the context points at `http://127.0.0.1:9000` for the [SSH tunnel](/docs/tasks/access-without-a-hostname) |
 | `--dashboard-domain <host>` | Hostname for the dashboard |
 | `--context <name>` | Name to save the server under; default: its hostname |
-| `--version <tag>` | Release to install, such as `v0.6.0`; default: the latest |
+| `--version <tag>` | Release to install, such as `v0.7.0`; default: the latest |
 
 The remote commands are fixed; the hostnames and the version are validated first and reach the installer as environment assignments. Running the command again upgrades the server: the token is then unchanged and not printed again, and the context keeps the one it has.
 
@@ -163,7 +163,7 @@ The installer accepts these environment variables:
 | `SHIPWICK_BACKUP_PASSPHRASE` | — | Encrypts the backups the agent takes, and lets it back up its own database and key. Likewise; see [Back up and restore volumes](/docs/tasks/backups) |
 | `SHIPWICK_BACKUP_S3_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_REGION`, `_PREFIX` | — | An S3-compatible bucket the backups are also sent to. Likewise |
 
-`SHIPWICK_HTTP_PORT`, `SHIPWICK_HTTPS_PORT`, `SHIPWICK_AGENT_IMAGE`, `SHIPWICK_DASHBOARD_IMAGE`, `SHIPWICK_CADDY_IMAGE`, `SHIPWICK_EXPORT_SCHEDULE`, `SHIPWICK_EXPORT_KEEP` and `SHIPWICK_STANDBY_SCHEDULE` are kept in `.env` the same way when they are set for the first run. What each means is in [Agent configuration](/docs/reference/agent-configuration#the-production-compose-file).
+`SHIPWICK_HTTP_PORT`, `SHIPWICK_HTTPS_PORT`, `SHIPWICK_AGENT_IMAGE`, `SHIPWICK_DASHBOARD_IMAGE`, `SHIPWICK_CADDY_IMAGE`, `SHIPWICK_EXPORT_SCHEDULE`, `SHIPWICK_EXPORT_KEEP` and `SHIPWICK_STANDBY_SCHEDULE` are kept in `.env` the same way when they are set for the first run, and since 0.7 `SHIPWICK_LOG_RETENTION_DAYS`, `SHIPWICK_LOG_RETENTION_SIZE`, `SHIPWICK_OIDC_NAME_CLAIM`, `SHIPWICK_OIDC_TENANTS` and `SHIPWICK_UPDATE_CHECK`. What each means is in [Agent configuration](/docs/reference/agent-configuration#the-production-compose-file).
 
 All of these can also be added to `/opt/shipwick/.env` later, followed by `cd /opt/shipwick && docker compose up -d`.
 
@@ -207,10 +207,10 @@ If you skipped the API hostname, the API is not exposed at all. See [Reach the A
 Everything the installer fetches comes from one [release](https://github.com/shipwick/shipwick/releases) — never from a branch — and each file is verified against that release's checksums. By default that is the latest release. To choose one:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.6.0 sh
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.7.0 sh
 ```
 
-Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade). From your laptop, `shipwick server install user@host --version v0.6.0` does the same over SSH.
+Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade). From your laptop, `shipwick server install user@host --version v0.7.0` does the same over SSH.
 
 ## Other ways to install
 
@@ -247,19 +247,16 @@ sh scripts/install.sh
 
 Build the CLI with `make build`.
 
-### A plain binary, next to a Caddy on the host
+### A package: the agent as a service of the host
 
-The agent also runs as a plain binary on Linux, built with `make build`, next to a Caddy installed on the host. Point the agent at Caddy's admin endpoint:
+Since 0.7 the agent is published as a Debian and an RPM package, for a server where it should be started by systemd and upgraded by the package manager instead of running in a container. The proxy and the dashboard stay containers, started from a compose file the package brings. See [Install from a package](/docs/getting-started/install-from-a-package).
 
-```bash
-SHIPWICK_CADDY_ADMIN=http://127.0.0.1:2019
-```
-
-The agent listens on `127.0.0.1:9000` by default and keeps its data — `shipwick.db`, `encryption.key` and the uploaded folders of static applications until they are deployed — in `/var/lib/shipwick`. All variables are listed in [Agent configuration](/docs/reference/agent-configuration).
+As a process of the host the agent listens on `127.0.0.1:9000` by default and keeps its data — `shipwick.db`, `encryption.key` and the uploaded folders of static applications until they are deployed — in `/var/lib/shipwick`; from a checkout, `make build` builds the same binary. The proxy stays a container: Caddy finds the replicas of an application by name on a Docker network, which a Caddy installed on the host cannot do. All variables are listed in [Agent configuration](/docs/reference/agent-configuration).
 
 ## What's next
 
 - [Deploy your first application](/docs/getting-started/first-deployment).
 - If you ran the installer on the server: [sign in from your laptop](/docs/getting-started/install-cli#log-in) with the token it printed.
 - [Create tokens for CI and teammates](/docs/tasks/tokens) instead of handing out the root token.
+- [Install from a package](/docs/getting-started/install-from-a-package): the agent as a systemd service.
 - [Open the dashboard](/docs/tasks/dashboard), and let people [sign in with your company's accounts](/docs/tasks/sign-in).

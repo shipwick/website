@@ -81,6 +81,7 @@ One parser and one validator serve both `shipwick` and the agent, so error messa
 - **Old images.** After a successful deployment, and after `delete`, the images that only retired deployments of the application refer to are removed. The running version's image and the rollback target's are always kept. A deployment that fails or is rolled back removes the image it named right then, under the same rule. See [Deployments](/docs/concepts/deployments#when-a-deployment-is-done).
 - **The metrics history.** A sampler records the CPU and memory of every running replica every 30 seconds and keeps seven days. See [Resource limits and metrics](/docs/concepts/resources#history).
 - **The traffic counts.** From the proxy's access log the agent keeps, per application and minute, the requests, their status classes, the bytes and a latency histogram, for seven days, and the last 200 requests of each application in memory. See [Traffic](/docs/tasks/traffic).
+- **The last output of containers that ended.** Since 0.7 the agent copies what a container printed into its log archive when the container's run ends — a crash, a restart, a replaced replica, a finished job — and keeps it for 14 days within 1 GB. See [Find out why it died](/docs/tasks/find-out-why-it-died).
 - **The alerts.** A replica near its memory limit, the server's disk filling up, a replica restarted three times within ten minutes, an application that has not been healthy for five minutes: each is raised once and cleared once. See [Alerts and metrics](/docs/tasks/alerts-and-metrics).
 - **The state.** The SQLite file is the record of what should be running.
 
@@ -104,7 +105,7 @@ The proxy configuration names no container and no address. It names `<app>_<port
 
 ## What is stored
 
-The database has thirteen tables: `applications`, `deployments`, `deployment_replicas`, `events`, `tokens`, `metric_samples`, `job_runs`, `secrets`, `registries`, `certificates`, `traffic_samples`, `backup_runs` and `backup_installation`. Migrations are an append-only list tracked in `PRAGMA user_version`. Timestamps are fixed-width UTC text, so they sort lexicographically.
+The database has nineteen tables: `applications`, `deployments`, `deployment_replicas`, `events`, `tokens`, `metric_samples`, `job_runs`, `secrets`, `registries`, `certificates`, `traffic_samples`, `backup_runs`, `backup_installation`, since 0.6 `audit_log`, `access_rules`, `sessions` and `transfer_state`, and since 0.7 `log_archives` and `deployment_references`. Migrations are an append-only list tracked in `PRAGMA user_version`. Timestamps are fixed-width UTC text, so they sort lexicographically.
 
 - **The full configuration of every deployment** is stored with it, as JSON. This is what makes a rollback "deploy the configuration of an older record again" rather than a separate code path.
 - **Environment values are encrypted in that JSON**, and the basic-auth passwords of the `proxy` block with them; so are the stored secrets, the registry passwords and the keys of supplied certificates. Nothing else is. Names, images, domains, the variable names and a certificate's chain stay readable, so the file remains debuggable; only the values are ciphertext (AES-256-GCM). The key is `encryption.key` in the data directory, or `SHIPWICK_ENCRYPTION_KEY`. It lives next to the database rather than in it, so a copy of the database alone reveals no secrets, and it must be backed up with the database, which the agent does itself once a backup passphrase is set. The key can be rotated while the agent runs. The API masks the values in every response regardless. See [Security](/docs/security#secrets-at-rest).
@@ -113,6 +114,8 @@ The database has thirteen tables: `applications`, `deployments`, `deployment_rep
 - **Application events**, the supervisor's running commentary, are capped at the newest 500 per application. A crash loop would otherwise grow the table without bound.
 - **Tokens** are stored as name, role and the SHA-256 of the value. The root token is the exception: it is not in the database at all. Only its hash is kept, in memory and in `agent-token.sha256` next to the database, so a lost or corrupt database can never lock the operator out. See [Agent configuration](/docs/reference/agent-configuration).
 - **Job runs**: one row per run of a pre-deploy hook, scheduled job or one-off command, with the last 200 lines (64 KB) of its output. The last 50 runs of each job are kept.
+- **The log archive's index**, since 0.7: one row for each ended run of a container whose output was kept, with what it was the output of and how it ended. The lines themselves are gzip files under `logs/` in the data directory, not in the database. See [Find out why it died](/docs/tasks/find-out-why-it-died).
+- **The references of a deployment**, since 0.7: which of its secret values the server filled in from its secrets, as the document wrote them, with `${NAME}` in place. Encrypted like a secret. It is what lets [the document be given back](/docs/tasks/get-the-configuration-back).
 - **Metric samples**: one row per running replica every 30 seconds, raw, pruned once an hour to seven days. Aggregation happens on read.
 - **Traffic samples**: one row per application and minute with requests, holding the counts and a latency histogram, pruned after seven days like the metric samples. A quiet application writes nothing. The histogram is stored, not the percentiles, because percentiles of minutes cannot be combined into the percentile of an hour.
 - **Backup runs**: one row per backup, of an application's volumes or of the agent's own state, with what was done with it since: verified, restored. Backups are recorded by application name, so they outlive the application's deletion, like its volumes. One more row holds the name this installation marks its bucket with.
@@ -170,12 +173,12 @@ Out of scope, and likely to stay there:
 - Multi-node scheduling, service meshes, custom resources.
 - Building images on the server. The `BUILDING` state of a deployment covers obtaining an image, not building one. `build: .` does not cross this line: the build runs on the developer's machine, and the agent only loads the result.
 - Anything that requires an external database or queue.
+- Registry credential helpers (`credsStore`). A helper is a program on the server that the agent would have to execute, and the agent executes nothing. Registries whose credentials expire, such as Amazon ECR and Google Artifact Registry, are served by piping the cloud CLI's token into `shipwick registry login`. See [Pull from private registries](/docs/tasks/private-registries#registries-with-tokens-that-expire).
 - Failing over. A [second server can be kept ready](/docs/tasks/standby), holding a recent copy of everything the first one runs, deployed and stopped; a person decides when to start it, and the data is as old as the last export. Nothing watches the first server and nothing decides.
 
 Not yet:
 
 - Host mounts. `volumes` are named Docker volumes; a path on the host cannot be mounted.
-- Registry credential helpers (`credsStore`). The agent sends the credential stored with `shipwick registry login`, or else an `auths` entry of the Docker configuration file. See [Pull from private registries](/docs/tasks/private-registries).
 - The DNS challenge with a provider other than Cloudflare. The proxy carries the Cloudflare DNS module and nothing else, so a wildcard hostname in a zone hosted elsewhere needs a [certificate of your own](/docs/tasks/certificates).
 - Roles per application. A `deploy` token can be [limited to some applications](/docs/tasks/tokens#limit-a-token-to-some-applications), which narrows what it changes; it still reads everything, and that is not tenancy.
 

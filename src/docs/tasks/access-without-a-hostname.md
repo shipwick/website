@@ -51,7 +51,7 @@ cd /opt/shipwick && docker compose up -d
 
 The `127.0.0.1:` prefix matters. Without it, Docker publishes the port on every interface of the server.
 
-If the agent runs as a plain binary instead, there is nothing to do: it listens on `127.0.0.1:9000` by default.
+If the agent runs as a service of the host instead — [installed from a package](/docs/getting-started/install-from-a-package), or as a plain binary — there is nothing to do: it listens on `127.0.0.1:9000` by default.
 
 ## Open an SSH tunnel
 

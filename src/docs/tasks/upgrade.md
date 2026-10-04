@@ -1,15 +1,33 @@
 ---
 title: Upgrade Shipwick
-description: Upgrade the agent, Caddy setup and dashboard by running the installer again, upgrade the CLI with shipwick upgrade, and what happens to running applications meanwhile.
+description: Upgrade the agent, Caddy setup and dashboard by running the installer again, upgrade the CLI with shipwick upgrade, how a server says that a newer release exists, and what happens to running applications meanwhile.
 ---
 
 # Upgrade Shipwick
 
-You upgrade a Shipwick server by running the installer again, on the server or from your laptop over SSH, and a CLI elsewhere with `shipwick upgrade`. This page covers what the installer changes, what it leaves alone, how to choose a version, what happens to your applications and to a running deployment while the agent restarts, what the upgrades to 0.6, 0.5, 0.4 and 0.3 do on first start and what you may want to turn on afterwards, and how to upgrade the CLI on laptops and in CI.
+You upgrade a Shipwick server by running the installer again, on the server or from your laptop over SSH, and a CLI elsewhere with `shipwick upgrade`. This page covers what the installer changes, what it leaves alone, how to choose a version, what happens to your applications and to a running deployment while the agent restarts, how the server says that a newer release exists, what the upgrades to 0.7, 0.6, 0.5, 0.4 and 0.3 do on first start and what you may want to turn on afterwards, and how to upgrade the CLI on laptops and in CI.
 
 ## Read the changelog first
 
 Shipwick is at 0.x. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. When it does, the [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) entry says so under **Changed** and explains how to upgrade. Read it before every upgrade.
+
+## A notice when a newer release exists
+
+Since 0.7 the agent asks GitHub once a day which release is the latest, and `GET /server` carries the answer. The dashboard and `shipwick server status` say when the server is behind, without a connection of their own:
+
+```text
+Agent           v0.7.0  v0.7.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+```
+
+In the dashboard the notice is on the server's Status tab, with the command that upgrades; see [Use the dashboard](/docs/tasks/dashboard#the-server).
+
+- **The question says nothing about the server.** It is one request to `github.com/shipwick/shipwick/releases/latest`, without a version or an identifier in it. See [What leaves the server unasked](/docs/security#what-leaves-the-server-unasked).
+- **It goes through the proxy and the certificate authorities the agent was given.** A server that cannot reach GitHub notices nothing: the request gives up after 15 seconds, nothing is logged above debug level, and the next attempt is a day later like any other.
+- **A restart asks nothing.** The last answer is kept in `update-check.json` in the data directory.
+- **`SHIPWICK_UPDATE_CHECK=off` stops the question.** The agent says at startup, once, that it asks and how to stop it. See [Agent configuration](/docs/reference/agent-configuration#shipwick-update-check).
+- **Pre-releases are never announced**, and nothing is installed: the notice names the command, and running it is yours.
+
+The notice names the installer. On a server [installed from a package](/docs/getting-started/install-from-a-package#upgrade), the newer package is what to install.
 
 ## Upgrade the server
 
@@ -96,6 +114,55 @@ Supervision then resumes. The supervisor's state is held in memory, so every rep
 A job that was running when the old agent stopped is marked `interrupted` and its container removed; the job runs again at its next scheduled time. Firings that fell while the agent was down are not caught up.
 
 After a server reboot, the agent brings every application back up according to its restart policy.
+
+### Upgrading from 0.6 to 0.7
+
+0.7 adds to what the agent stores and keeps on its disk; applications run as before, and nothing changes for a `deploy.yaml` that worked before. All three containers are recreated, because their images changed. The proxy is away for the moment that takes, and established connections through it are cut; certificates and configuration are on volumes and stay, and the applications behind the proxy keep running.
+
+On its first start the new agent **applies three schema migrations** to `shipwick.db`, numbers 19 to 21: the index of the log archive, the references to stored secrets that are remembered with each deployment, and what a session's name rests on — the claim it was read from and the tenant it came from. An older agent refuses a database whose schema is newer than it supports, so do not downgrade afterwards. Nothing is encrypted anew.
+
+Existing tokens, rules and sessions keep working. A session from before the upgrade was named by the `email` claim, and stays valid while the agent names people that way.
+
+Four things behave differently without being asked:
+
+- **The agent keeps the last output of containers that end**, from the first one that ends after the upgrade: 14 days, at most 1 GB, as gzip files under `logs/` in its data directory. They are not encrypted, like the logs Docker keeps. `SHIPWICK_LOG_RETENTION_SIZE=0` keeps nothing. See [Find out why it died](/docs/tasks/find-out-why-it-died).
+- **The agent asks GitHub once a day whether a newer release exists.** The request says nothing about the server; `SHIPWICK_UPDATE_CHECK=off` stops it. See [above](#a-notice-when-a-newer-release-exists).
+- **`"********"` is refused as an `env` value or a basic-auth password**, by `deploy` and `validate` alike, with `400 INVALID_CONFIG` and the fields to fill in. What the API masks can no longer be deployed as a value by pasting it back. A `deploy.yaml` that really holds that text as a value has to change.
+- **`GET /audit` says whether older entries match**, as `more` next to `data`, so a page that is exactly full no longer looks like there is another. `ACCESS_NOT_GRANTED` carries the person's name as `details.name`; `details.email` holds the same and stays for older clients.
+
+One thing takes a deployment to arrive: `shipwick config` gives back a reference to a stored secret only for deployments made by 0.7. An application deployed before has all its secret values shown as masks until it is deployed again from its file.
+
+What is new is opt-in. What an operator may want to turn on or use:
+
+| | How |
+|---|---|
+| Read what a container printed before it died | Nothing to turn on: `shipwick logs my-api --previous`. See [Find out why it died](/docs/tasks/find-out-why-it-died) |
+| Keep more or less of that output | `SHIPWICK_LOG_RETENTION_DAYS` and `SHIPWICK_LOG_RETENTION_SIZE` in `/opt/shipwick/.env` |
+| Get a lost `deploy.yaml` back | `shipwick config my-api -o deploy.yaml`. See [Get deploy.yaml back from the server](/docs/tasks/get-the-configuration-back) |
+| Move a token's end, or change its applications, without a new value | `shipwick token update ci --expires 90d`. See [Change a token](/docs/tasks/tokens#change-a-token) |
+| End a dump that hangs at its limit | `backups.before_in: container` in `deploy.yaml`; `pg_dump` then needs `-h localhost`. See [A `before` that is ended at its limit](/docs/tasks/backups#a-before-that-is-ended-at-its-limit) |
+| Filter the audit trail by action and result, and export it | `shipwick audit --action token. --outcome refused,failed`, `--format csv`. See [See who changed what](/docs/tasks/audit) |
+| Let accounts without an address sign in | `SHIPWICK_OIDC_NAME_CLAIM`, and rules written `name:`. See [Accounts without an address](/docs/tasks/sign-in#accounts-without-an-address) |
+| Let the accounts of several Microsoft Entra tenants sign in | `SHIPWICK_OIDC_TENANTS` with Entra's `organizations` issuer. See [Accounts of several Microsoft Entra tenants](/docs/tasks/sign-in#accounts-of-several-microsoft-entra-tenants) |
+| Keep an ECR or Artifact Registry credential current | The cloud CLI's token piped into `shipwick registry login`. See [Registries with tokens that expire](/docs/tasks/private-registries#registries-with-tokens-that-expire) |
+| Run the agent as a systemd service | The `.deb` or `.rpm` of the release. It is a separate installation, reached by export and import. See [Install from a package](/docs/getting-started/install-from-a-package) |
+
+Each variable is one the new compose file passes through and that is empty until you set it.
+
+A bundle for a server with no connection now proves its images: a release from 0.7.0 on publishes their digests, `shipwick server bundle` checks the archive against them, and the installer checks what Docker loaded. See [Install on a server with no way out](/docs/tasks/corporate-network#install-on-a-server-with-no-way-out).
+
+In the dashboard, an application's Logs tab reads the log archive, **Change the configuration** opens the application's `deploy.yaml`, a token is edited on the Access page, the audit trail is filtered and exported, an export is downloaded and a file imported on the server's page, and every page works with the keyboard alone. See [Use the dashboard](/docs/tasks/dashboard).
+
+On laptops and in CI, upgrade the CLI as described below; the new commands and flags need it. On Windows on Arm, `shipwick upgrade` picks the Arm build, also when the `shipwick` that runs is the x64 one. A 0.6 `shipwick` keeps working against a 0.7 agent for everything it knows. A 0.7 `shipwick` against a 0.6 agent says so where the agent lacks something:
+
+| Asked for | The CLI says |
+|---|---|
+| `logs --previous`, `--list`, `--id`, `--search` and the others | `the agent is older than this shipwick and keeps no log archive: it shows the output of running containers only` |
+| `config` | `the agent is older than this shipwick and does not write an application's deploy.yaml` |
+| `audit --action`, `--outcome`, `--actor-kind` | `the agent is older than this shipwick: it filters the audit trail by application, actor and time only, and would have ignored --action, --outcome and --actor-kind` |
+| `audit --format`, `--output` | `the agent is older than this shipwick and cannot export its audit trail` |
+
+`token update` against a 0.6 agent changes nothing, and says that the agent is older.
 
 ### Upgrading from 0.5 to 0.6
 
@@ -218,7 +285,9 @@ docker compose -f compose.production.yml up -d
 
 If you built the images from source, rebuild them from the new checkout — since 0.5 there are three, the proxy's with `docker build -t ghcr.io/shipwick/caddy -f Dockerfile.caddy .` — and run `sh scripts/install.sh` from it again.
 
-If the agent runs as a plain binary, replace it with the new build and restart it. The first start of 0.3.0 creates `encryption.key` in `SHIPWICK_DATA_DIR`, or reads `SHIPWICK_ENCRYPTION_KEY` if you set it; the first starts of 0.4.0, 0.5 and 0.6 apply the migrations described above. A Caddy on the host that is the official build obtains certificates as before; the Cloudflare DNS challenge needs a Caddy with the Cloudflare DNS module.
+If the agent was installed from a package, install the newer package and run its compose command again; see [Install from a package](/docs/getting-started/install-from-a-package#upgrade).
+
+If the agent runs as a plain binary, replace it with the new build and restart it. The first start of 0.3.0 creates `encryption.key` in `SHIPWICK_DATA_DIR`, or reads `SHIPWICK_ENCRYPTION_KEY` if you set it; the first starts of 0.4.0, 0.5, 0.6 and 0.7 apply the migrations described above.
 
 ## What's next
 

@@ -208,7 +208,7 @@ A command that fails or times out appears in the event feed as `Command rails fa
 | | |
 |---|---|
 | Runs | The last 50 runs of each job. Pre-deploy runs and one-off commands are jobs for this purpose, under `pre-deploy` and `run`. |
-| Output | The last 200 lines a run wrote, at most 64 KB. The container itself is removed when the run ends. |
+| Output | The last 200 lines a run wrote, at most 64 KB. The container itself is removed when the run ends. Since 0.7 the log archive keeps more of it, the last 10,000 lines, at most 4 MB: `shipwick logs my-api --run <id>`. See [Find out why it died](/docs/tasks/find-out-why-it-died). |
 | Events | A failed or timed-out run adds a warning to the application's event feed. A successful one adds nothing. |
 | Notifications | A failed or timed-out run is posted as `job.failed` when a webhook is configured, with the `shipwick jobs logs` line to read its output. See [Get notified](/docs/tasks/notifications). |
 

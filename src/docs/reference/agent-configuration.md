@@ -26,6 +26,8 @@ The agent is configured through environment variables only: its own `SHIPWICK_*`
 | [`SHIPWICK_PROXY_TLS_ADDR`](#shipwick-proxy-tls-addr) | `caddy:443` | Where the agent reaches the proxy's TLS port, as `host:port`, to report each hostname's certificate. Since 0.5. |
 | [`SHIPWICK_ALERT_MEMORY_PERCENT`](#shipwick-alert-memory-percent-and-shipwick-alert-disk-percent) | `90` | A replica at or above this share of its `resources.memory` raises an alert. A whole number from 50 to 100. Since 0.5. |
 | [`SHIPWICK_ALERT_DISK_PERCENT`](#shipwick-alert-memory-percent-and-shipwick-alert-disk-percent) | `85` | The disk that holds the data directory raises an alert when it is this full. A whole number from 50 to 94. Since 0.5. |
+| [`SHIPWICK_LOG_RETENTION_DAYS`](#shipwick-log-retention-days-and-shipwick-log-retention-size) | `14` | How long the last output of an ended container stays in the log archive, in days after it ended. A number from 1 to 365. Since 0.7. |
+| [`SHIPWICK_LOG_RETENTION_SIZE`](#shipwick-log-retention-days-and-shipwick-log-retention-size) | `1gb` | What the log archive may take on the disk, as `500mb` or `2gb`. `0` keeps nothing. Since 0.7. |
 | [`SHIPWICK_BACKUP_DIR`](#backups) | `<data dir>/backups` | Where the backups the agent takes are kept on the server. Since 0.5. |
 | [`SHIPWICK_BACKUP_PASSPHRASE`](#backups) | none | Encrypts every backup, and is what allows the agent's own database and encryption key to be backed up at all. At least 12 characters. Since 0.5. |
 | [`SHIPWICK_BACKUP_S3_ENDPOINT`](#backups) | none | An S3-compatible service the backups are also sent to, as a URL. Needs the next three as well. Since 0.5. |
@@ -44,12 +46,15 @@ The agent is configured through environment variables only: its own `SHIPWICK_*`
 | [`SHIPWICK_OIDC_CLIENT_ID`](#sign-in), [`SHIPWICK_OIDC_CLIENT_SECRET`](#sign-in) | none | The client the provider registered for Shipwick. The secret is sent to the provider's token endpoint only. |
 | [`SHIPWICK_OIDC_SCOPES`](#sign-in) | `openid email profile` | What is asked of the provider, separated by spaces. Must contain `openid`. |
 | [`SHIPWICK_OIDC_GROUPS_CLAIM`](#sign-in) | `groups` | The claim of the ID token that lists a person's groups. |
+| [`SHIPWICK_OIDC_NAME_CLAIM`](#sign-in) | `email` | The claim of the ID token people are named by, for accounts without an address: `preferred_username`, `upn`, `sub`. Rules, the audit trail and `by` use that name. Since 0.7. |
+| [`SHIPWICK_OIDC_TENANTS`](#sign-in) | none | With Microsoft Entra's issuer for several tenants (`…/organizations/v2.0`, `…/common/v2.0`), which is not used without it: the tenant ids whose accounts may sign in, separated by commas. `*` for every tenant, only with `SHIPWICK_OIDC_NAME_CLAIM=sub`. Since 0.7. |
 | [`SHIPWICK_OIDC_REDIRECT_URL`](#sign-in) | `https://<SHIPWICK_DASHBOARD_DOMAIN>/auth/callback` | Development only: where the provider sends the browser back to when the dashboard runs on the developer's machine. Anything but a localhost URL is refused. |
+| [`SHIPWICK_UPDATE_CHECK`](#shipwick-update-check) | `on` | `off` stops the agent's daily question to GitHub about a newer release; `GET /server` then says so, and the dashboard shows no notice. Since 0.7. |
 | `SHIPWICK_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 | `SHIPWICK_LOG_FORMAT` | `text` | `text` or `json`. Logs go to standard error. |
 | `DOCKER_HOST`, `DOCKER_CONFIG` | Docker defaults | The standard Docker variables are honored. `DOCKER_CONFIG` is the directory that holds `config.json`, which the agent reads for the credentials of a registry it holds no stored credential for. |
 
-The agent refuses to start with an invalid value: an unknown log level or format, a token shorter than 16 characters, a domain that is not a valid hostname, a domain without `SHIPWICK_CADDY_ADMIN`, identical agent and dashboard hostnames, a malformed dashboard upstream or proxy TLS address, an encryption key that is not 64 hexadecimal characters, a webhook URL that is not an absolute `https` URL (or `http` towards the server itself or a private address), a webhook secret without a webhook URL, a Cloudflare token of another form or without `SHIPWICK_CADDY_ADMIN`, an alert threshold out of its range, a backup passphrase shorter than 12 characters, a bucket with some of its four variables missing, a schedule that is not a cron expression, a combination of schedules that the sections below rule out, a proxy variable that is not a proxy address, a certificate authority file it cannot use, a name server that is not an IP address, an ACME directory that is not a plain `https` URL or is set without `SHIPWICK_CADDY_ADMIN`, or a sign-in provider that is configured in part. Where the value is a credential, the error names the variable and the rule, never the value: a token, a key, a passphrase, a webhook URL, a proxy's URL and a client secret are credentials.
+The agent refuses to start with an invalid value: an unknown log level or format, a token shorter than 16 characters, a domain that is not a valid hostname, a domain without `SHIPWICK_CADDY_ADMIN`, identical agent and dashboard hostnames, a malformed dashboard upstream or proxy TLS address, an encryption key that is not 64 hexadecimal characters, a webhook URL that is not an absolute `https` URL (or `http` towards the server itself or a private address), a webhook secret without a webhook URL, a Cloudflare token of another form or without `SHIPWICK_CADDY_ADMIN`, an alert threshold out of its range, a backup passphrase shorter than 12 characters, a bucket with some of its four variables missing, a schedule that is not a cron expression, a combination of schedules that the sections below rule out, a proxy variable that is not a proxy address, a certificate authority file it cannot use, a name server that is not an IP address, an ACME directory that is not a plain `https` URL or is set without `SHIPWICK_CADDY_ADMIN`, a sign-in provider that is configured in part, a log retention out of its range, or an update check that is neither `on` nor `off`. Where the value is a credential, the error names the variable and the rule, never the value: a token, a key, a passphrase, a webhook URL, a proxy's URL and a client secret are credentials.
 
 Both hostnames are trimmed, converted to lowercase and validated by the same rule as `domain` in `deploy.yaml`. Applications cannot claim either of them.
 
@@ -70,7 +75,7 @@ Two forms are accepted:
 | Form | Example | |
 |---|---|---|
 | Unix socket | `unix//run/caddy/admin.sock` | Recommended. Only processes that share the socket can reconfigure the proxy. The path must be absolute. |
-| TCP | `http://127.0.0.1:2019` | For a Caddy installed on the host next to an agent running as a plain binary. `http://host:port` without a path. |
+| TCP | `http://127.0.0.1:2019` | For a Caddy whose admin endpoint is reached over TCP. `http://host:port` without a path. |
 
 The agent echoes this address into the configuration it loads, so that Caddy's admin endpoint stays where it is.
 
@@ -211,7 +216,7 @@ Without the variable nothing changes: records must point straight at the server,
 
 Where the agent reaches the proxy's TLS port, as `host:port`. The agent opens a TLS handshake there with each hostname as the server name and reads the certificate a visitor would be handed: its issuer and its expiry. That is what `shipwick status` and the dashboard show for a hostname, and what `certificate.expiring` is decided from. Nothing is sent over the connection, and the chain is not verified: the agent reports what is served.
 
-The default, `caddy:443`, is the Caddy service of the production compose file as the agent sees it on the `shipwick` network. Set the variable when the proxy's TLS port is somewhere else for the agent, as it is for an agent that runs as a plain binary next to a Caddy on the host; the production compose file does not pass it. A value that is not `host:port` is an error: `SHIPWICK_PROXY_TLS_ADDR: invalid value "caddy" (expected host:port)`. See [Certificates](/docs/tasks/certificates).
+The default, `caddy:443`, is the Caddy service of the production compose file as the agent sees it on the `shipwick` network. Set the variable when the proxy's TLS port is somewhere else for the agent, as it is for an agent that runs as a service of the host: the [package](/docs/getting-started/install-from-a-package) sets it to `127.0.0.1:443`; the production compose file does not pass it. A value that is not `host:port` is an error: `SHIPWICK_PROXY_TLS_ADDR: invalid value "caddy" (expected host:port)`. See [Certificates](/docs/tasks/certificates).
 
 ### SHIPWICK_ALERT_MEMORY_PERCENT and SHIPWICK_ALERT_DISK_PERCENT
 
@@ -225,6 +230,24 @@ The two thresholds of the [alerts](/docs/tasks/alerts-and-metrics) that have one
 The value is a whole number, with or without a trailing `%`. Anything else, or a number out of range, is an error that names the range: `SHIPWICK_ALERT_DISK_PERCENT: invalid value "99" (expected a whole number from 50 to 94)`.
 
 The production compose file passes both from `/opt/shipwick/.env`.
+
+### SHIPWICK_LOG_RETENTION_DAYS and SHIPWICK_LOG_RETENTION_SIZE
+
+Since 0.7 the agent keeps the last output of every container whose run ends — a replica that crashed, was restarted, stopped or replaced, the replicas of a deployment that failed, the runs of jobs and commands — in a log archive under `logs/` in the data directory. These two variables bound it. See [Find out why it died](/docs/tasks/find-out-why-it-died).
+
+| Variable | Default | Range | |
+|---|---|---|---|
+| `SHIPWICK_LOG_RETENTION_DAYS` | `14` | 1 to 365 | How long an entry is kept, in days after its container ended. |
+| `SHIPWICK_LOG_RETENTION_SIZE` | `1gb` | a size, or `0` | What the archive may take on the disk, written like [`resources.memory`](/docs/reference/deploy-yaml#sizes): `500mb`, `2gb`. Over it, the application that holds the most loses its oldest entries first. `0` keeps nothing. |
+
+- The lines are stored compressed, about a fifth of their size; the limit is on what they take on the disk.
+- While the disk is as full as its alert's threshold, [`SHIPWICK_ALERT_DISK_PERCENT`](#shipwick-alert-memory-percent-and-shipwick-alert-disk-percent), the archive does not grow: a new entry makes room for itself by removing at least as much.
+- The output of a job's runs follows the job's history, its last 50 runs.
+- What a single entry holds is not configurable: a replica's run keeps its last 2,000 lines and at most 1 MB, a run of a job its last 10,000 lines and at most 4 MB, and a line longer than 16 KB is cut.
+
+An invalid value is an error that names the rule: `SHIPWICK_LOG_RETENTION_DAYS: invalid value "0" (expected a number of days from 1 to 365)`; for the size, the reason followed by `(expected a size such as 500mb or 2gb, or 0 to keep nothing)`.
+
+`GET /server` reports the archive as `log_archive`, and `shipwick server status` shows it as `Log archive`. The production compose file passes both variables from `/opt/shipwick/.env`.
 
 ### Backups
 
@@ -360,6 +383,8 @@ Since 0.6 the agent can leave the question of who someone is to an OpenID Connec
 | `SHIPWICK_OIDC_CLIENT_SECRET` | none | The client secret the provider issued. Required with the issuer: Shipwick is registered as a confidential (web) client. No control characters. |
 | `SHIPWICK_OIDC_SCOPES` | `openid email profile` | What is asked of the provider: names separated by spaces or commas. Must contain `openid`. Okta wants `groups` added for group rules. |
 | `SHIPWICK_OIDC_GROUPS_CLAIM` | `groups` | The claim of the ID token that lists a person's groups. Letters, digits and `_ : . / -`, at most 128 characters, so a namespaced claim such as `https://example.com/groups` is a name too. |
+| `SHIPWICK_OIDC_NAME_CLAIM` | `email` | The claim of the ID token people are named by: `email`, `preferred_username`, `upn`, `sub`, or any other claim that holds one string. Rules, the audit trail and a deployment's `by` use that name. Since 0.7. See [Accounts without an address](/docs/tasks/sign-in#accounts-without-an-address). |
+| `SHIPWICK_OIDC_TENANTS` | none | With Microsoft Entra's issuer for several tenants, `https://login.microsoftonline.com/organizations/v2.0` or `…/common/v2.0`: the tenant ids whose accounts may sign in, separated by commas, at most 100. `*` accepts every tenant and stands alone. Since 0.7. See [Accounts of several Microsoft Entra tenants](/docs/tasks/sign-in#accounts-of-several-microsoft-entra-tenants). |
 | `SHIPWICK_OIDC_REDIRECT_URL` | `https://<SHIPWICK_DASHBOARD_DOMAIN>/auth/callback` | Development only: for a dashboard that runs on the developer's machine, `http://localhost:3000/auth/callback`. Only a URL on `localhost` or a loopback address, with the path `/auth/callback`, is accepted. On a server, leave it unset. |
 
 The values are trimmed. The provider sends people back to the dashboard, so the issuer needs `SHIPWICK_DASHBOARD_DOMAIN`, and the redirect URI to register at the provider is that hostname followed by `/auth/callback`.
@@ -377,14 +402,38 @@ The agent refuses to start with a provider that is configured in part or wrongly
 | An invalid scope | `SHIPWICK_OIDC_SCOPES: invalid scope "…" (expected names separated by spaces, e.g. "openid email profile")` |
 | Scopes without `openid` | `SHIPWICK_OIDC_SCOPES must contain openid: without it the provider issues no ID token` |
 | An invalid claim name | `SHIPWICK_OIDC_GROUPS_CLAIM: invalid value "my groups" (expected the name of the ID token claim that lists groups, e.g. groups)` |
+| An invalid name claim | `SHIPWICK_OIDC_NAME_CLAIM: invalid value "user name" (expected the name of the ID token claim people are known by: email, preferred_username, upn or sub)` |
+| A tenant that is not a tenant id | `SHIPWICK_OIDC_TENANTS: invalid tenant "contoso" (expected tenant ids separated by commas, e.g. 8f0d4c2e-6a1b-4c3d-9e5f-0a1b2c3d4e5f, or * for any tenant)` |
+| `*` next to tenant ids | `SHIPWICK_OIDC_TENANTS: * accepts every tenant and stands alone; list tenant ids, or *, not both` |
+| Entra's issuer for several tenants without a list | `SHIPWICK_OIDC_ISSUER is Microsoft Entra's address for the accounts of every tenant: say which tenants may sign in with SHIPWICK_OIDC_TENANTS (their tenant ids, separated by commas), or use the issuer of your own tenant, https://login.microsoftonline.com/<tenant id>/v2.0` |
+| `*` with another name claim than `sub` | `SHIPWICK_OIDC_TENANTS=* accepts the accounts of every tenant, whose administrators choose the addresses and user names in them: set SHIPWICK_OIDC_NAME_CLAIM=sub as well, so that people are named by what no tenant can choose, or list the tenants you trust` |
 | A redirect URL that is not on the developer's machine | `SHIPWICK_OIDC_REDIRECT_URL: only for a dashboard on the developer's machine, e.g. http://localhost:3000/auth/callback; on a server set SHIPWICK_DASHBOARD_DOMAIN and leave this unset` |
 | No dashboard hostname | `SHIPWICK_OIDC_ISSUER needs the dashboard people sign in to: set SHIPWICK_DASHBOARD_DOMAIN as well` |
 
-The agent reads the provider's endpoints and signing keys from the issuer and reads them again every hour, so a key the provider rotates needs nothing done here. A provider that is down stops sign-ins, not the agent: it is not asked at startup, and tokens and sessions that exist are not affected. A provider whose configuration names another issuer than the one set is refused at sign-in: `the sign-in provider calls itself "…", and the agent is configured with "…": set SHIPWICK_OIDC_ISSUER to the issuer exactly as the provider states it`.
+The agent reads the provider's endpoints and signing keys from the issuer and reads them again every hour, so a key the provider rotates needs nothing done here. A provider that is down stops sign-ins, not the agent: it is not asked at startup, and tokens and sessions that exist are not affected. A provider whose configuration names another issuer than the one set is refused at sign-in: `the sign-in provider calls itself "…", and the agent is configured with "…": set SHIPWICK_OIDC_ISSUER to the issuer exactly as the provider states it`. The one exception, since 0.7, is Entra's issuer for several tenants: there a token is believed only if its issuer is that address with the token's own tenant id in the placeholder's place, and the tenant is among `SHIPWICK_OIDC_TENANTS`.
 
-**What is logged.** At startup, `people sign in to the dashboard with an OpenID Connect provider` with the issuer and the redirect URL. The client secret is sent to the provider's token endpoint and nowhere else, and is never logged or returned by the API; the dashboard and the browser never see it. `GET /server` reports the issuer under `sign_in`, and `shipwick server status` shows it as `Sign-in`.
+**Changing the name claim changes what everyone is called.** Sessions that were named by the old claim end with their next request, as do the sessions of a tenant that was taken off the list; rules written for the old names match nobody until they are rewritten; the audit trail keeps the old names for what was done under them.
 
-The production compose file passes the first five from `/opt/shipwick/.env`; it does not pass `SHIPWICK_OIDC_REDIRECT_URL`.
+**What is logged.** At startup, `people sign in to the dashboard with an OpenID Connect provider` with the issuer and the redirect URL. The client secret is sent to the provider's token endpoint and nowhere else, and is never logged or returned by the API; the dashboard and the browser never see it. `GET /server` reports the issuer and the name claim under `sign_in`, and `shipwick server status` shows them as `Sign-in`.
+
+The production compose file passes all of them from `/opt/shipwick/.env` except `SHIPWICK_OIDC_REDIRECT_URL`.
+
+### SHIPWICK_UPDATE_CHECK
+
+Since 0.7 the agent asks GitHub once a day which release is the latest, and `GET /server` carries the answer as `update`: the dashboard and `shipwick server status` say when the server is behind, without a connection of their own.
+
+| | |
+|---|---|
+| Values | `on`, the default, or `off`. `true` and `1`, `false` and `0` are read as the same. |
+| Invalid | `SHIPWICK_UPDATE_CHECK: invalid value "never" (expected on or off)` |
+| The request | A `HEAD` request to `https://github.com/shipwick/shipwick/releases/latest`, without a body, a query or a cookie, with the `User-Agent` `shipwick-agent`: no version, no identifier of the server. The answer is a redirect whose target names the release; it is not followed. |
+| Through | The proxy and the certificate authorities the agent was given: [`HTTPS_PROXY`](#https-proxy-http-proxy-and-no-proxy), [`SHIPWICK_CA_FILE`](#shipwick-ca-file). |
+| When it fails | The request gives up after 15 seconds, nothing is logged above debug level, and the next attempt is a day later like any other. |
+| Kept in | `update-check.json` in the data directory, so that a restart asks nothing. |
+
+At startup the agent logs, once, `the agent asks github.com once a day whether a newer release exists, and sends nothing about this server`, with how to stop it. With `off`, `GET /server` says `"enabled": false` and the dashboard shows no notice. See [What leaves the server unasked](/docs/security#what-leaves-the-server-unasked) and [Upgrade Shipwick](/docs/tasks/upgrade#a-notice-when-a-newer-release-exists).
+
+The production compose file passes it from `/opt/shipwick/.env`.
 
 ## Data directory
 
@@ -401,11 +450,13 @@ The directory is created with mode `0700` if it does not exist. It contains:
 
 | File | Content |
 |---|---|
-| `shipwick.db` | The SQLite database: applications, deployments with their full configuration, replicas, events, job runs, metrics and traffic samples, the secrets stored with `shipwick secret set`, the registry credentials stored with `shipwick registry login`, the certificates supplied with `shipwick cert set`, the record of every backup, and the hashes of the tokens created with `shipwick token create`. Since 0.6 also the audit trail (the table `audit_log`), the rules that say who may sign in and as what (`access_rules`), the sessions of the people who signed in, by their hashes (`sessions`), and what the agent remembers across its own restarts about imports and a promotion (`transfer_state`). Environment values, basic-auth passwords, secrets, registry passwords and certificate keys are encrypted. It runs in WAL mode, so SQLite keeps its `-wal` and `-shm` files next to it. |
+| `shipwick.db` | The SQLite database: applications, deployments with their full configuration, replicas, events, job runs, metrics and traffic samples, the secrets stored with `shipwick secret set`, the registry credentials stored with `shipwick registry login`, the certificates supplied with `shipwick cert set`, the record of every backup, and the hashes of the tokens created with `shipwick token create`. Since 0.6 also the audit trail (the table `audit_log`), the rules that say who may sign in and as what (`access_rules`), the sessions of the people who signed in, by their hashes (`sessions`), and what the agent remembers across its own restarts about imports and a promotion (`transfer_state`). Since 0.7 also the index of the log archive (`log_archives`) and the references to stored secrets that are remembered with each deployment (`deployment_references`), encrypted like a secret. Environment values, basic-auth passwords, secrets, registry passwords and certificate keys are encrypted. It runs in WAL mode, so SQLite keeps its `-wal` and `-shm` files next to it. |
 | `encryption.key` | The key those values are encrypted with: 64 hexadecimal characters. Mode `0600`. Created on the first start, unless `SHIPWICK_ENCRYPTION_KEY` is set, and replaced by a rotation. See [`SHIPWICK_ENCRYPTION_KEY`](#shipwick-encryption-key). |
 | `encryption.key.new` | The new key of a rotation. With the key in the file it exists only for the moment the rotation takes; with the key in `SHIPWICK_ENCRYPTION_KEY` it stays until the agent has been started with the new key. |
 | `agent-token.sha256` | The hex-encoded SHA-256 hash of a token the agent generated itself. Mode `0600`. Present only if the agent ever generated its token. |
 | `backups/` | The backups the agent takes, unless `SHIPWICK_BACKUP_DIR` names another directory: `<application>/<id>/<volume>.tar` for an application's volumes, `_agent/` for the agent's own state, `_export/` for exports written to where backups go. With `SHIPWICK_BACKUP_PASSPHRASE` the files end in `.enc`. While a large file is being sent to the bucket, a note named `<file>.upload` lies next to it; an agent that finds one at its start aborts the upload it names. See [Backups](#backups). |
+| `logs/` | The log archive, since 0.7: one gzip file for each kept run of a container, readable on the server with `zcat`; the database holds one row for each, not the output. Not encrypted, like the logs Docker keeps. Not in the backup of the agent's state, and not in an export. See [`SHIPWICK_LOG_RETENTION_DAYS` and `SHIPWICK_LOG_RETENTION_SIZE`](#shipwick-log-retention-days-and-shipwick-log-retention-size). |
+| `update-check.json` | What the agent last learned about releases, since 0.7, so that a restart does not ask again. See [`SHIPWICK_UPDATE_CHECK`](#shipwick-update-check). |
 | `uploads/` | The folders of static applications uploaded with `shipwick deploy`, kept until they are deployed. Nothing here needs a backup: the next `shipwick deploy` uploads the folder again. |
 
 ::: warning Protect this directory, and back it up as a whole
@@ -421,14 +472,14 @@ The agent authenticates every API request, except `GET /api/v1/health`, against 
 | Role | May |
 |---|---|
 | `read` | See everything: the server, the applications, deployments, logs, events, metrics, traffic, the backups taken, the names of the secrets, the registries a credential is stored for, the supplied certificates without their keys, the volumes. `GET /metrics` for a Prometheus scraper needs no more. |
-| `deploy` | And change what runs: deploy, redeploy, roll back, stop, start, run commands, upload images and static folders, take a backup and verify one. |
+| `deploy` | And change what runs: deploy, redeploy, roll back, stop, start, run commands, upload images and static folders, take a backup and verify one. Since 0.7: get an application's `deploy.yaml` back. |
 | `admin` | And everything else: delete applications, manage tokens, secrets, registry credentials and certificates, rotate the encryption key, download, restore and remove backups and volumes, back up the agent's state, export and import, pull and promote on a standby. Since 0.6: read the audit trail, manage the rules that say who may sign in, and adopt backups. |
 
 There are two kinds of token. The **root token** is the one this section is about: the token the agent is configured with, through `SHIPWICK_AGENT_TOKEN` or generated on the first start. It has the `admin` role and the name `root`, it is not stored in the database, and it cannot be revoked through the API. It is the one the installer prints, and the one to keep for yourself.
 
 Every other token is created with `shipwick token create <name> --role read|deploy|admin`, is shown exactly once, and is stored as a hash in `shipwick.db` with its name and role. `shipwick token ls` shows when each was last used; `shipwick token revoke <name>` ends it. Give CI a `deploy` token and people `admin` ones. A wrong or revoked token is `401 UNAUTHORIZED`; a valid token whose role does not cover the request is `403 FORBIDDEN`, and the answer says which role it has and which it needs. After 20 failed authentications within a minute from one client address, the agent answers wrong tokens from that address with `429 RATE_LIMITED` and a `Retry-After` header for the next minute; a valid token is never refused, and `GET /api/v1/health` is not limited. Deployments record which token made them. See [Create tokens for CI and teammates](/docs/tasks/tokens).
 
-Since 0.6 a `deploy` token can be limited to the applications named with `--app`, and any created token can be given an end with `--expires`. A limited token that asks for something else is refused with `403 TOKEN_LIMITED` and a message that names its applications; an expired one with `401 TOKEN_EXPIRED` and when it expired. The root token is neither limited nor does it expire. Every request that changes something is written to the [audit trail](/docs/tasks/audit). With a [sign-in provider](#sign-in) configured, a person who signed in to the dashboard is the same kind of caller a token is, with a role and perhaps a list of applications, for a session of ten hours.
+Since 0.6 a `deploy` token can be limited to the applications named with `--app`, and any created token can be given an end with `--expires`. A limited token that asks for something else is refused with `403 TOKEN_LIMITED` and a message that names its applications; an expired one with `401 TOKEN_EXPIRED` and when it expired. The root token is neither limited nor does it expire. Since 0.7 `shipwick token update` changes a token's applications and its end; its value and its role stay. Every request that changes something is written to the [audit trail](/docs/tasks/audit). With a [sign-in provider](#sign-in) configured, a person who signed in to the dashboard is the same kind of caller a token is, with a role and perhaps a list of applications, for a session of ten hours.
 
 The root token's hash is determined at startup, in this order:
 
@@ -477,6 +528,7 @@ On `SIGINT` or `SIGTERM` the agent shuts down gracefully within 30 seconds; a de
 | `SHIPWICK_WEBHOOK_SECRET` | empty | Passed to the agent. |
 | `SHIPWICK_CLOUDFLARE_API_TOKEN` | empty | Passed to the agent. Leave empty to obtain certificates from the server itself. |
 | `SHIPWICK_ALERT_MEMORY_PERCENT`, `SHIPWICK_ALERT_DISK_PERCENT` | empty | Passed to the agent. Empty means the defaults, 90 and 85. |
+| `SHIPWICK_LOG_RETENTION_DAYS`, `SHIPWICK_LOG_RETENTION_SIZE` | empty | Passed to the agent. Empty means the defaults, 14 days and `1gb`; a size of `0` keeps nothing. Since 0.7. |
 | `SHIPWICK_BACKUP_PASSPHRASE` | empty | Passed to the agent. Leave empty for backups that are not encrypted, and no backup of the agent's own state. |
 | `SHIPWICK_BACKUP_S3_ENDPOINT`, `SHIPWICK_BACKUP_S3_BUCKET`, `SHIPWICK_BACKUP_S3_ACCESS_KEY_ID`, `SHIPWICK_BACKUP_S3_SECRET_ACCESS_KEY`, `SHIPWICK_BACKUP_S3_REGION`, `SHIPWICK_BACKUP_S3_PREFIX` | empty | Passed to the agent. Leave empty for backups that stay on the server. |
 | `SHIPWICK_EXPORT_SCHEDULE`, `SHIPWICK_EXPORT_KEEP`, `SHIPWICK_STANDBY_SCHEDULE` | empty | Passed to the agent. |
@@ -484,6 +536,8 @@ On `SIGINT` or `SIGTERM` the agent shuts down gracefully within 30 seconds; a de
 | `SHIPWICK_CA_FILE` | empty | Passed to the agent: the path as its container sees it. The file itself is mounted in `compose.override.yml`, below. Since 0.6. |
 | `SHIPWICK_DNS_RESOLVERS`, `SHIPWICK_ACME_DIRECTORY` | empty | Passed to the agent. Empty means the public resolvers and Let's Encrypt. Since 0.6. |
 | `SHIPWICK_OIDC_ISSUER`, `SHIPWICK_OIDC_CLIENT_ID`, `SHIPWICK_OIDC_CLIENT_SECRET`, `SHIPWICK_OIDC_SCOPES`, `SHIPWICK_OIDC_GROUPS_CLAIM` | empty | Passed to the agent. Leave empty for tokens only. Needs `SHIPWICK_DASHBOARD_DOMAIN`. Since 0.6. |
+| `SHIPWICK_OIDC_NAME_CLAIM`, `SHIPWICK_OIDC_TENANTS` | empty | Passed to the agent. Empty means people are named by `email`, and no issuer for several tenants. Since 0.7. |
+| `SHIPWICK_UPDATE_CHECK` | empty | Passed to the agent. `off` stops its daily question to github.com about a newer release. Since 0.7. |
 | [`SHIPWICK_AGENTS`](#dashboard-variables) | empty | Passed to the dashboard: several servers in this one dashboard, as `name=URL` pairs. Set, it replaces the `SHIPWICK_AGENT_URL` the file fixes. Since 0.6. |
 | `SHIPWICK_HTTP_PORT` | `80` | Host port published for Caddy's port 80. |
 | `SHIPWICK_HTTPS_PORT` | `443` | Host port published for Caddy's port 443, TCP and UDP. |
@@ -493,7 +547,7 @@ On `SIGINT` or `SIGTERM` the agent shuts down gracefully within 30 seconds; a de
 
 The image defaults above are those of the file in the repository. In the copy that belongs to a release, which is what the installer fetches, the three images are pinned to that release's version.
 
-The installer writes `.env` once, on the first install, with the token and the two hostnames. A port, an image, a webhook variable, the Cloudflare token, the backup passphrase, an `S3` variable or one of the three schedule variables that is set in the environment of that first run is written too, and so are the two alert thresholds. Since 0.6 the same holds for the three proxy variables, which the installer also uses for its own downloads, for `SHIPWICK_CA_FILE`, `SHIPWICK_DNS_RESOLVERS`, `SHIPWICK_ACME_DIRECTORY`, the five `SHIPWICK_OIDC_*` variables the file passes, and `SHIPWICK_AGENTS`. An existing `.env` is never rewritten, so to add or change any of them later, edit `/opt/shipwick/.env` and run `cd /opt/shipwick && docker compose up -d`. `SHIPWICK_PROXY_TLS_ADDR` is not among the file's variables: the agent finds the proxy at `caddy:443`. To set it, give it to the agent under `environment` in `compose.override.yml`.
+The installer writes `.env` once, on the first install, with the token and the two hostnames. A port, an image, a webhook variable, the Cloudflare token, the backup passphrase, an `S3` variable or one of the three schedule variables that is set in the environment of that first run is written too, and so are the two alert thresholds. Since 0.6 the same holds for the three proxy variables, which the installer also uses for its own downloads, for `SHIPWICK_CA_FILE`, `SHIPWICK_DNS_RESOLVERS`, `SHIPWICK_ACME_DIRECTORY`, the five `SHIPWICK_OIDC_*` variables the file passes, and `SHIPWICK_AGENTS`; and since 0.7 for `SHIPWICK_OIDC_NAME_CLAIM`, `SHIPWICK_OIDC_TENANTS`, the two log retention variables and `SHIPWICK_UPDATE_CHECK`. An existing `.env` is never rewritten, so to add or change any of them later, edit `/opt/shipwick/.env` and run `cd /opt/shipwick && docker compose up -d`. `SHIPWICK_PROXY_TLS_ADDR` is not among the file's variables: the agent finds the proxy at `caddy:443`. To set it, give it to the agent under `environment` in `compose.override.yml`.
 
 Override the ports only if something else owns 80 and 443. Automatic HTTPS needs the real ones to be reachable from the internet.
 
@@ -578,12 +632,18 @@ SHIPWICK_AGENTS=production=http://agent:9000,staging=https://agent.staging.examp
 
 Each server has its own sign-in, kept in a cookie of its own, and every address carries its server, `/applications/web?server=staging`. With `SHIPWICK_AGENT_URL` alone nothing changes. See [Several servers in one dashboard](/docs/tasks/dashboard#several-servers-in-one-dashboard).
 
-## Running the agent as a plain binary
+## Running the agent as a service of the host
 
-The agent also runs as a plain binary on Linux, next to a Caddy installed on the host:
+Since 0.7 the agent is published as a Debian and an RPM package, which install it as `/usr/bin/shipwick-agent` with a systemd unit. Its variables are then in `/etc/shipwick/agent.env`, one `NAME=value` a line without quotes, and a change takes `systemctl restart shipwick-agent`. As the package writes the file:
 
-```bash
-SHIPWICK_AGENT_TOKEN=… SHIPWICK_CADDY_ADMIN=http://127.0.0.1:2019 shipwick-agent
-```
+| Variable | Value | |
+|---|---|---|
+| `SHIPWICK_AGENT_TOKEN` | generated | 64 hexadecimal characters, generated when the package was first installed. |
+| `SHIPWICK_LISTEN_ADDR` | `127.0.0.1:9000` | For a hostname for the API, or the dashboard, the address of Docker's bridge instead: `172.17.0.1:9000` unless Docker was configured otherwise. |
+| `SHIPWICK_CADDY_ADMIN` | `unix//run/shipwick/admin.sock` | The admin socket of the proxy the package's compose file starts. |
+| `SHIPWICK_PROXY_TLS_ADDR` | `127.0.0.1:443` | Where the agent reads the certificates the proxy serves. |
+| `SHIPWICK_LOG_FORMAT` | `text` | |
+
+The unit sets `SHIPWICK_DATA_DIR=/var/lib/shipwick` and `HOME=/root`, where `docker login` as root keeps credentials for private images. The proxy and the dashboard stay containers: Caddy finds the replicas of an application by name on a Docker network, which a Caddy installed on the host cannot do. See [Install from a package](/docs/getting-started/install-from-a-package).
 
 As a host process on Linux the agent reaches container addresses directly. With Docker Desktop on macOS or Windows it cannot, and warns at startup: applications with a `health` block cannot be deployed by a host-process agent there.

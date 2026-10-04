@@ -62,7 +62,7 @@ A wrong passphrase or a file that is not an export is found on your machine, bef
 - The folders of static applications.
 - A tar archive of every volume.
 
-Deployment history, metrics, events, API tokens, the audit trail, access rules, sessions and backups stay behind: they describe the old server.
+Deployment history, metrics, events, archived logs, API tokens, the audit trail, access rules, sessions and backups stay behind: they describe the old server. The references to stored secrets that the agent remembers with a deployment since 0.7 do come along, so [`shipwick config`](/docs/tasks/get-the-configuration-back) gives the same file on the new server.
 
 `--app <name>`, repeatable, limits the export to some applications; the secrets, credentials and certificates come along either way:
 
@@ -135,7 +135,12 @@ With exports on a schedule, a second server can import the newest one regularly 
 
 The server's **Export and standby** tab has, for an admin, **Export to backups** and the list of exports the server keeps. A running import is shown while it runs, with each application's outcome afterwards.
 
-An export to a file of your own, and `shipwick import`, stay with the CLI: the passphrase is typed where `shipwick` runs. See [Use the dashboard](/docs/tasks/dashboard).
+Since 0.7 the same tab downloads an export as a file and imports one. **Download an export…** asks for a passphrase of your own, typed twice; **Import a file…** takes the file and its passphrase. Both pass through the dashboard's server as they arrive: it holds neither the file nor the passphrase.
+
+- **A download that breaks off is a file the import refuses.** The page cannot see why a download ended; a file the browser reports as failed is started again.
+- **An import is one upload that lasts as long as the import.** The page has to stay open.
+
+Before 0.7 both needed the CLI. See [Use the dashboard](/docs/tasks/dashboard#the-server).
 
 ## What's next
 

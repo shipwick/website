@@ -1,11 +1,11 @@
 ---
 title: Pull from private registries
-description: Give the Shipwick agent a credential for a private image registry with shipwick registry login.
+description: Give the Shipwick agent a credential for a private image registry with shipwick registry login, and keep one current for Amazon ECR and Google Artifact Registry.
 ---
 
 # Pull from private registries
 
-An image in a private registry needs a credential on the server. This page covers how to give the agent one with `shipwick registry login`, which exists since 0.5, what the agent does with it, what happens when a pull is refused, and the older way through `docker login` on the server, which still works.
+An image in a private registry needs a credential on the server. This page covers how to give the agent one with `shipwick registry login`, which exists since 0.5, what the agent does with it, what happens when a pull is refused, the older way through `docker login` on the server, which still works, and how to keep a credential current for Amazon ECR and Google Artifact Registry, whose tokens expire.
 
 If the image is built from a Dockerfile in your project, no registry is needed at all: with `build: .` in `deploy.yaml`, `shipwick deploy` builds the image on your machine and sends it to the server, and nothing below applies. See [`build`](/docs/reference/deploy-yaml#build). A registry stays the right tool when CI builds the image, or when the image is somebody else's.
 
@@ -127,11 +127,37 @@ Run `docker login` before you start the agent with this mount, so that the file 
 
 ## Credential helpers are not supported
 
-Only a username with a password or token works, in both ways. Credential helpers (`credsStore` in the Docker configuration, `docker-credential-*` programs) are not supported: a helper is a program on the server, which the agent's container does not have, and the agent executes nothing.
+Only a username with a password or token works, in both ways. Credential helpers (`credsStore` in the Docker configuration, `docker-credential-*` programs) are not supported, and support for them is not planned: a helper is a program on the server, which the agent's container does not have, and the agent executes nothing.
 
-If `docker login` wrote a `credsStore` key and left the entry under `auths` empty, the credential went to a helper, and the agent cannot use it. Use `shipwick registry login` instead.
+Nor would the Docker daemon step in: it pulls with the credential a request hands it and with none otherwise, whatever the configuration of the user who installed it says. A `config.json` that names a `credsStore` holds no passwords at all, only the registries' names, so mounting it gives the agent nothing.
 
-For registries whose tokens expire within hours, renew the credential with `shipwick registry login` from a scheduled job of your own.
+If `docker login` wrote a `credsStore` key and left the entry under `auths` empty, the credential went to a helper, and the agent cannot use it. Use `shipwick registry login` instead, as the next section shows for the two registries people use a helper for.
+
+## Registries with tokens that expire
+
+Amazon ECR and Google Artifact Registry are the registries people use a helper for, and what the helper does there is fetch a short-lived token. The same token can be handed to the agent from wherever the cloud's own CLI is signed in — the pipeline that deploys, or a scheduled job:
+
+```bash
+# Amazon ECR: the token is valid for 12 hours
+aws ecr get-login-password --region eu-central-1 \
+  | shipwick registry login 123456789012.dkr.ecr.eu-central-1.amazonaws.com --username AWS
+
+# Google Artifact Registry: an access token, valid for an hour
+gcloud auth print-access-token \
+  | shipwick registry login europe-west1-docker.pkg.dev --username oauth2accesstoken
+
+# Google Artifact Registry: a service account's key, which does not expire
+cat key.json | shipwick registry login europe-west1-docker.pkg.dev --username _json_key
+```
+
+These are the commands Amazon and Google document for `docker login`, with `shipwick registry login` in its place: the same user names, the password on standard input, the registry without `https://`. The account, the region and the location are yours.
+
+Logging in as the step before `shipwick deploy` covers the deployment: the agent pulls the image while the token is fresh. The server needs the registry again later only for an image it no longer has — a rollback to a version whose image was pruned, a replica recreated after its image was removed — and then a token from the last deployment has expired. Where that matters:
+
+- **Renew it on a schedule** shorter than the token's life: every few hours for ECR.
+- **Or use a credential that does not expire**: a service account key for Artifact Registry, with a role that only reads.
+
+Storing a registry credential needs an `admin` token; give the job one of its own, [with an end](/docs/tasks/tokens#give-a-token-an-end). A pull that fails for an expired token says which command to run.
 
 ## What's next
 

@@ -17,10 +17,11 @@ shipwick [command] [flags]
 | [`validate`](#validate) | Check `deploy.yaml` or `shipwick.yaml` without deploying, placeholders filled in |
 | [`deploy`](#deploy) | Deploy the application described by `deploy.yaml`, building the image here with `build:`, or the applications of a `shipwick.yaml` |
 | [`redeploy`](#redeploy) | Deploy the running configuration again, optionally with another image |
+| [`config`](#config) | Print the `deploy.yaml` of what an application runs |
 | [`rollback`](#rollback) | Go back to an earlier successful deployment |
 | [`status`](#status) | Show the state of an application |
 | [`ps`](#ps) | List the applications on the server |
-| [`logs`](#logs) | Show the logs of an application |
+| [`logs`](#logs) | Show the logs of an application, and the kept output of containers that ended |
 | [`traffic`](#traffic) | Show the requests the proxy served: rates, errors, latency |
 | [`run`](#run) | Run a one-off command in a container of the application |
 | [`jobs`](#jobs) | List the scheduled jobs of an application; `jobs run` starts one, `jobs logs` shows a run's output |
@@ -34,7 +35,7 @@ shipwick [command] [flags]
 | [`export`](#export) | Write everything the server runs into one encrypted file |
 | [`import`](#import) | Deploy what an export holds on this server, and restore its data |
 | [`standby`](#standby) | A second server kept ready: what it holds; `pull` imports the newest export, `promote` takes over |
-| [`server status`](#server-status) | Show whether the agent is reachable, what it runs on, how full its disk is, which token you are using, and the active alerts |
+| [`server status`](#server-status) | Show whether the agent is reachable, what it runs on, how full its disk is, which token you are using, the active alerts, and whether a newer release exists |
 | [`server install`](#server-install) | Install or upgrade the server over SSH, from here |
 | [`server bundle`](#server-bundle) | Make one file that installs or upgrades a server with no connection |
 | [`server rotate-key`](#server-rotate-key) | Replace the key the server encrypts stored secrets with |
@@ -43,8 +44,8 @@ shipwick [command] [flags]
 | [`open`](#open) | Open the application, or the dashboard, in the browser |
 | [`login`](#login) | Save the agent URL and API token for later commands |
 | [`context`](#context) | Switch between saved servers: `ls`, `use`, `rm`, `current` |
-| [`token`](#token) | Manage API tokens and their roles: `create`, `ls`, `revoke` |
-| [`audit`](#audit) | Show who changed what on the server, and when |
+| [`token`](#token) | Manage API tokens and their roles: `create`, `ls`, `update`, `revoke` |
+| [`audit`](#audit) | Show who changed what on the server, and when, or export it |
 | [`access`](#access) | Say who may sign in to the dashboard, and as what: `grant`, `ls`, `revoke`, `sessions`, `signout` |
 | [`secret`](#secret) | Manage the secrets kept on the server for `${NAME}`: `set`, `ls`, `rm` |
 | [`registry`](#registry) | Store the credentials the server pulls private images with: `login`, `ls`, `logout` |
@@ -554,6 +555,38 @@ Unlike `deploy`, this needs no `deploy.yaml`. The agent re-uses the configuratio
 
 The result is an ordinary deployment, followed and reported like `deploy`. The application must have an active deployment. An application with `build:` keeps the image it has; `--image` with an image from elsewhere is refused for it. A static application re-uses the folder the proxy already serves.
 
+## config
+
+Print the `deploy.yaml` that describes what an application runs: the way to get the file back when it was lost, or was never on this machine. Since 0.7.
+
+```text
+shipwick config <app> [flags]
+```
+
+| Flag | |
+|---|---|
+| `-o`, `--output <file>` | Write the file here instead of printing it |
+| `--force` | Overwrite an existing file |
+
+```text
+$ shipwick config my-api -o deploy.yaml
+✓ Wrote deploy.yaml: my-api as deployment #7 (1.4.2) runs it
+! 1 value is not handed out and stands as "********" in the file: env.POSTGRES_PASSWORD
+  Write it again, or store it with shipwick secret set NAME and refer to it as ${NAME}.
+  Until then shipwick deploy refuses the file.
+```
+
+- **The application is named**, always: the command does not read the name from a `deploy.yaml`, since it is the command for when there is none.
+- **The file** is in the layout [`init`](#init) writes and describes the active deployment. Without `-o` it is printed to standard output, and nothing else is.
+- **The server does not hand out secret values.** A value that was written as a reference to a secret stored on the server is that reference again, such as `postgres://app:${DB_PASSWORD}@db:5432/app`, and is filled in again when the file is deployed. A value that was given with the file, or filled in from the environment or `--env-file`, is shown as `"********"` with a comment on its line.
+- **The masked fields are listed** on standard error, by their names in the file: `env.LOG_LEVEL`, `proxy.basic_auth[0].password`. With several the sentence is in the plural: `2 values are not handed out and stand as "********" in the file: …`, then `Write them again, or store each with shipwick secret set NAME and refer to it as ${NAME}.`
+- **A file that still has a mask is refused** by [`deploy`](#deploy) and [`validate`](#validate), with the fields that need a value: `"********"` is never accepted as an `env` value or a basic-auth password.
+- **An application deployed before 0.7** has all its secret values masked until it is deployed again from its file: the references were not kept then.
+- **`-o` does not write over a file that exists**: `deploy.yaml already exists`, then `Overwrite it with: shipwick config my-api -o deploy.yaml --force`. The check is made before the agent is asked.
+- An agent older than 0.7: `the agent is older than this shipwick and does not write an application's deploy.yaml`, then `Compare versions with: shipwick server status`.
+
+Needs a token that may deploy the application: the `deploy` role, and for a token limited to applications, one of them. See [Get deploy.yaml back from the server](/docs/tasks/get-the-configuration-back).
+
 ## rollback
 
 Go back to an earlier successful deployment.
@@ -662,6 +695,15 @@ old.example.com     expires in 9 days, on 2026-03-10 (Let's Encrypt E7)
 
 With `--verbose`, the hostnames whose certificate is in order are listed too: `valid until 2026-06-01 (Let's Encrypt E7)`, the certificate's last day and its issuer. See [Certificates](/docs/tasks/certificates).
 
+**The command that says why** (since 0.7). A replica that died, or a deployment that failed, took its output with it; where the agent kept it, the output ends with the command that shows it:
+
+```text
+Replica 1's last output before it exited with code 3, just now:   shipwick logs my-api --id 4
+What deployment #13 printed before it failed:                     shipwick logs my-api --deployment 13
+```
+
+A replica gets a line when it restarted, crash-loops, was killed for memory or exited with a code other than 0, and the archive holds a run of its container that crashed, ran out of memory or was restarted for its health check: `before it exited with code 3`, `before it ran out of memory`, `before it was restarted for its health check`. The second line appears when the most recent failed or rolled-back deployment in the history has kept output. An agent without an archive, or with nothing kept, adds nothing. See [`logs`](#logs).
+
 See [See what is running](/docs/tasks/inspect-and-logs).
 
 ## ps
@@ -687,7 +729,7 @@ The certificate is `waiting for DNS`, `being obtained` or `expiring`; the alerts
 
 ## logs
 
-Show the logs of an application, merged across its replicas.
+Show the logs of an application, merged across its replicas, and since 0.7 the output the agent kept of containers that ended.
 
 ```text
 shipwick logs [app] [flags]
@@ -699,6 +741,15 @@ shipwick logs [app] [flags]
 | `-f`, `--follow` | | Keep streaming new log lines |
 | `-t`, `--timestamps` | | Prefix each line with its timestamp, in local time |
 | `--file <path>` | `deploy.yaml` | Configuration file used to find the application name when `[app]` is omitted. Long form only: here `-f` means `--follow`, as in `docker` and `kubectl` |
+| `-p`, `--previous` | | Show the output of the last container that ended: the one that crashed, or was replaced. Since 0.7 |
+| `--list` | | List what is kept of ended containers and runs. Since 0.7 |
+| `--id <n>` | | Show one entry of `--list`. Since 0.7 |
+| `--run <id>` | | Show the output of this run of a job or a command. Since 0.7 |
+| `--search <text>` | | Show the lines that contain this text, whatever its case, kept or current. Since 0.7 |
+| `--since <when>` | | Only lines from then on, kept or current: `30m`, `2h`, `7d`, a date or a time in RFC 3339. Since 0.7 |
+| `--until <when>` | | Only lines up to then; takes what `--since` takes. Since 0.7 |
+| `--deployment <#>` | | Only the output of this deployment, by its `#number` in `shipwick status`, kept or current. Since 0.7 |
+| `--replica <n>` | | Only the output of this replica. Since 0.7 |
 
 - Logs come from the replicas of the active deployment.
 - When the application has more than one replica, each line is prefixed with the replica number: `[1]`, `[2]`.
@@ -707,6 +758,77 @@ shipwick logs [app] [flags]
 - **`logs -f` ends by itself** when the containers are stopped or replaced by a new deployment, with a warning saying so. Run it again to follow the new ones. Ctrl+C is the normal way out and prints nothing.
 - With a `logging` driver in `deploy.yaml`, the lines come from the local copy Docker keeps next to the remote driver.
 - A static application has no containers and no logs; the command says so (see [Error messages](#error-messages), `STATIC_APPLICATION`). The same goes for `run`, `jobs` and the metrics in `status`.
+
+### The log archive
+
+Since 0.7 the agent keeps the last output of every container whose run ends: a replica that crashed, was killed for memory, was restarted for its health check, stopped or replaced by a deployment, the replicas of a deployment that failed, and the runs of jobs, pre-deploy commands and `shipwick run`. With any of the flags from `--previous` down, the command reads that archive instead of the tail of the running containers. What is kept, for how long and where is in [Find out why it died](/docs/tasks/find-out-why-it-died).
+
+**`--previous`** shows the last run of a replica that ended, whatever ended it. `--deployment` and `--replica` narrow it.
+
+```text
+$ shipwick logs my-api -p
+#12 replica 1 (1.4.2), shipwick_my-api_12_1: crashed (exit 3) just now; 3 lines
+starting up
+connecting to the database
+FATAL: could not connect to db:5432
+```
+
+The first line says what the entry is the output of — the deployment's number, the replica, the version — the container, why it ended and when, and how many lines are kept: `3 lines`, `its last 2000 lines` when the run printed more than is kept, `it printed nothing` for a replica that died silently, and `, the last 50 shown` when `-n` cut it. Of one entry everything kept is shown unless `-n` is given. With nothing kept: `Nothing is kept of an earlier container of my-api: none has ended since the agent began to keep their output, or what was kept has aged out.`
+
+**`--list`** lists the entries, newest first; `-n` says how many, 100 unless given and at most 500. `--deployment`, `--replica` and `--run` narrow it.
+
+```text
+$ shipwick logs my-api --list
+ID   ENDED      OUTPUT OF       ENDED BECAUSE      LINES   SIZE
+4    just now   #12 replica 1   crashed (exit 3)   3       72 B
+3    20s ago    #12 replica 1   crashed (exit 3)   3       72 B
+2    31s ago    #12 replica 1   crashed (exit 3)   3       72 B
+
+Read one with: shipwick logs my-api --id <ID>
+```
+
+| Column | |
+|---|---|
+| `OUTPUT OF` | `#12 replica 1`, the deployment's number and the replica; `replica 1` once the deployment is gone; `run 14 of nightly-report` for a run |
+| `ENDED BECAUSE` | `crashed (exit 3)`, `exited (exit 0)`, `out of memory`, `restarted: unhealthy`, `stopped`, `replaced`, `deployment failed` (with `(exit 1)` or `: out of memory` when the replica had died by itself), `removed`, `ended unseen` when the run ended while no agent was running. For a run, what [`jobs`](#jobs) shows: `succeeded`, `failed (exit 1)`, `timed out`, `interrupted by an agent restart` |
+| `LINES` | The lines kept; `last 2000` when the run printed more |
+| `SIZE` | The size of their text |
+
+With nothing kept: `Nothing is kept for my-api. Output is archived when a container ends: a crash, a restart, a new deployment, a finished job.`
+
+**`--id <n>`** shows one entry, as `--previous` does. It takes no other filter: `--id shows one entry; it takes no other filter`. An id that does not exist: `my-api has no archived output with id 9: it may have aged out`, then `See what is kept with: shipwick logs my-api --list`.
+
+**`--run <id>`** shows the output of a run of a job, a pre-deploy command or a one-off command, by the run's id: what the archive kept of it, or, from an agent that keeps no archive or for a run that is still going, the tail in the run's own record, as [`jobs logs`](#jobs-logs) prints it. A run that does not exist: `my-api has no run 9: the history keeps the last 50 runs of each job`, then `See its jobs with: shipwick jobs my-api`.
+
+**`--search`, `--since`, `--until`, `--deployment`, `--replica`** show lines of the kept output and of the running containers together: the newest `-n` that match, oldest first, under a line for each container they come from.
+
+```text
+$ shipwick logs my-api --search fatal
+== #12 replica 1, shipwick_my-api_12_1, kept as 2 ==
+2026-10-04 03:22:04.062 FATAL: could not connect to db:5432
+== #12 replica 1, shipwick_my-api_12_1, kept as 3 ==
+2026-10-04 03:22:15.126 FATAL: could not connect to db:5432
+```
+
+- The text is looked for inside lines, whatever its case; it is not a pattern. At most 256 bytes, one line.
+- `kept as 2` names the archive's entry; a source line without it is a container that exists. A run's lines stand under `run 14 of nightly-report, <container>`.
+- A search shows each line's time unless `--timestamps=false` says not to; the other filters show it with `-t`.
+- `--since` and `--until` take how long ago (`30m`, `2h`, `7d`), a date (`2026-09-01`, from its start in UTC), or a time in RFC 3339.
+- Each filter works without `--search`: `--since 2h` is everything the application printed in the last two hours, `--deployment 13` everything deployment #13 printed. A number that is not in the history: `my-api has no deployment #9`, then `See its history with: shipwick status my-api`.
+- When older lines match than the ones shown, a note says so: `These are the newest 100 lines that match; there are older ones. Show more with -n, or go back with --until` and the time of the oldest line shown.
+- Nothing found: `No lines match, in what is kept or in the running containers.`
+- Of a container that exists its last 50,000 lines are looked at. The output of a job that is still running is found once the run has ended.
+
+Which flags go together:
+
+| Combination | The command says |
+|---|---|
+| `--follow` with any of them | `--follow streams the running containers; it does not go with --previous, --list, --id, --deployment, --replica, --run, --search, --since or --until` |
+| `--list` with `--previous`, `--search`, `--since` or `--until` | `--list lists entries; narrow it with --deployment, --replica or --run` |
+| `--previous` with `--search`, `--since`, `--until` or `--run` | `--previous shows the last ended container; narrow it with --deployment or --replica, or search with --search alone` |
+| `--until` before `--since` | `--until is before --since` |
+
+An agent older than 0.7: `the agent is older than this shipwick and keeps no log archive: it shows the output of running containers only`, then `Compare versions with: shipwick server status`. Needs the `read` role, like the logs.
 
 ## traffic
 
@@ -1304,7 +1426,7 @@ Needs the `admin` role. See [Keep a second server ready](/docs/tasks/standby), [
 
 ## server status
 
-Show whether the agent is reachable, what it runs on, how full its disk is, which token you are using, and which alerts are active.
+Show whether the agent is reachable, what it runs on, how full its disk is, which token you are using, which alerts are active, and since 0.7 what the log archive holds and whether a newer release exists.
 
 ```text
 shipwick server status
@@ -1313,8 +1435,8 @@ shipwick server status
 ```text
 https://agent.example.com  ● reachable
 
-Agent           v0.6.0
-CLI             v0.6.0
+Agent           v0.7.0
+CLI             v0.7.0
 Host            vps-1
 OS              linux (amd64, kernel 6.8.0)
 Docker          29.8.0
@@ -1329,11 +1451,18 @@ Dashboard       https://dashboard.example.com
 Disk            61 GB of 75 GB used (81%)
 ```
 
+An agent of 0.7 adds a line, and says in the first when it knows of a newer release:
+
+```text
+Agent           v0.7.0  v0.7.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+Log archive     1.1 KB of 1 GB, 1 entry, kept 14 days
+```
+
 The command first calls the health endpoint, which needs no token. This separates "cannot reach the agent" from "reached it, but the token is wrong". The first line is the agent's URL and `● reachable`, with `context <name>` after the URL when the configuration file holds several servers. Then:
 
 | Line | |
 |---|---|
-| `Agent` | The agent's version |
+| `Agent` | The agent's version. Since 0.7, followed by `v0.7.1 is available` and the installer line when the agent knows of a release newer than itself. The agent asks GitHub itself, once a day; an agent from before 0.7, one told not to ask (`SHIPWICK_UPDATE_CHECK=off`) and one that cannot reach GitHub say nothing, and neither does this line |
 | `CLI` | The version of `shipwick` |
 | `Host` | The server's hostname |
 | `OS` | Operating system, architecture and kernel |
@@ -1345,9 +1474,10 @@ The command first calls the health endpoint, which needs no token. This separate
 | `Notifications` | `webhook configured`, or `none  (set SHIPWICK_WEBHOOK_URL on the agent)` |
 | `Token` | The name and role of the token this command used: `ci (deploy)`, or `root (admin)` for the token the agent is configured with. Since 0.6, what narrows the token follows the role: the applications a `deploy` token is limited to, and when it expires: `ci (deploy, limited to my-api, web, expires in 87 days)`. Omitted with an agent from before tokens had names |
 | `Dashboard` | The dashboard's address, which [`open --dashboard`](#open) opens, or `no hostname  (set SHIPWICK_DASHBOARD_DOMAIN on the agent)`. Since 0.5 |
-| `Sign-in` | The issuer URL of the OpenID Connect provider people sign in to the dashboard with: `https://accounts.example.com/realms/company`. Only on an agent with one configured; see [`access`](#access). Since 0.6 |
+| `Sign-in` | The issuer URL of the OpenID Connect provider people sign in to the dashboard with: `https://accounts.example.com/realms/company`. Only on an agent with one configured; see [`access`](#access). Since 0.6. Where the agent names people by another claim than their address, the line says so: `https://accounts.example.com/realms/company (people are named by the preferred_username claim)`. Since 0.7 |
 | `Disk` | How full the server's disk is: used, total and percent. Omitted with an older agent, and where the agent cannot measure it. Since 0.5 |
 | `Network` | What stands between the server and the internet, on a server where something is set; see below. Since 0.6 |
+| `Log archive` | What the agent keeps of the output of containers that ended: `61 MB of 1 GB, 297 entries, kept 14 days` — what the entries take on the disk, what they may take, how many there are and for how long each is kept. `off  (SHIPWICK_LOG_RETENTION_SIZE is 0 on the agent)` when nothing is kept. Omitted with an agent older than 0.7. See [`logs`](#the-log-archive) |
 
 The `Network` line names what the agent is configured with, the parts separated by ` · `:
 
@@ -1381,7 +1511,7 @@ shipwick server install <user@host> [flags]
 | `--agent-domain <host>` | | Hostname for the API, for example `agent.example.com` |
 | `--dashboard-domain <host>` | | Hostname for the dashboard, for example `dashboard.example.com` |
 | `--context <name>` | the hostname | Name to save the server under |
-| `--version <tag>` | the latest release | Release to install, for example `v0.6.0` |
+| `--version <tag>` | the latest release | Release to install, for example `v0.7.0` |
 
 ```text
 $ shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com
@@ -1422,26 +1552,33 @@ shipwick server bundle [flags]
 | Flag | Default | |
 |---|---|---|
 | `--arch <arch>` | `amd64` | The server's architecture: `amd64` or `arm64` |
-| `--version <tag>` | the latest release | Release to bundle, for example `v0.6.0` |
+| `--version <tag>` | the latest release | Release to bundle, for example `v0.7.0` |
 | `-o`, `--output <file>` | `shipwick-<version>-linux-<arch>.tar.gz` in the current directory | File to write |
-| `--no-pull` | | Save the images this machine has under the release's names instead of pulling them |
+| `--no-pull` | | Save the images this machine has under the release's names instead of pulling them. Nothing proves them: they are not checked against the release's digests |
 
 Run it on a machine that has a connection and Docker. It talks to no agent and needs no token.
 
 ```text
 $ shipwick server bundle --arch amd64
-✓ Release v0.6.0: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
-✓ Wrote shipwick-v0.6.0-linux-amd64.tar.gz (… MB)
+✓ Release v0.7.0: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
+✓ The three images are the ones release v0.7.0 published for linux/amd64
+✓ Wrote shipwick-v0.7.0-linux-amd64.tar.gz (113 MB)
 
 Copy it to the server, and there, as root:
-  tar -xzf shipwick-v0.6.0-linux-amd64.tar.gz
-  sh shipwick-v0.6.0-linux-amd64/install.sh
+  tar -xzf shipwick-v0.7.0-linux-amd64.tar.gz
+  sh shipwick-v0.7.0-linux-amd64/install.sh
 The server needs Docker Engine and the Compose plugin; nothing is downloaded there.
+checksums.txt of the release: sha256 646205a7…
 ```
+
+This is the output for a release from 0.7.0 on, which publishes the digests of its images. For 0.6.0 the second line is a warning instead; see below.
 
 - **What is in it.** The release's compose file, installer and checksums, the `shipwick` binary for the server, and the three Shipwick images as one archive, `images.tar`, with a checksum of its own. The file unpacks into one directory named like the bundle.
 - **The release's files are verified** against its published `checksums.txt` as they are downloaded. A mismatch is refused and nothing is written: `install.sh does not match the checksum published with the release; no bundle was written`. The installer verifies them again on the server, and checks the image archive against its checksum before it changes anything, so a copy that arrived damaged is refused.
 - **The images** are the ones the release's compose file names. They are pulled with `docker pull` for the server's architecture and written with `docker save`, both run as programs with arguments, never through a shell. In a terminal a progress line names the image being pulled. Without Docker here: `docker is not installed on this machine, and the images of a bundle are pulled and saved with it`. When a pull or the save fails, the last line `docker` printed is the reason.
+- **The images are proven** (since 0.7). A release from 0.7.0 on publishes `image-digests.txt`, listed in its `checksums.txt`: the digests of its three images as the registry holds them, per platform. The archive `docker save` wrote is checked against it before the bundle is written: it must hold the configuration the release published for the server's platform and the layers that configuration lists, and name that image, and no other, by the release's tag. An archive that does not is refused, and no bundle is written: `<image> is not the image release v0.7.0 published for linux/amd64: …; no bundle was written`. The installer checks once more what Docker made of the archive before it replaces anything.
+- **Two bundles are not proven**, and the command says so in place of the second line. With `--no-pull`: `The images are the ones this machine had under the release's names (--no-pull): they were not checked against the release's digests, and the installer will say so.` Of a release before 0.7.0: `Release v0.6.0 does not publish the digests of its images (0.7.0 and later do): the images are what the registry serves under its tags, unchecked, and the installer will say so.`
+- **The last line** is the SHA-256 of the release's `checksums.txt`, from which everything in the bundle follows. The installer prints the same line on the server; compare the two.
 - **`--version`** takes a release tag. A bundle can be made of 0.6.0 and later: `release v0.5.1 does not publish its installer: a bundle can be made of 0.6.0 and later`. Anything that is not a release version is refused: `releases look like v0.6.0`.
 - The bundle is gathered in a temporary directory next to the output, written under another name and renamed, so a file with the bundle's name is always a whole bundle. The second line ends with its size.
 - **On the server**, unpack it and run the installer inside it, as root. It is the same installer and asks the same questions; it downloads nothing and pulls nothing. Upgrading is the same procedure with the bundle of a newer release. Docker is not in the bundle: the server needs Docker Engine and the Compose plugin before the installer runs.
@@ -1503,8 +1640,8 @@ shipwick doctor
 ```
 
 ```text
-✓ shipwick v0.6.0, the latest release
-✓ Agent https://agent.example.com runs v0.6.0, the latest release
+✓ shipwick v0.7.0, the latest release
+✓ Agent https://agent.example.com runs v0.7.0, the latest release
 ✓ Token laptop (admin)
 ✓ Docker 29.8.0 on the server
 ✓ Proxy serving 2 routes
@@ -1537,7 +1674,7 @@ Since 0.6, `doctor` also reports:
 | The proxy and the Docker daemon | On a server whose agent goes through a proxy, whether the Docker daemon has one too. With both: `✓ The agent and the Docker daemon go through a proxy (proxy.example.com:3128)`. With the agent's alone: `! The agent goes through the proxy proxy.example.com:3128, and the Docker daemon on the server has none configured: images are pulled by the daemon, not by the agent. If pulls fail, add "proxies" to /etc/docker/daemon.json on the server and restart Docker`. See [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network) |
 | An ACME server of your own | `✓ Certificates are obtained from https://ca.example.internal/acme/acme/directory`, on an agent with `SHIPWICK_ACME_DIRECTORY` |
 
-On a network without a way to GitHub the latest release cannot be looked up; the version lines then say so, and the checks go on: `✓ shipwick v0.6.0 (could not check for a newer release)`.
+On a network without a way to GitHub the latest release cannot be looked up; the version lines then say so, and the checks go on: `✓ shipwick v0.7.0 (could not check for a newer release)`.
 
 Hostnames are resolved through public resolvers (Cloudflare's, Google's and Quad9's) before this machine's, the same view of DNS the agent takes. Since 0.6 each resolver is given two seconds, and when none of them can be reached, as behind a firewall that lets no DNS out, this machine's resolver is asked for the rest of the run. The server's address is learned by resolving the agent's own hostname, so through a tunnel (`127.0.0.1`) ports and record targets are not checked. An agent whose own hostname is behind Cloudflare's proxy hides the server's address in the same way, and ports 80 and 443 and the records' targets are not checked then either.
 
@@ -1575,7 +1712,7 @@ shipwick login [flags]
 ```text
 $ shipwick login --url https://agent.example.com
 API token:
-✓ Logged in to https://agent.example.com (my-server, agent v0.6.0)
+✓ Logged in to https://agent.example.com (my-server, agent v0.7.0)
   saved as context default in /home/me/.config/shipwick/config.yaml
 ```
 
@@ -1639,13 +1776,14 @@ Print the name of the current context, and nothing else, for scripts. Errors: `n
 
 Manage API tokens and their roles. A token has one of three roles: `read` sees everything (status, logs, history, metrics, traffic, the list of backups, the names of secrets, volumes, registries and supplied certificates); `deploy` also changes what runs (deploy, redeploy, roll back, stop, start, run commands, take and verify a backup); `admin` also does the rest (delete applications, back up and restore volumes, download and remove backups, remove volumes, manage tokens, secrets, registry credentials and certificates, read the audit trail, manage who may sign in to the dashboard, adopt backups, rotate the encryption key, export, import and promote a standby). Give CI a `deploy` token and keep `admin` tokens for people.
 
-Since 0.6 a `deploy` token can be limited to some applications, and any token can be given an end; see [`token create`](#token-create).
+Since 0.6 a `deploy` token can be limited to some applications, and any token can be given an end; see [`token create`](#token-create). Since 0.7 both can be changed later with [`token update`](#token-update); the role cannot.
 
 The token the agent is configured with, `SHIPWICK_AGENT_TOKEN` or the one it generated on first start, is `root`: it has the `admin` role, is not listed here, cannot be revoked here and does not expire. Change it on the agent. Every `token` command needs the `admin` role.
 
 ```text
 shipwick token create <name> --role read|deploy|admin [flags]
 shipwick token ls
+shipwick token update <name> [--app <application>... | --all-apps] [--expires <when> | --no-expiry]
 shipwick token revoke <name> [flags]
 ```
 
@@ -1687,7 +1825,7 @@ In CI, set SHIPWICK_AGENT_TOKEN to it. On a machine you work from, save it with:
 - Such a token does to its applications what the `deploy` role allows: deploy (the first deployment included; the application need not exist yet), redeploy, roll back, stop, start, run commands and jobs, take and verify backups. It reads everything, as every token does.
 - It changes nothing else. Another application is refused with a message that names the token's applications, and so is anything of the `deploy` role that is not about one application; see `TOKEN_LIMITED` under [Error messages](#error-messages). What takes `admin` stays refused, for its own applications too.
 - Only `deploy` can be limited: `--app: only a deploy token can be limited to applications: a read token changes nothing, and admin is for the whole server`.
-- The list is fixed when the token is created. For a different list, create another token.
+- The list can be changed later, with [`token update`](#token-update).
 - A limit narrows what a token can be used for by mistake or after a leak. It is not a wall between tenants: a limited token still reads every application's logs and configuration, never the values of `env`.
 
 **A token with an end** (since 0.6). `--expires` takes a whole number of days or hours from now, or a date; a token with a date works through that day, UTC. A time in RFC 3339 is accepted too.
@@ -1699,7 +1837,7 @@ shipwick token create contractor --role read --expires 2027-01-31
 
 - The second line of the output says when, in local time, and how far off that is: `It expires on 2027-01-01 at 15:04, in 90 days.`
 - From then on the token is refused, and whoever presents it is told that it expired and when; see `TOKEN_EXPIRED` under [Error messages](#error-messages). A wrong token is told nothing of the kind.
-- A token cannot be extended: create its replacement, hand it over, revoke the old one. An expired token stays in `token ls` until you revoke it.
+- An expired token stays in `token ls` until you revoke it. Its end can be moved with [`token update`](#token-update), and it then works again.
 - An expiry that cannot be read, or lies in the past, is refused before anything is sent: `--expires: invalid expiry "soon": use days or hours from now, or a date, e.g. 90d, 12h or 2027-01-03`; `--expires: the expiry is in the past: a token that has expired already would be of no use`.
 
 An agent older than 0.6 knows neither flag and creates nothing: `the agent is older than this shipwick: it knows neither --app nor --expires, and created nothing`, then `Compare versions with: shipwick server status`.
@@ -1715,12 +1853,42 @@ ci           deploy   my-api, web    in 87 days         3d ago    12m ago
 contractor   read     all            in 9 days (soon)   2d ago    2h ago
 anna         admin    all            never              1d ago    never
 
-Expired, or expiring within 14 days: contractor. A token cannot be extended: create a new one, hand it over, then revoke the old one.
+Expired, or expiring within 14 days: contractor. Move an end with: shipwick token update <name> --expires 90d
 ```
 
 Since 0.6 the list has two more columns. `APPLICATIONS` is `all`, or the applications a `deploy` token is limited to. `EXPIRES` is `never`, `in 87 days` (or hours, or minutes), `in 9 days (soon)` in yellow within 14 days of the expiry, and `expired 2d ago` in red after it. When any token is expired or within those 14 days, the line under the table names them.
 
 `LAST USED` is kept to the minute by the agent and reads `never` until the token is first used. The root token is not listed. Without stored tokens: `No tokens besides the one the agent is configured with. Create one with: shipwick token create ci --role deploy`.
+
+### token update
+
+Change the applications a token is limited to, or when it expires. The token's value stays the same: whatever holds it keeps working. Since 0.7.
+
+| Flag | |
+|---|---|
+| `--app <name>` | Limit the token to this application instead of the ones it had; repeat for several |
+| `--all-apps` | Lift the limit: the token may change every application |
+| `--expires <when>` | When the token stops working: days or hours from now (`90d`, `12h`) or a date (`2027-01-31`) |
+| `--no-expiry` | Take the token's end away |
+
+```text
+$ shipwick token update ci --app my-api --app web
+✓ Changed token ci
+  It is limited to my-api, web.
+$ shipwick token update ci --all-apps --no-expiry
+✓ Changed token ci
+  It is not limited: it may change every application.
+  It does not expire.
+```
+
+- **`--app` replaces the list**, it does not add to it, and is checked as at creation: valid names, at most 50, a `deploy` token.
+- **`--expires` moves the end**, also of a token that has expired already, which then works again. The answer says when: `It expires on 2027-01-01 at 15:04, in 90 days.` An end is moved into the future only; to stop a token now, [revoke](#token-revoke) it.
+- **The change holds from the token's next request.**
+- **The role is not changed here.** A token that is to do more than it was created for is a new token.
+- **Every change is recorded in the audit trail** as `token.update`, with what it was before: `applications my-api web -> all, expires 2026-11-03T00:23:04Z -> never`.
+- **What is refused before anything is sent.** No flag: `say what to change: --app or --all-apps, --expires or --no-expiry`. Both of a pair: `--app limits the token and --all-apps lifts the limit: use one`; `--expires sets an end and --no-expiry takes it away: use one`. The root token: `the root token is the one the agent is configured with: it is not limited and does not expire; change SHIPWICK_AGENT_TOKEN on the agent instead`.
+- An unknown name: `there is no token named ci`, then `List the tokens with: shipwick token ls`.
+- An agent older than 0.7 changes nothing, and the command says that the agent is older than this `shipwick`. Until it is upgraded, create a new token and revoke the old one.
 
 ### token revoke
 
@@ -1736,7 +1904,7 @@ See [Create tokens for CI and teammates](/docs/tasks/tokens).
 
 ## audit
 
-Show who changed what on the server, and when, newest first. Since 0.6.
+Show who changed what on the server, and when, newest first. Since 0.6. Since 0.7 the trail is also filtered by action, by outcome and by kind of actor, and exported whole.
 
 ```text
 shipwick audit [flags]
@@ -1745,10 +1913,15 @@ shipwick audit [flags]
 | Flag | Default | |
 |---|---|---|
 | `--app <name>` | | Only what was done to this application |
-| `--actor <name>` | | Only what this token did; for a person who signed in to the dashboard, their address |
+| `--actor <name>` | | Only what this token or this person did; a person by the name the trail shows |
+| `--actor-kind <kind>` | | Only what tokens did, or only what people who signed in did: `token` or `person`. Since 0.7 |
+| `--action <action>` | | Only this action, or with a dot at its end this family of actions (`token.`); repeat for several, or separate them by commas, at most 20. Since 0.7 |
+| `--outcome <outcome>` | | Only what ended this way: `ok`, `refused` or `failed`; several separated by commas. Since 0.7 |
 | `--since <when>` | | How far back: days or hours (`7d`, `24h`), or a date (`2026-09-01`, from the start of that day, UTC) |
 | `-n`, `--lines <n>` | `50` | How many entries, 1 to 500 |
 | `--before <id>` | | Continue with the entries older than the one with this id |
+| `--format <format>` | | Write out everything that matches instead of a page: `csv` or `json` (one entry per line). Since 0.7 |
+| `-o`, `--output <file>` | standard output | The file to write the export to. Since 0.7 |
 
 ```text
 $ shipwick audit
@@ -1762,19 +1935,31 @@ WHEN                  WHO    ACTION         ON            RESULT    FROM        
 | Column | |
 |---|---|
 | `WHEN` | When the request was made, in local time |
-| `WHO` | The token's name, or the address of a person who signed in to the dashboard |
+| `WHO` | The token's name, or the name of a person who signed in to the dashboard: their address, or what the agent names people by |
 | `ACTION` | What was asked for: `deploy`, `secret.set`, `token.create`, `signin` |
 | `ON` | The application, and what else the request named, such as a secret or a token; `server` when it named neither |
 | `RESULT` | `ok` when the request was accepted; `refused` when the role or the application limit did not allow it; `failed: <CODE>` for any other failure, with the error's code |
 | `FROM` | The address the request came from: the client the proxy reported when there is one, else the address of the connection |
 | `DETAIL` | What the agent noted: the deployment an entry made, the role of a token that was created |
 
-- Every request that changes something is recorded: deployments, redeployments and rollbacks, stops and starts, deletions, commands and jobs started by hand, uploaded images and folders, secrets set and removed (the name, never the value), registry logins and logouts, certificates, tokens created and revoked, key rotation, backups taken, verified, restored, removed and downloaded, volume downloads, restores and removals, exports, imports and promotions, sign-ins and changes to the access rules.
+- Every request that changes something is recorded: deployments, redeployments and rollbacks, stops and starts, deletions, commands and jobs started by hand, uploaded images and folders, secrets set and removed (the name, never the value), registry logins and logouts, certificates, tokens created, changed and revoked, key rotation, backups taken, verified, restored, removed and downloaded, volume downloads, restores and removals, exports, imports and promotions, sign-ins and changes to the access rules, and exports of the trail itself.
 - `ok` means the request was accepted. How a deployment then went is in its own record, which the detail names.
 - Reading is not recorded, and neither is what the agent does by itself: scheduled backups and jobs, restarts.
-- When the page is full, a last line gives the command for the next one, with the filters repeated: `Older entries: shipwick audit --app my-api --before 1184`.
+- When older entries match as well, a last line gives the command for the next page, with the filters repeated: `Older entries: shipwick audit --app my-api --before 1184`. An agent of 0.7 says whether there are more; with an older one a full page is taken for the sign.
+- **Filters** (since 0.7). `--action` takes an action as the `ACTION` column shows it (`deploy`, `token.create`) or the start of a family with its dot: `token.` is every action on tokens, `backup.` every one on backups. An entry matches when one of the actions given does; filters of different kinds narrow each other. `--actor-kind` that is neither: `--actor-kind: "bot" is neither token nor person`. More than 20 actions: `--action: at most 20 at once; the start of a family covers all of it, e.g. --action backup.`
+
+```text
+$ shipwick audit --action token. -n 5
+WHEN                  WHO    ACTION         ON    RESULT   FROM           DETAIL
+2026-10-04 03:23:06   root   token.update   ci    ok       203.0.113.40   applications my-api web -> all, expires 2026-11-03T00:23:04Z -> never
+2026-10-04 03:23:05   root   token.create   ci    ok       203.0.113.40   role deploy, limited to my-api, expires 2026-11-03T00:23:04Z
+```
+
+- **An export** (since 0.7). With `--format` or `--output` the command writes everything that matches instead of a page, newest first: `csv`, one row per entry under the header `id,at,actor_kind,actor,address,forwarded_for,action,application,target,outcome,status,code,detail`, times in UTC; or `json`, one JSON object per line, the object the API returns. Without `--output` it goes to standard output. `--output` takes the format from the file's name — `.csv`, or `.json`, `.ndjson` and `.jsonl` — and otherwise asks for it: `--output audit.txt does not say which format: add --format csv or --format json`. The file is created readable by its owner only, is never written over (`audit.csv exists already; choose another name, or remove it first`), and is removed again when the export was interrupted. It ends with `✓ Wrote the audit trail to audit.csv` and `The export is recorded in the trail, with who took it.`
+- In CSV, a cell that a spreadsheet would run as a formula is written with an apostrophe in front, as text. The JSON export keeps the values as they were recorded.
+- `-n` and `--before` do not go with an export: `an export is everything that matches, not a page: leave -n and --before out, and narrow it with --since, --app, --actor, --action or --outcome`.
 - With nothing recorded: `Nothing recorded yet: the trail starts with the first change made through this agent.` With filters that match nothing: `Nothing recorded that matches.`
-- An agent older than 0.6: `the agent is older than this shipwick and keeps no audit trail`, then `Compare versions with: shipwick server status`.
+- An agent older than 0.6: `the agent is older than this shipwick and keeps no audit trail`, then `Compare versions with: shipwick server status`. An agent of 0.6 asked for what 0.7 added: `the agent is older than this shipwick: it filters the audit trail by application, actor and time only, and would have ignored --action, --outcome and --actor-kind`; `the agent is older than this shipwick and cannot export its audit trail`.
 
 The agent keeps the trail for a year. Needs the `admin` role. See [See who changed what](/docs/tasks/audit).
 
@@ -1783,11 +1968,11 @@ The agent keeps the trail for a year. Needs the `admin` role. See [See who chang
 Say who may sign in to the dashboard, and as what. Since 0.6.
 
 ```text
-shipwick access grant <address | *@domain | group:name> --role read|deploy|admin [flags]
+shipwick access grant <address | *@domain | group:name | name:value> --role read|deploy|admin [flags]
 shipwick access ls
-shipwick access revoke <address | *@domain | group:name>
+shipwick access revoke <address | *@domain | group:name | name:value>
 shipwick access sessions
-shipwick access signout <address>
+shipwick access signout <address | name>
 ```
 
 With an OpenID Connect provider configured on the agent (`SHIPWICK_OIDC_ISSUER` and the variables next to it; see the [agent configuration](/docs/reference/agent-configuration#sign-in)), people sign in to the dashboard with the company's accounts. These rules say what each of them may do. A rule gives a role, the same three a token has, to one of:
@@ -1797,8 +1982,11 @@ With an OpenID Connect provider configured on the agent (`SHIPWICK_OIDC_ISSUER` 
 | `ada@example.com` | One person, by their address |
 | `group:platform` | Everyone the provider puts in that group, named as the provider sends it |
 | `*@example.com` | Everyone with an address at that domain |
+| `name:svc-deploy` | One person whose name is not an address, exactly as the provider's claim holds it, capitals included. Since 0.7 |
 
-The most specific rule that matches a person decides: the one for their address, else the ones for their groups, else the one for their domain. Of several groups the highest role counts. Nobody without a matching rule gets in.
+The most specific rule that matches a person decides: the one for their name, else the one for their address, else the ones for their groups, else the one for their domain. Of several groups the highest role counts. Nobody without a matching rule gets in.
+
+People are named by the e-mail address the provider reports, unless the agent is told to read another claim with [`SHIPWICK_OIDC_NAME_CLAIM`](/docs/reference/agent-configuration#sign-in): a user name, or the provider's own identifier for the account. Rules by address and by domain then apply to names that are addresses; `name:` is for the others. [`server status`](#server-status) says which claim it is.
 
 A session lasts ten hours. Tokens are not affected by any of this: the CLI and CI keep using them. Every `access` command needs the `admin` role. See [Sign in with your company's accounts](/docs/tasks/sign-in).
 
@@ -1815,6 +2003,7 @@ Give a person, a group or a domain a role. Granting again to the same address, g
 shipwick access grant ada@example.com --role admin
 shipwick access grant group:backend --role deploy --app my-api --app worker
 shipwick access grant '*@example.com' --role read
+shipwick access grant name:248289761001 --role deploy
 ```
 
 ```text
@@ -1824,7 +2013,8 @@ Whoever is signed in and gets something else by this is signed out with their ne
 
 - Quote a domain rule, or the shell expands the `*`.
 - `--app` limits the role as it limits a token, and only `deploy` can be limited: `--app: only the deploy role can be limited to applications: read changes nothing, and admin is for the whole server`.
-- An address and a domain are stored in lowercase; a group is kept as written. What is none of the three is refused: `"backend" is neither an address, a domain nor a group: use ada@example.com, *@example.com or group:platform`.
+- An address and a domain are stored in lowercase; a group is kept as written. A name is kept as written too: at most 254 letters, digits and `. _ % + ' @ | : = # ~ -`, without spaces. What is none of the four is refused: `"backend" is neither an address, a domain, a group nor a name: use ada@example.com, *@example.com, group:platform or name:backend`.
+- **A rule the claim in use cannot match gets a note** (since 0.7). A rule for an address or a domain on an agent that names people by another claim: `This agent names people by the sub claim: the rule applies to those whose sub is an address. For anyone else use name:<sub>.` A `name:` rule on an agent that names people by their address: `This agent names people by their e-mail address: a rule by name matches an address written exactly as the agent keeps it, in lowercase. A rule for the address itself says the same more plainly.`
 - Rules are kept whether or not a provider is configured, so the table can be prepared first.
 
 ### access ls
@@ -1877,6 +2067,8 @@ $ shipwick access signout ada@example.com
 ```
 
 This signs the person out; it does not keep them out. While a rule covers them and the provider lets them in, they can sign in again. To keep someone out, disable the account at the provider, or revoke the rule with [`access revoke`](#access-revoke). A person without a session: `ada@example.com was not signed in.` Something that is not one address: `"ada" is not an e-mail address; use one like ada@example.com`.
+
+Since 0.7 the person is named as [`access sessions`](#access-sessions) lists them. An address is brought to lowercase, as the agent keeps it. Where the agent names people by another claim, the name is sent as it was typed, since capitals tell two people apart there; a leading `name:` is accepted and dropped. A group or a domain is refused: `group:backend is not a person: sessions are ended for one person at a time, as shipwick access sessions lists them`.
 
 An agent older than 0.6 has no sign-in, and every `access` command says so: `the agent is older than this shipwick and has no sign-in: it accepts tokens only`, then `Compare versions with: shipwick server status`.
 
@@ -2057,27 +2249,27 @@ shipwick upgrade [flags]
 
 ```text
 $ shipwick upgrade
-✓ Upgraded shipwick v0.3.1 → v0.6.0
+✓ Upgraded shipwick v0.3.1 → v0.7.0
   /usr/local/bin/shipwick
 
-The server runs v0.3.1; v0.6.0 is available. On the server run:
+The server runs v0.3.1; v0.7.0 is available. On the server run:
   curl -fsSL https://get.shipwick.com | sh
 ```
 
 How the binary is replaced:
 
-- The latest release, never a pre-release, is looked up on GitHub. The release's `checksums.txt` is downloaded, then the binary for this operating system and architecture (`shipwick_linux_amd64`, `shipwick_windows_amd64.exe`, and so on) is written next to the running one as `.shipwick-new`, its SHA-256 is compared with the published checksum, and only then is it renamed over the old binary, with the old binary's permissions. A mismatch is refused, `<asset> does not match the checksum published with release <tag>; nothing was changed`, and so is a release without a binary for this platform. On Windows, where a running executable cannot be deleted, the old binary is moved aside as `shipwick.old.exe` and removed the next time `shipwick` runs.
-- **Homebrew and winget.** A binary under Homebrew's Cellar or winget's Packages directory is recognized by its path and left to the package manager. The command prints `shipwick v0.3.1 was installed with Homebrew; v0.6.0 is available.` followed by `Upgrade with: brew upgrade shipwick`, or the same with `winget upgrade Shipwick.Shipwick`, and changes nothing.
-- **Already current:** `shipwick v0.6.0 is up to date.` A build without a release version: `This shipwick is a development build (dev); the latest release is v0.6.0.` Neither changes anything.
-- **`--check`** prints `shipwick v0.3.1 is installed; v0.6.0 is available.` and `Upgrade with: shipwick upgrade`, and changes nothing.
+- The latest release, never a pre-release, is looked up on GitHub. The release's `checksums.txt` is downloaded, then the binary for this operating system and architecture (`shipwick_linux_amd64`, `shipwick_windows_amd64.exe`, and so on; since 0.7 `shipwick_windows_arm64.exe` on Windows on Arm, picked by the machine's architecture also when the `shipwick` that runs is the x64 build) is written next to the running one as `.shipwick-new`, its SHA-256 is compared with the published checksum, and only then is it renamed over the old binary, with the old binary's permissions. A mismatch is refused, `<asset> does not match the checksum published with release <tag>; nothing was changed`, and so is a release without a binary for this platform. On Windows, where a running executable cannot be deleted, the old binary is moved aside as `shipwick.old.exe` and removed the next time `shipwick` runs.
+- **Homebrew and winget.** A binary under Homebrew's Cellar or winget's Packages directory is recognized by its path and left to the package manager. The command prints `shipwick v0.3.1 was installed with Homebrew; v0.7.0 is available.` followed by `Upgrade with: brew upgrade shipwick`, or the same with `winget upgrade Shipwick.Shipwick`, and changes nothing.
+- **Already current:** `shipwick v0.7.0 is up to date.` A build without a release version: `This shipwick is a development build (dev); the latest release is v0.7.0.` Neither changes anything.
+- **`--check`** prints `shipwick v0.3.1 is installed; v0.7.0 is available.` and `Upgrade with: shipwick upgrade`, and changes nothing.
 - **Where it refuses.** A directory it cannot write to: `cannot write to /usr/local/bin: permission denied`, then `Run it as root: sudo shipwick upgrade` or the installer line `curl -fsSL https://get.shipwick.com | sh -s -- --cli`; on Windows, the advice is an administrator prompt or downloading the `.exe` from the releases page. Nothing is downloaded before the staging file could be created.
 
 The server is not upgraded by this command: the installer does that, on the server, with access to Docker. After the binary step, `upgrade` asks the configured agent's health endpoint, which needs no token, and prints one of:
 
 | Situation | Line |
 |---|---|
-| The server is behind | `The server runs v0.3.1; v0.6.0 is available. On the server run:` and the installer command |
-| The server is current | `The server runs v0.6.0, the latest release.` |
+| The server is behind | `The server runs v0.3.1; v0.7.0 is available. On the server run:` and the installer command |
+| The server is current | `The server runs v0.7.0, the latest release.` |
 | The server runs a development build | `The server runs a development build (dev).` |
 | The server cannot be reached | `The server at http://127.0.0.1:9000 could not be reached; its version was not checked.` |
 | The URL does not answer as an agent | `The server at <url> did not answer as a Shipwick agent; its version was not checked.` |
@@ -2095,7 +2287,7 @@ None of these fail the command. See [Upgrade Shipwick](/docs/tasks/upgrade).
 | The agent cannot be reached at a loopback address, on the server itself | Instead of the tunnel, which leads nowhere there: `The agent on this server publishes no port. Give it a hostname (SHIPWICK_AGENT_DOMAIN in /opt/shipwick/.env, then run the installer again), or see "Reach the API without a hostname" in the handbook, Installation.` The server is recognized by the installer's `.env` file; see [Reach the API without a hostname](/docs/tasks/access-without-a-hostname) |
 | `UNAUTHORIZED` | `The agent rejected the API token.` Set `SHIPWICK_AGENT_TOKEN`, or run `shipwick login` |
 | `FORBIDDEN` | `This token may not do that: it has the read role.` Then `Use a token with the deploy role, or create one with: shipwick token create <name> --role deploy`. The roles come from the agent's answer; an agent that sends none is quoted: `This token may not do that: <message>` |
-| `TOKEN_EXPIRED` | `The token ci expired on 2026-10-01 at 15:04.` Then `An admin creates a new one with: shipwick token create` and `Then set SHIPWICK_AGENT_TOKEN to it, or save it with: shipwick login`. The name and the time, shown in local time, come from the agent's answer; without them the first sentence is `The API token has expired.` Since 0.6 |
+| `TOKEN_EXPIRED` | `The token ci expired on 2026-10-01 at 15:04.` Then, since 0.7, `An admin lets it work again with: shipwick token update ci --expires 90d`, `Or creates a new one with: shipwick token create` and `Then set SHIPWICK_AGENT_TOKEN to it, or save it with: shipwick login`. The name and the time, shown in local time, come from the agent's answer; without them the first sentence is `The API token has expired.`, followed by `An admin creates a new one with: shipwick token create`. Since 0.6 |
 | `TOKEN_LIMITED` | `This token may not do that: it is limited to my-api, web.` For an operation on another application: `It can read blog, not change it. Use a token that covers it, or create one with: shipwick token create <name> --role deploy --app blog`. For one that is not about a single application: `This operation is not about one application. Use a deploy token without --app, or an admin token.` An answer that names no applications is quoted: `This token may not do that: <message>`. Since 0.6 |
 | `SESSION_EXPIRED`, `SESSION_ENDED` | `The session this command ran with no longer works: <the agent's message>.` Then `The CLI and CI are meant to be given a token; an admin creates one with: shipwick token create`. A session is the dashboard's; this is seen only by a command that was handed one in place of a token. Since 0.6 |
 | `DEPLOYMENT_IN_PROGRESS` | `Another operation is already in progress for this application.` Watch it with `shipwick status` |
@@ -2123,7 +2315,7 @@ None of these fail the command. See [Upgrade Shipwick](/docs/tasks/upgrade).
 | `PROMOTION_IN_PROGRESS` | `This server is being promoted; nothing is imported into it meanwhile.` Follow the promotion with `shipwick standby promote`. `standby promote` itself answers this code by following the promotion that is under way. Since 0.6 |
 | `FOREIGN_BUCKET` | `Error: <the agent's message>`: the bucket holds the backups of another installation under the agent's prefix, and [`backups adopt`](#backups-adopt) records nothing from it. Since 0.6 |
 | `ENDPOINT_NOT_FOUND` | `The agent does not know this operation — it is probably older than this shipwick.` Compare versions with `shipwick server status` |
-| `INVALID_CONFIG` | The field-by-field validation report. A hostname or a published port that another application holds is reported the same way, under the line that claims it: `aliases[1]`, `publish[0].host`; so is an `env` value whose `${NAME}` is neither set here nor stored on the server: `env.DATABASE_URL`, with `shipwick secret set NAME` as what is expected. Since 0.5 a hostname is taken per `path`: two applications may serve one hostname under different paths, and the same path twice is refused |
+| `INVALID_CONFIG` | The field-by-field validation report. A hostname or a published port that another application holds is reported the same way, under the line that claims it: `aliases[1]`, `publish[0].host`; so is an `env` value whose `${NAME}` is neither set here nor stored on the server: `env.DATABASE_URL`, with `shipwick secret set NAME` as what is expected. Since 0.5 a hostname is taken per `path`: two applications may serve one hostname under different paths, and the same path twice is refused. Since 0.7 an `env` value or a basic-auth password that is `"********"`, the mask [`config`](#config) writes, is reported the same way |
 | Any other API error | `Error: <message>` |
 
 The codes of the dashboard's sign-in (`SIGN_IN_NOT_CONFIGURED`, `SIGN_IN_FAILED`, `SIGN_IN_UNAVAILABLE` and `ACCESS_NOT_GRANTED`) answer requests that only the dashboard makes; no command of `shipwick` receives them.

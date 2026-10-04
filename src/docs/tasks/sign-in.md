@@ -40,9 +40,9 @@ Google's ID tokens name no groups: use rules for addresses and for your domain.
 
 Issuer: `https://login.microsoftonline.com/<tenant id>/v2.0`
 
-*App registrations* → *New registration*, *Accounts in this organizational directory only*, redirect URI of the platform *Web*; the secret under *Certificates & secrets*. The tenant's own issuer is required: the shared `common` and `organizations` endpoints name no single issuer and are refused.
+*App registrations* → *New registration*, *Accounts in this organizational directory only*, redirect URI of the platform *Web*; the secret under *Certificates & secrets*. For the accounts of several tenants, see [Accounts of several Microsoft Entra tenants](#accounts-of-several-microsoft-entra-tenants).
 
-For group rules add a groups claim under *Token configuration*. Entra sends each group's **object id**, so a rule reads `group:0f3c…`, and leaves the claim out for a person in more groups than fit a token: limit it to the groups assigned to the application. An account without a mail address has no `email` claim and cannot sign in.
+For group rules add a groups claim under *Token configuration*. Entra sends each group's **object id**, so a rule reads `group:0f3c…`, and leaves the claim out for a person in more groups than fit a token: limit it to the groups assigned to the application. An account without a mail address has no `email` claim: name people by another claim, as described in [Accounts without an address](#accounts-without-an-address).
 
 ### Okta
 
@@ -64,7 +64,7 @@ For group rules add a mapper of the type *Group Membership* to the client's dedi
 
 Any provider that speaks OpenID Connect works the same way: a confidential web client, the authorization-code flow, the redirect URI above. Its issuer is the URL under which it publishes `/.well-known/openid-configuration`.
 
-Sign-in was tested against Keycloak 26; the notes for the other three follow what those providers document.
+Sign-in was tested against Keycloak 26, with people named by their address and by their user name; the notes for the other three follow what those providers document.
 
 ## Turn it on
 
@@ -90,12 +90,14 @@ Sign-in         https://accounts.example.com/realms/company
 
 The issuer is the URL under which the provider publishes `/.well-known/openid-configuration`, written exactly as the provider writes it there. It must be `https`; plain `http` is accepted for `localhost` and private addresses only. The agent reads the provider's endpoints and signing keys from there and reads them again every hour, so a key the provider rotates needs nothing done here. A provider that is down at that moment stops sign-ins, not the agent: tokens and sessions that exist are not affected.
 
-Two more variables exist for a provider that differs from the defaults:
+More variables exist for a provider that differs from the defaults:
 
 | Variable | Default | |
 |---|---|---|
 | `SHIPWICK_OIDC_SCOPES` | `openid email profile` | What is asked of the provider, separated by spaces; must contain `openid`. |
 | `SHIPWICK_OIDC_GROUPS_CLAIM` | `groups` | The claim of the ID token that lists a person's groups. |
+| `SHIPWICK_OIDC_NAME_CLAIM` | `email` | The claim of the ID token people are named by, for [accounts without an address](#accounts-without-an-address). Since 0.7. |
+| `SHIPWICK_OIDC_TENANTS` | — | With Microsoft Entra's issuer for [several tenants](#accounts-of-several-microsoft-entra-tenants): the tenant ids whose accounts may sign in. Since 0.7. |
 
 All of them are described in [Agent configuration](/docs/reference/agent-configuration).
 
@@ -145,6 +147,8 @@ The most specific rule that matches a person decides, and the others are not loo
 2. else the rules for their groups;
 3. else the rule for their domain.
 
+Since 0.7 a rule written `name:` for exactly that person decides before all three; see [Accounts without an address](#accounts-without-an-address).
+
 So `*@example.com` can let the whole company read, a group can deploy, and a rule for one address can give that person less than their group as well as more. Of several groups the highest role counts; where that is `deploy`, a group without a limit lifts it, and the limits of the others add up.
 
 Someone without a matching rule who signs in is refused with a sentence they can forward to whoever administers the server:
@@ -156,11 +160,75 @@ An admin grants one with: shipwick access grant grace@example.com --role read
 
 The agent takes the address from the provider's ID token, and only one the provider does not mark as unverified.
 
+## Accounts without an address
+
+A person is known to Shipwick by one name: what rules are written for, what the audit trail and a deployment's `by` show. By default it is the `email` claim of the ID token, and an account without one is refused. Service accounts, administrator accounts and whole directories have none. Since 0.7 the agent can read the name from another claim:
+
+```bash
+SHIPWICK_OIDC_NAME_CLAIM=preferred_username
+```
+
+| Claim | What it holds | Worth knowing |
+|---|---|---|
+| `email` (default) | The account's address, brought to lowercase | Refused when the provider marks it as not verified |
+| `preferred_username` | The name the person signs in with: a user name in Keycloak, usually the address in Okta and Entra | People can often change it themselves; use it where the directory is yours |
+| `upn` | Entra's user principal name, `ada@corp.example` | Not in a token by default: add it as an optional claim under *Token configuration* |
+| `sub` | The provider's own identifier for the account: a number, a UUID, 43 characters at Entra | Never changes and is never reassigned, and says nothing to a reader: the audit trail shows `AAAAAAAAAAAAAAAAAAAAAIkzqFVrSaSaFHy782bbtaQ` |
+
+Any other claim that holds one string works the same way.
+
+A name from a claim other than `email` is kept exactly as the provider writes it, capitals included: two identifiers that differ only by case are two people. It may hold letters, digits and `. _ % + ' @ | : = # ~ -`, at most 254 characters, and no spaces. An account whose claim is missing or holds anything else is refused, because the name is written into the audit trail and the log as it is. `email_verified` is looked at for the `email` claim only: it says nothing about any other.
+
+What `shipwick access grant` takes follows from the name:
+
+```bash
+shipwick access grant name:svc-deploy --role deploy     # exactly this name
+shipwick access grant ada@corp.example --role admin     # a name that is this address
+shipwick access grant '*@corp.example' --role read      # names that are addresses there
+shipwick access grant group:platform --role admin       # unchanged
+```
+
+- **`name:` matches the name character for character** and decides before every other rule.
+- **Rules for an address and for a domain apply to names that are addresses**, without regard to case — with `upn`, and with `preferred_username` where it is one — and to nobody when the names are identifiers. With `sub`, write `name:` rules or use groups.
+- **The CLI says so when a rule is granted that the claim in use cannot match**: `This agent names people by the sub claim: the rule applies to those whose sub is an address. For anyone else use name:<sub>.`
+- **`shipwick server status` shows the claim**: `Sign-in         https://accounts.example.com/realms/company (people are named by the preferred_username claim)`.
+- **`shipwick access signout` takes the name** as `shipwick access sessions` lists it.
+
+::: warning Choose the claim before the rules
+Changing the claim changes what everyone is called. Sessions that were named by the old claim end with their next request, rules written for the old names match nobody until they are rewritten, and the audit trail keeps the old names for what was done under them.
+:::
+
+## Accounts of several Microsoft Entra tenants
+
+An application registered for *Accounts in any organizational directory* signs people in at an address that belongs to no tenant, `https://login.microsoftonline.com/organizations/v2.0` (`common/v2.0` with personal accounts as well). Entra issues each token in the name of the account's own tenant, so that address has no single issuer, and its configuration says so with a placeholder. Since 0.7 the agent accepts it together with the list of tenants that may sign in:
+
+```bash
+SHIPWICK_OIDC_ISSUER=https://login.microsoftonline.com/organizations/v2.0
+SHIPWICK_OIDC_TENANTS=8f0d4c2e-6a1b-4c3d-9e5f-0a1b2c3d4e5f,0a1b2c3d-4e5f-4a6b-8c7d-9e8f7a6b5c4d
+```
+
+Tenants are named by their id (*Entra admin center* → *Overview* → *Tenant ID*), separated by commas.
+
+- **Without the variable the agent does not start with such an issuer.**
+- **An account of another tenant is refused before the rules are asked**, and taking a tenant off the list ends its sessions with their next request.
+- **The tenant an account signed in from** is in the detail of its `signin` entry in the audit trail.
+- **A token is believed only if its issuer is that address with the token's own tenant id in the placeholder's place**, and the tenant is on the list. A token whose issuer and tenant disagree is refused, whatever the list says.
+
+Every company with a Microsoft account is a tenant, and its administrators decide what the accounts in it are called: their addresses, their user names. List the tenants whose administrators you would trust with your rules.
+
+`SHIPWICK_OIDC_TENANTS=*` accepts every tenant, and is taken only together with `SHIPWICK_OIDC_NAME_CLAIM=sub`: among all tenants the identifier is the one name nobody can choose, so a rule `name:…` cannot be met by an account someone named after yours. Access then rests on `name:` rules alone, one per person: the groups an account reports are its own tenant's to name, and with every tenant accepted the agent does not read them.
+
+Only the two addresses above are treated this way. A provider elsewhere whose configuration names a different issuer than the one configured is refused as before, placeholder or not.
+
+::: info Not run against Entra itself
+None of this was run against Entra itself, which cannot be run locally: the agent was checked against Entra's published configuration and keys, and against a provider built for the tests that issues tokens the way Entra documents it.
+:::
+
 ## What signing in gives
 
 A session of ten hours: longer than a working day, so nobody signs in twice in one, and shorter than the night between two, so every day starts with what the provider says about the person that day. It is not extended by use.
 
-To the agent a signed-in person is the same kind of caller a token is, with a role and perhaps a list of applications. Everything about [roles and limits](/docs/tasks/tokens) holds unchanged, deployments name the address in `by`, and the [audit trail](/docs/tasks/audit) shows the person:
+To the agent a signed-in person is the same kind of caller a token is, with a role and perhaps a list of applications. Everything about [roles and limits](/docs/tasks/tokens) holds unchanged, deployments name the person in `by`, and the [audit trail](/docs/tasks/audit) shows the person:
 
 ```text
 WHEN                  WHO               ACTION    ON       RESULT   FROM          DETAIL
@@ -205,7 +273,7 @@ While a rule covers them and the provider lets them in, they can sign in again. 
 
 ## In the dashboard
 
-Under **Access**, the **Sign-in** tab holds the same table: the rules with **Revoke** on each, a form that gives an address, a group or a domain a role, and who is signed in now. See [Use the dashboard](/docs/tasks/dashboard#access).
+Under **Access**, the **Sign-in** tab holds the same table: the rules with **Revoke** on each, a form that gives an address, a group or a domain a role — or a name, where people are named by another claim — and who is signed in now. See [Use the dashboard](/docs/tasks/dashboard#access).
 
 A session that has expired, or was ended, returns the person to the sign-in page with the reason.
 
@@ -214,6 +282,8 @@ A session that has expired, or was ended, returns the person to the sign-in page
 - The client secret is read from the agent's environment, sent to the provider's token endpoint and nowhere else, and never logged or returned. The dashboard and the browser never see it.
 - The sign-in is the authorization-code flow with PKCE. The code the provider appends to the callback is useless to anyone who reads it there: redeeming it takes a verifier that never left the dashboard's server-side cookie, and the provider redeems each code once.
 - The agent believes an ID token only if one of the provider's keys signed it (RS256 or ES256; a token that claims to be unsigned is refused), if it was issued by the configured issuer for this client, is within its time and minutes old, and carries the one-time value of this sign-in. Each such value is accepted once.
+- A provider whose configuration names another issuer than the configured one is refused. The one exception is Entra's address for several tenants, and there a token's issuer must be its own tenant's, the tenant one the operator listed.
+- A name the provider reports is kept only if it is made of letters, digits and punctuation without spaces, at most 254 characters: it goes into the audit trail, the log and a deployment's `by`. A name that is not is refused, and not repeated in the refusal.
 - The provider is only ever asked to send people back to the dashboard's configured hostname, never to an address taken from a request.
 - Of a session the agent keeps the SHA-256, as of a token. A failed sign-in and a session nobody issued count towards the same limit as a wrong token.
 - Rules, sessions and sign-ins stay on the server: an [export](/docs/tasks/move-to-a-new-server) takes none of them along, as it takes no tokens.

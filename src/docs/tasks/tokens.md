@@ -1,11 +1,11 @@
 ---
 title: Create tokens for CI and teammates
-description: Give CI a token that deploys only its own applications and expires, give a teammate one that can only look, see which tokens are in use, and revoke one.
+description: Give CI a token that deploys only its own applications and expires, give a teammate one that can only look, change a token's applications or its end without changing its value, see which tokens are in use, and revoke one.
 ---
 
 # Create tokens for CI and teammates
 
-The token the installer printed is the root token, and it can do everything. Nobody else needs that much. This page shows the three roles a token can have, how to create a token for CI or a teammate, how to limit it to some applications and give it an end, how to use it from a pipeline, a laptop and the dashboard, what a token is told when it asks for too much, and how to see which tokens are in use and revoke one.
+The token the installer printed is the root token, and it can do everything. Nobody else needs that much. This page shows the three roles a token can have, how to create a token for CI or a teammate, how to limit it to some applications and give it an end, how to change either later, how to use it from a pipeline, a laptop and the dashboard, what a token is told when it asks for too much, and how to see which tokens are in use and revoke one.
 
 The short version, for a pipeline that deploys two applications:
 
@@ -20,6 +20,7 @@ People who use the dashboard need no token at all when the agent has a sign-in p
 - Managing tokens needs the `admin` role: the root token, or a token created with `--role admin`.
 - The agent must be 0.3.0 or later. An older agent has one token and no roles; `shipwick token` against it answers `The agent does not know this operation — it is probably older than this shipwick.`
 - `--app` and `--expires` exist since 0.6. An older agent creates nothing and the command says so: `the agent is older than this shipwick: it knows neither --app nor --expires, and created nothing`.
+- `shipwick token update` exists since 0.7. An older agent changes nothing, and the command says that the agent is older; until it is upgraded, create a new token and revoke the old one.
 
 ## The three roles
 
@@ -28,8 +29,8 @@ Every endpoint of the API requires a role, and a role includes the ones below it
 | Role | May |
 |---|---|
 | `read` | See everything: applications, deployments and their history, logs, events, metrics, traffic, jobs and runs, volumes, the backups the server took, the names of the secrets, the registries that have a credential and the supplied certificates without their passwords and keys, the server, what a standby holds, and the Prometheus endpoint `/metrics` |
-| `deploy` | And change what runs: deploy, redeploy, roll back, stop, start, run a job or a command, send an image or a static folder, take a backup on the server and verify one |
-| `admin` | And everything else: delete applications, download and restore volume backups, remove a backup, remove the volume of a deleted application, store and remove secrets, registry credentials and certificates, rotate the encryption key, back up the agent's own state, export the server, import an export, adopt backups, pull and promote on a standby, create, list and revoke tokens, read the audit trail, manage who may sign in |
+| `deploy` | And change what runs: deploy, redeploy, roll back, stop, start, run a job or a command, send an image or a static folder, take a backup on the server and verify one, and get an application's `deploy.yaml` back with [`shipwick config`](/docs/tasks/get-the-configuration-back) |
+| `admin` | And everything else: delete applications, download and restore volume backups, remove a backup, remove the volume of a deleted application, store and remove secrets, registry credentials and certificates, rotate the encryption key, back up the agent's own state, export the server, import an export, adopt backups, pull and promote on a standby, create, list, change and revoke tokens, read and export the audit trail, manage who may sign in |
 
 Give CI a `deploy` token: a pipeline deploys and rolls back, and never needs to delete an application. Give people `admin` tokens, someone who only watches a `read` one, and a Prometheus scraper a `read` one of its own.
 
@@ -39,7 +40,7 @@ The agent holds the Docker socket, and whoever can submit a `deploy.yaml` can ru
 
 ## The root token
 
-The token the agent is configured with, `SHIPWICK_AGENT_TOKEN` in `/opt/shipwick/.env` or the one the agent generated on its first start, is the **root** token. It has the `admin` role and the name `root`, is not stored in the database, does not appear in `shipwick token ls`, does not expire, and cannot be revoked through the API: to change it, set a new `SHIPWICK_AGENT_TOKEN` on the agent and restart it. Keep it for yourself, and create the others from it.
+The token the agent is configured with, `SHIPWICK_AGENT_TOKEN` in `/opt/shipwick/.env` or the one the agent generated on its first start, is the **root** token. It has the `admin` role and the name `root`, is not stored in the database, does not appear in `shipwick token ls`, does not expire, and cannot be revoked or changed through the API: to change it, set a new `SHIPWICK_AGENT_TOKEN` on the agent and restart it. Keep it for yourself, and create the others from it.
 
 ## Create a token
 
@@ -90,7 +91,7 @@ What such a token may do:
 - **Read everything**, as every token does: the other applications, their logs and history, the server.
 - **Change nothing else.** Another application is refused with a message that names the token's applications, and so is anything of the `deploy` role that is not about one application. What takes `admin` stays refused, also for its own applications.
 
-Only `deploy` can be limited: a `read` token changes nothing, and `admin` is for the whole server. The list is fixed when the token is created; for a different list, create another token.
+Only `deploy` can be limited: a `read` token changes nothing, and `admin` is for the whole server. Since 0.7 the list can be [changed later](#change-a-token).
 
 ::: warning A limit is not a wall between tenants
 A limit narrows what a token can be used for by mistake or after a leak: a CI token taken from one repository cannot redeploy another's application. It does not hide anything. A limited token still reads every application's logs and configuration, though never the values of `env`.
@@ -110,9 +111,50 @@ shipwick token create contractor --role read --expires 2027-01-31   # works thro
   It expires on 2027-01-01 at 14:30, in 90 days.
 ```
 
-From then on the token is refused, and whoever presents it is told that it expired and when; a wrong token is told nothing of the kind. An expired token stays in `shipwick token ls` until you revoke it. A token cannot be extended: create its replacement, hand it over, revoke the old one. The root token does not expire.
+From then on the token is refused, and whoever presents it is told that it expired and when; a wrong token is told nothing of the kind. An expired token stays in `shipwick token ls` until you revoke it. The root token does not expire.
 
 `shipwick token ls` marks what expires within 14 days, and `shipwick doctor` and `shipwick server status` say when the token they run with does, so a pipeline's token does not run out unannounced.
+
+## Change a token
+
+Since 0.7 the applications and the end of a token can be changed while it is in use. Its value stays the same, so nothing that holds it needs touching:
+
+```bash
+shipwick token update ci --app my-api --app web --app worker   # replaces the list
+shipwick token update ci --all-apps                            # lifts the limit
+shipwick token update ci --expires 90d                         # moves the end
+shipwick token update ci --no-expiry
+```
+
+```text
+✓ Changed token ci
+  It is limited to my-api, web, worker.
+```
+
+After `--all-apps --no-expiry` the answer reads:
+
+```text
+✓ Changed token ci
+  It is not limited: it may change every application.
+  It does not expire.
+```
+
+- **`--app` replaces the list**, it does not add to it, and is checked as at creation: valid names, at most 50, a `deploy` token.
+- **The change holds from the token's next request.**
+- **The role cannot be changed.** A token that is to do more than it was created for is a new token, so that a `read` token handed to a contractor never becomes `admin` by an edit.
+- **The root token cannot be changed here at all**: `the root token is the one the agent is configured with: it is not limited and does not expire; change SHIPWICK_AGENT_TOKEN on the agent instead`.
+- **Every change is in the [audit trail](/docs/tasks/audit)** with what was there before, under the name of whoever made it:
+
+```text
+WHEN                  WHO    ACTION         ON    RESULT   FROM           DETAIL
+2026-10-04 03:23:06   root   token.update   ci    ok       203.0.113.40   applications my-api web -> all, expires 2026-11-03T00:23:04Z -> never
+```
+
+### Move an end, or replace the token
+
+`--expires` also moves the end of a token that has expired already, which then works again. An end is moved into the future only: to stop a token now, revoke it.
+
+An end bounds how long a token that leaked unnoticed stays useful, and moving it gives that up for the time added: the value that may have leaked is still the one in use. Where that matters — a token that left with a person, or sat in a log — create its replacement, hand it over and revoke the old one instead. Where a pipeline simply reached its date, moving the end is the honest alternative to creating tokens without one, and the trail keeps the old date next to the new and the name of who moved it.
 
 ## Use a token from CI
 
@@ -177,7 +219,8 @@ An expired token is `401 TOKEN_EXPIRED`, which only the token itself is ever ans
 ```text
 The token ci expired on 2026-10-02 at 12:00.
 
-An admin creates a new one with: shipwick token create
+An admin lets it work again with: shipwick token update ci --expires 90d
+Or creates a new one with: shipwick token create
 Then set SHIPWICK_AGENT_TOKEN to it, or save it with: shipwick login
 ```
 
@@ -185,10 +228,10 @@ A wrong or revoked token is `401 UNAUTHORIZED` instead, `The agent rejected the 
 
 ## In the dashboard
 
-Anyone can sign in to the dashboard with a token, and the dashboard becomes that token. The sidebar shows its name and role, and from fourteen days before, when it expires. For a `deploy` token limited to some applications, the page of every other application says in words that it can be looked at and not changed. Controls the role does not cover are disabled with the reason: a `read` token cannot deploy, redeploy, roll back, stop, start, or take or verify a backup; only `admin` can delete an application, download, restore or remove a backup, store or remove a secret, a registry credential or a certificate, remove the volume of a deleted application, write an export, promote a standby, rotate the encryption key, or open **Access**, where tokens are created — with applications chosen for the `deploy` role, and an expiry of 30, 90 or 365 days or a date — listed and revoked, the new token's value shown once in the page. Whatever the page shows, the agent enforces the roles: a request the role does not cover is answered `403` however it was made. See [Use the dashboard](/docs/tasks/dashboard#access).
+Anyone can sign in to the dashboard with a token, and the dashboard becomes that token. The sidebar shows its name and role, and from fourteen days before, when it expires. For a `deploy` token limited to some applications, the page of every other application says in words that it can be looked at and not changed. Controls the role does not cover are disabled with the reason: a `read` token cannot deploy, redeploy, roll back, stop, start, or take or verify a backup; only `admin` can delete an application, download, restore or remove a backup, store or remove a secret, a registry credential or a certificate, remove the volume of a deleted application, write an export, promote a standby, rotate the encryption key, or open **Access**, where tokens are created — with applications chosen for the `deploy` role, and an expiry of 30, 90 or 365 days or a date — listed and revoked, the new token's value shown once in the page. Since 0.7 **Edit** in a token's row changes its applications and its end. Whatever the page shows, the agent enforces the roles: a request the role does not cover is answered `403` however it was made. See [Use the dashboard](/docs/tasks/dashboard#access).
 
 <figure class="shot">
-<img src="/img/dashboard-access.png" alt="The Access page of the dashboard: four tokens with their roles, the applications each is limited to and when each expires, and the form that creates one" width="2880" height="1800">
+<img src="/img/dashboard-access.png" alt="The Access page of the dashboard: four tokens with their roles, the applications each is limited to and when each expires, Edit and Revoke in every row, and the form that creates one" width="2880" height="1800">
 <figcaption>Access, API tokens: one token limited to two applications and about to expire, one that has expired.</figcaption>
 </figure>
 
@@ -205,7 +248,7 @@ alice        admin    all            never              3d ago       2h ago
 viewer       read     all            never              1d ago       never
 contractor   read     all            expired 15d ago    2026-08-18   16d ago
 
-Expired, or expiring within 14 days: ci, contractor. A token cannot be extended: create a new one, hand it over, then revoke the old one.
+Expired, or expiring within 14 days: ci, contractor. Move an end with: shipwick token update <name> --expires 90d
 ```
 
 `APPLICATIONS` is `all` for a token that is not limited. `LAST USED` says whether a token is still in use, not what it did last: it is recorded to the minute, and is `never` until the token's first request. The root token is not listed, because it is configured on the agent rather than stored. Without any token besides root, the command says so and shows the line to create one.

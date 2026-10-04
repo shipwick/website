@@ -1,13 +1,13 @@
 ---
 title: Use the dashboard
-description: Enable the Shipwick dashboard on a hostname, sign in with a token or your company's account, find your way around its pages and tabs, deploy a new application from a pasted deploy.yaml, and show several servers in one dashboard.
+description: Enable the Shipwick dashboard on a hostname, sign in with a token or your company's account, find your way around its pages and tabs, read the output of a container that crashed, deploy a new application or change the configuration of one, use it with the keyboard alone, and show several servers in one dashboard.
 ---
 
 # Use the dashboard
 
-The dashboard shows in a browser what `shipwick` shows in a terminal, and offers the everyday actions: deploy a new application or another version, roll back, stop, start, delete, run a job or a command, take, verify and restore a backup, store a secret, log the server in to a registry, supply a certificate, manage tokens and who may sign in, read the audit trail, rotate the encryption key, and promote a standby.
+The dashboard shows in a browser what `shipwick` shows in a terminal, and offers the everyday actions: deploy a new application or another version, roll back, stop, start, delete, run a job or a command, take, verify and restore a backup, store a secret, log the server in to a registry, supply a certificate, manage tokens and who may sign in, read and export the audit trail, rotate the encryption key, download an export, import one, and promote a standby.
 
-This page covers enabling it, signing in, how it is laid out, what each page and tab shows, deploying a new application from it, what each role can do, several servers in one dashboard, and how it handles the API token. The layout described here is the one of 0.6.
+This page covers enabling it, signing in, how it is laid out, what each page and tab shows, the output of containers that ended, deploying a new application from it and changing the configuration of one, what each role can do, using it without a mouse, several servers in one dashboard, and how it handles the API token. The layout described here is the one of 0.6; what 0.7 added is marked as such.
 
 The dashboard is a client of the agent's HTTP API and nothing more. It has no database and keeps no state of its own. Anything it does, `shipwick` and `curl` can do too.
 
@@ -53,8 +53,8 @@ What you see and may do follows the role, which the dashboard learns from the ag
 | Role | In the dashboard |
 |---|---|
 | `read` | Sees everything: applications, replicas, metrics and their history, traffic, deployments, events, logs, jobs and their runs, volumes, backups, the names of the secrets, the registries and supplied certificates without their passwords and keys, the server with its disk and alerts, and what a standby holds. Every action is disabled, with the reason, and the page says that this sign-in cannot change anything |
-| `deploy` | Also deploys a new application or another version, rolls back, stops, starts, runs a job, runs a command, takes a backup and verifies one |
-| `admin` | Also deletes applications, downloads, restores, removes and adopts backups, stores and removes secrets, logs the server in to a registry and out of it, adds and removes certificates, removes the volumes of deleted applications, backs up the agent's state, writes an export to the backups, imports the newest export on a standby and promotes it, rotates the encryption key, and gets the Access page |
+| `deploy` | Also deploys a new application or another version, changes an application's configuration, rolls back, stops, starts, runs a job, runs a command, takes a backup and verifies one |
+| `admin` | Also deletes applications, downloads, restores, removes and adopts backups, stores and removes secrets, logs the server in to a registry and out of it, adds and removes certificates, removes the volumes of deleted applications, backs up the agent's state, writes an export to the backups, downloads an export as a file and imports one, imports the newest export on a standby and promotes it, rotates the encryption key, and gets the Access page |
 
 A `deploy` token or rule [limited to some applications](/docs/tasks/tokens#limit-a-token-to-some-applications) acts on those: the page of every other application says in words that it can be looked at and not changed.
 
@@ -80,7 +80,7 @@ An application's page, the server's page and Access are **tabs with addresses of
 | Applications | Every application with its status, version and address, and **New application** in the header. One that runs but has an alert, or a hostname whose certificate is not in order, is marked with a few words next to its status |
 | Deployments | The deployment history across applications, or of one. A deployment's page shows its progress step by step, its outcome, where it came from and who made it |
 | Logs | Followed logs of one application. Replicas are tailed together and merged by time. Static applications have no logs and are not offered |
-| Status | The server: its alerts, its disk, the proxy, notifications. See [The server](#the-server) |
+| Status | The server: a newer release when there is one, its alerts, its disk, the proxy, notifications, the log archive. See [The server](#the-server) |
 | Volumes | Every volume on the server with its application and size, `in use` or `application deleted`. An admin removes the volume of a deleted application here |
 | Certificates | The certificates you supplied: the name each is stored under, the hostnames it covers, its issuer and its expiry, marked in its last 30 days. Never the key. An admin adds, replaces or removes one here |
 | Secrets | The secrets kept on the server for `${NAME}` in `env`: names and dates, never values. An admin stores, replaces or removes one here |
@@ -100,11 +100,11 @@ The header carries the application's name, status, version and address, and the 
 |---|---|
 | Overview | What is wrong and where to look, the deployment in progress, live CPU and memory, the image and the addresses, the replicas, the latest deployments, events |
 | Metrics | What the proxy saw — requests, errors and response times over an hour, a day or a week, and the most recent requests — and CPU and memory over the same windows |
-| Logs | The replicas' output, followed |
+| Logs | The replicas' output, followed, and since 0.7 the output of containers that ended. See [The Logs tab](#the-logs-tab) |
 | Deployments | Every attempt, with its origin and who made it |
 | Jobs | Scheduled jobs, their runs, **Run now** and **Run command** |
 | Backups | For an application with volumes: the backups the server took — take one, verify one, download a volume of one, restore one into the stopped application — and the volumes themselves |
-| Configuration | The `deploy.yaml` of the version that runs, its `proxy` block included, read-only, and **deploy a changed configuration** |
+| Configuration | The `deploy.yaml` of the version that runs, its `proxy` block included, read-only, and **Change the configuration** |
 
 A tab an application cannot have is not listed: a static application has no Logs or Jobs tab, and an application without volumes no Backups tab.
 
@@ -119,6 +119,24 @@ The overview tab opens with findings, each with the link to where the answer usu
 - a proxy that is off.
 
 A finding an alert already states is not repeated. An application with nothing wrong shows none.
+
+### The Logs tab
+
+Since 0.7 the tab has four views, each with an address of its own:
+
+| View | |
+|---|---|
+| Live | The output of the running replicas, followed. |
+| Previous | The last output of the container that ended most recently. The tab opens on it when the application is not healthy and a replica crashed, was killed for memory or was restarted for its health check. |
+| Archive | What the agent kept of ended containers and runs: when and why each ended, how many lines. An entry opens to its output. |
+| Search | Looks through all of it, and the running replicas, for a piece of text. |
+
+<figure class="shot">
+<img src="/img/dashboard-logs-previous.png" alt="The Logs tab of the application worker in the dashboard, on the view Previous: a sentence that says replica 2 was restarted for failing its health check, when it ended and how many lines are kept, and below it those lines, with the errors about a queue connection that was refused" width="2880" height="1800">
+<figcaption>Previous: what the container wrote last, with why and when it ended.</figcaption>
+</figure>
+
+On the overview tab, a replica that restarted links to its last output, and the page of a failed deployment links to the output of its replicas. What is kept, for how long and where is in [Find out why it died](/docs/tasks/find-out-why-it-died). With an agent before 0.7 the tab shows the live output only.
 
 ### Things to know when reading it
 
@@ -150,9 +168,24 @@ Since 0.6 an application can be deployed from the dashboard. **New application**
 
 This is for an image that is in a registry. A document with `build:` or `static:` is told that it is deployed with `shipwick deploy` from the project's directory, because the dashboard has neither a project to build from nor a folder to upload.
 
-The same page deploys a changed configuration of an existing application: **deploy a changed configuration** on its Configuration tab. It starts empty: the agent never returns the values of an application's environment, so the document has to come from the project.
+The application is the one the document names: a name that exists gets this configuration, a new name is created.
 
 To deploy another version of what runs, with nothing else changed, use **Deploy** in the application's header: it takes the image.
+
+## Change the configuration
+
+Since 0.7 **Change the configuration**, on an application's Configuration tab, opens the application's `deploy.yaml` as the agent gives it back — what [`shipwick config`](/docs/tasks/get-the-configuration-back) prints. Before 0.7 the page started empty, and the document had to come from the project.
+
+<figure class="shot">
+<img src="/img/dashboard-change-configuration.png" alt="The page Change the configuration of my-api in the dashboard: four values shown as a mask that must be replaced, each with a link Store as a secret and the reference to write, and below them the application's deploy.yaml with one reference to a stored secret and the masked values" width="2880" height="1800">
+<figcaption>The document of what runs. Four values were given with the file and are not handed out.</figcaption>
+</figure>
+
+- **References to stored secrets are references**: a value that was written as `${NAME}` and filled in from the server's secrets is that text again.
+- **Every other secret value stands as `"********"`** and is listed above the document, each with a link that stores it as a secret and the reference to write in its place. An `env` value and a basic-auth password are secret to the agent, whatever they hold.
+- **The document is checked and deployed from there.** One that still holds a mask is refused, with the fields that need a value.
+
+An application that is built from source (`build:`) or is a folder of files (`static:`) is first deployed with `shipwick deploy` in the project's directory. Its configuration can be changed here afterwards; another image or other files come from the project again.
 
 ## What you can do
 
@@ -161,7 +194,7 @@ From an application's page:
 | Action | Equivalent | Needs |
 |---|---|---|
 | Deploy another image | `shipwick redeploy --image …` | `deploy` |
-| Deploy a changed configuration | `shipwick deploy` | `deploy` |
+| Change the configuration | `shipwick config`, then `shipwick deploy` | `deploy` |
 | Roll back, to one of the listed targets | `shipwick rollback --to N` | `deploy` |
 | Stop, start | `shipwick stop`, `shipwick start` | `deploy` |
 | Run a job now | `shipwick jobs run <app> <job>` | `deploy` |
@@ -188,7 +221,7 @@ Controls the role does not cover are disabled with the reason. The roles are enf
 
 Stopping or deleting an application waits as long as the agent does, which with a long `deploy.stop_timeout` can be minutes.
 
-What needs a file or a passphrase of your own stays with the CLI: deploying an application with `build:` or `static:`, `shipwick export` to a file, and `shipwick import`.
+What still needs the CLI is what needs the project's directory: the first deployment of an application that is built from source or is a folder of files. Until 0.7 an export to a file and an import needed it too; they are on [the server's page](#the-server) now.
 
 ## The server
 
@@ -196,12 +229,20 @@ The server's page has four tabs:
 
 | Tab | What is there | Actions, all `admin` |
 |---|---|---|
-| Status | The server the agent runs on, the active alerts, how full its disk is, whether the agent reaches Caddy, whether a notification webhook is configured, the dashboard's address | |
+| Status | A newer release when one exists, the server the agent runs on, the active alerts, how full its disk is, whether the agent reaches Caddy, whether a notification webhook is configured, the dashboard's address, what the log archive holds | |
 | Backups | Where backups are kept, whether they are encrypted, how the agent's own state is backed up, and the backups of it | **Back up state now** (`shipwick server backup`), **Adopt backups** (`shipwick backups adopt`) |
-| Export and standby | The exports kept with the backups, the last import, and on a standby what waits there | **Export to backups** (`shipwick export --to-backups`), **Import newest now** (`shipwick standby pull`), **Promote…** (`shipwick standby promote`) |
+| Export and standby | The exports kept with the backups, the last import, and on a standby what waits there | **Download an export…** (`shipwick export`), **Export to backups** (`shipwick export --to-backups`), **Import a file…** (`shipwick import`), **Import newest now** (`shipwick standby pull`), **Promote…** (`shipwick standby promote`) |
 | Encryption key | When the key was last rotated | **Rotate encryption key** (`shipwick server rotate-key`) |
 
 - **Status** names the proxy the agent leaves the server through when one is set, with the other network settings — authorities of its own, the name servers it asks, an ACME server of your own — and warns when the agent has a proxy and the Docker daemon has none. On a server with a plain connection the row is not shown. See [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network).
+- **A newer release** (since 0.7). When the agent knows of a release newer than itself, the Status tab opens with a notice: the version, the command that upgrades, and links to how to upgrade and to what is in the release. The agent asks GitHub once a day; the dashboard itself asks nobody. `SHIPWICK_UPDATE_CHECK=off` on the agent turns the question off, and the notice with it. See [Upgrade Shipwick](/docs/tasks/upgrade#a-notice-when-a-newer-release-exists).
+
+<figure class="shot">
+<img src="/img/dashboard-server-status.png" alt="The Status tab of the server's page in the dashboard: a notice that Shipwick v0.7.1 is available while the server runs v0.7.0, with the installer command to run on the server, then the two alerts that hold and the server's disk, CPUs and memory" width="2880" height="1800">
+<figcaption>The server's Status tab when a newer release exists.</figcaption>
+</figure>
+
+- **An export as a file, and an import** (since 0.7). **Download an export…** asks for a passphrase of your own, typed twice, and downloads everything the server runs as one encrypted file; **Import a file…** takes such a file and its passphrase and deploys what it holds. Both pass through the dashboard's server as they arrive: it holds neither the file nor the passphrase. The page cannot see why a download ended, so a download that breaks off is a file the import refuses. An import is one upload that lasts as long as the import; the page has to stay open. See [Move to a new server](/docs/tasks/move-to-a-new-server).
 - **Backups** reads "Not backed up" without `SHIPWICK_BACKUP_PASSPHRASE`, and Back up state now is disabled. Adopt backups records the backups that the directory and the bucket hold and the database does not know, and lists what was adopted and what was left alone; see [Bring a lost server back](/docs/tasks/restore-the-agent-state).
 - **A promotion is followed.** Promote… asks you to type `promote`. The promotion is started and then shown as it runs — a row per application, and the DNS records to change from the first moment — and it goes on when the page is closed; opening the page while one runs shows it. See [Keep a second server ready](/docs/tasks/standby).
 - **Rotate encryption key** has the agent generate a new key and re-encrypt everything stored under it; nothing is deployed and nothing restarts. Where the key is set in the agent's environment, the new key is shown once, with the line to put into `/opt/shipwick/.env`. See [Rotate the encryption key](/docs/tasks/rotate-the-encryption-key).
@@ -212,9 +253,13 @@ Access, for admins, has three tabs:
 
 | Tab | |
 |---|---|
-| API tokens | The tokens with their roles, the applications each is limited to, when each expires and when it was last used. Creates one: applications can be chosen for the `deploy` role, and an expiry of 30, 90 or 365 days or a date. The new token's value is shown once, in the page, and never stored. Revokes one. See [Create tokens for CI and teammates](/docs/tasks/tokens) |
-| Sign-in | The rules that say who gets which role when they sign in through the provider, a form that gives an address, a group or a domain a role, and who is signed in now. See [Sign in with your company's accounts](/docs/tasks/sign-in) |
-| Audit trail | Who did what, from which address and how it was answered, filtered by application, name and time, with the deployment an entry made linked. See [See who changed what](/docs/tasks/audit) |
+| API tokens | The tokens with their roles, the applications each is limited to, when each expires and when it was last used. Creates one: applications can be chosen for the `deploy` role, and an expiry of 30, 90 or 365 days or a date. The new token's value is shown once, in the page, and never stored. Since 0.7 **Edit** in a token's row changes the applications a `deploy` token is limited to, and its end; the value and the role stay. Revokes one. See [Create tokens for CI and teammates](/docs/tasks/tokens) |
+| Sign-in | The rules that say who gets which role when they sign in through the provider, a form that gives an address, a group or a domain a role — or a name, where the agent names people by another claim than their address — and who is signed in now. See [Sign in with your company's accounts](/docs/tasks/sign-in) |
+| Audit trail | Who did what, from which address and how it was answered, with the deployment an entry made linked. Filtered by application, name and time, and since 0.7 by kind of action, by result and by tokens or people; exported as CSV or as one JSON object a line. See [See who changed what](/docs/tasks/audit) |
+
+## Without a mouse
+
+Since 0.7 every page and dialog works with the keyboard alone. Tab reaches every control in the order of the page, the first stop is a link that skips the navigation, and the control that has the focus is outlined in both themes. A dialog takes the focus, keeps it, closes on Escape and gives it back to the button that opened it. The theme and a chart's range are chosen with the arrow keys. A screen reader is told the page's title when the page changes, every step of a deployment that is followed, how a run, a backup or a promotion ended, and when the data on screen stops being live; each chart has its numbers as a table under *Show as table*. On a touch screen every control is at least 44 by 44 px, and a table becomes a list of cards wherever the page's column is narrow: on a phone, and beside the sidebar on a tablet. Text that was too faint to read reliably is darker, and the edge of a field has the contrast a field needs. Animations stop when the system asks for reduced motion. This was checked with the keyboard, the browser's accessibility tree and an automated checker, in both themes; it has not yet been used with a screen reader by someone who works with one every day.
 
 ## Several servers in one dashboard
 
@@ -250,7 +295,7 @@ browser ── same origin ──▶ dashboard server ── Bearer token ──
 - Nothing is kept in `localStorage` except the theme and, with several servers, the name of the one used last. A token created on the Access page is shown once and never stored.
 - The token is never logged, by the relay or by the session routes.
 - Every state-changing request must carry a custom header that a cross-origin page cannot add, and the server never grants the CORS preflight that would allow it.
-- The relay is not an open proxy. Its target comes only from the dashboard's configuration — a request chooses among the configured servers and never supplies an address — and only paths under the agent's `/api/v1/` are accepted. A volume archive is streamed through it both ways, never buffered, and so is a secret's value; the agent's own limits apply.
+- The relay is not an open proxy. Its target comes only from the dashboard's configuration — a request chooses among the configured servers and never supplies an address — and only paths under the agent's `/api/v1/` are accepted. A volume archive is streamed through it both ways, never buffered, and so is a secret's value; the agent's own limits apply. An export that is downloaded and a file that is imported pass through the same way: the dashboard's server keeps neither the file nor the passphrase.
 - The relay passes the browser's address to the agent as `X-Forwarded-For`, so that the audit trail names who asked and not the dashboard.
 - The dashboard makes no request to any third party: no CDN, no analytics, fonts bundled. In production it sends a Content-Security-Policy of `default-src 'self'`.
 
@@ -282,6 +327,6 @@ Behind your own reverse proxy, make sure it forwards `X-Forwarded-Proto`, so the
 - [Create tokens for CI and teammates](/docs/tasks/tokens): a `read` token for whoever only needs to look.
 - [Sign in with your company's accounts](/docs/tasks/sign-in): no tokens for people.
 - [Security](/docs/security) explains what a token is worth and how to protect it.
-- [See what is running](/docs/tasks/inspect-and-logs) covers the same ground from the terminal.
+- [See what is running](/docs/tasks/inspect-and-logs) covers the same ground from the terminal, and [Find out why it died](/docs/tasks/find-out-why-it-died) the output of containers that ended.
 - [Back up and restore volumes](/docs/tasks/backups), from the dashboard or with `shipwick backups` and `shipwick backup`.
 - [See what the proxy served](/docs/tasks/traffic), [alerts and metrics](/docs/tasks/alerts-and-metrics), [certificates](/docs/tasks/certificates) and [private registries](/docs/tasks/private-registries): the same from the terminal.

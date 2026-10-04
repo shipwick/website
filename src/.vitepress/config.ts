@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 const site = 'https://shipwick.com'
 const repo = 'https://github.com/shipwick/shipwick'
-const version = '0.6.0'
+const version = '0.7.0'
 
 export default defineConfig({
   lang: 'en-US',
@@ -90,6 +90,7 @@ export default defineConfig({
             { text: 'How it fits together', link: '/docs/getting-started/how-it-fits' },
             { text: 'Install the CLI', link: '/docs/getting-started/install-cli' },
             { text: 'Install on a server', link: '/docs/getting-started/install' },
+            { text: 'Install from a package', link: '/docs/getting-started/install-from-a-package' },
             { text: 'Your first deployment', link: '/docs/getting-started/first-deployment' },
           ],
         },
@@ -111,7 +112,9 @@ export default defineConfig({
           items: [
             { text: 'Deploy from CI', link: '/docs/tasks/deploy-from-ci' },
             { text: 'Roll back and redeploy', link: '/docs/tasks/roll-back' },
+            { text: 'Get deploy.yaml back from the server', link: '/docs/tasks/get-the-configuration-back' },
             { text: 'See what is running', link: '/docs/tasks/inspect-and-logs' },
+            { text: 'Find out why it died', link: '/docs/tasks/find-out-why-it-died' },
             { text: 'Use the dashboard', link: '/docs/tasks/dashboard' },
             { text: 'Run scheduled jobs and one-off commands', link: '/docs/tasks/jobs' },
             { text: 'Call one application from another', link: '/docs/tasks/call-another-application' },
