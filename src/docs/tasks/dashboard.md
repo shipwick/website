@@ -42,7 +42,7 @@ The dashboard container publishes no port. It is reached only through Caddy.
 
 There are two ways in.
 
-**With an API token**: the root token the installer printed, also in `/opt/shipwick/.env` as `SHIPWICK_AGENT_TOKEN`, or one created with `shipwick token create`. A session with a token lasts 7 days.
+**With an API token**: one of its own, `shipwick token create dashboard --role admin`, which the installer's summary and `shipwick server install` name since 0.9 — not the root token from `/opt/shipwick/.env`, which is root on the server and never leaves it. A session with a token lasts 7 days.
 
 **With your company's account**, since 0.6, when the agent has a sign-in provider: the page offers **Sign in with** the provider above the token field. What you may do is what the server's access rules give your address, your groups or your domain, and the session lasts ten hours. See [Sign in with your company's accounts](/docs/tasks/sign-in).
 
@@ -77,13 +77,13 @@ An application's page, the server's page and Access are **tabs with addresses of
 | Page | |
 |---|---|
 | Overview | One sentence that answers whether everything is fine: how many applications need attention, or that everything that should run is healthy. Then the alerts that hold right now, the applications that need attention with what is wrong with each, the count per status, the server in four facts — its name, its disk, the proxy, the backup of the agent's data — and the latest deployments. On a server without applications it shows the three commands that deploy the first one |
-| Applications | Every application with its status, version and address, and **New application** in the header. One that runs but has an alert, or a hostname whose certificate is not in order, is marked with a few words next to its status |
+| Applications | Every application with its status, version and address, and **New application** in the header. One that runs but has an alert, or a hostname whose certificate is not in order, is marked with a few words next to its status; since 0.9 a certificate the proxy could not obtain or renew says why under its hostname |
 | Deployments | The deployment history across applications, or of one. A deployment's page shows its progress step by step, its outcome, where it came from and who made it |
 | Logs | Followed logs of one application. Replicas are tailed together and merged by time. Static applications have no logs and are not offered |
-| Status | The server: a newer release when there is one, its alerts, its disk, the proxy, notifications, the log archive. See [The server](#the-server) |
+| Status | The server: a newer release when there is one, its alerts, its disk, the proxy, notifications, the log archive. See [The server](#the-server). Since 0.9: the proxy's missing networks with the command that puts it back, the kernel's table of neighbours next to the count of containers, and what the Cloudflare token's check found, with **Check again** for admins |
 | Volumes | Every volume on the server with its application and size, `in use` or `application deleted`. An admin removes the volume of a deleted application here |
 | Certificates | The certificates you supplied: the name each is stored under, the hostnames it covers, its issuer and its expiry, marked in its last 30 days. Never the key. An admin adds, replaces or removes one here |
-| Secrets | The secrets kept on the server for `${NAME}` in `env`: names and dates, never values. An admin stores, replaces or removes one here |
+| Secrets | The secrets kept on the server for `${NAME}` in `env`: names and dates, never values. An admin stores, replaces or removes one here. Since 0.9 each has a scope — the server or one application — and the page stores one for either; see [Keep secrets on the server](/docs/tasks/secrets) |
 | Registries | The registries the server holds a credential for: name, username and dates, never passwords. An admin logs the server in to a registry, replaces a credential or logs out here |
 | Access | Admin only: API tokens, who may sign in, the audit trail. See [Access](#access) |
 
@@ -115,7 +115,8 @@ The overview tab opens with findings, each with the link to where the answer usu
 - the agent's alerts about the application: a replica near its memory limit, one that keeps being restarted;
 - a replica that keeps crashing, or no healthy replica;
 - a deployment that failed while the previous version still runs, with the link to that deployment;
-- a hostname whose certificate is being obtained, waits for DNS, is about to expire or has expired, with the agent's own sentence about it;
+- a hostname whose certificate is being obtained, waits for DNS, is about to expire or has expired, with the agent's own sentence about it, and since 0.9 the proxy's reason when it could not obtain or renew one, and **Renewal failing** when it serves while the renewal fails;
+- since 0.9, what the agent found when it asked for the application through the proxy after the running deployment: a redirect loop as a warning, an answer as a line of the deployment's timeline;
 - a proxy that is off.
 
 A finding an alert already states is not repeated. An application with nothing wrong shows none.
@@ -152,6 +153,7 @@ On the overview tab, a replica that restarted links to its last output, and the 
 - **Jobs are in UTC.** The Jobs tab lists each job's schedule, its last run with outcome and exit code, and its next run relative to now; a stopped application reads "Not while stopped". The run history covers scheduled runs, one-off commands and pre-deploy commands alike, and a run opens to show its output.
 - **Static applications** are folders the proxy serves itself. The list shows `static` in place of the replica count, the version is the folder's digest, and the application's page says what is served instead of replicas (`42 files, 3.1 MB, served by the proxy`), with the fallback page when `static.fallback` is set. Stop, start, rollback, redeploy and delete work.
 - **Shipped logs.** When an application's `logging` driver sends logs elsewhere, the log viewer says so and shows the local copy Docker keeps.
+- **A followed stream is taken up where it stopped.** Since 0.9, a stream that is cut, or ended by an agent restarting for an upgrade, is resumed after a second, then two, four, eight and sixteen, without a line lost or repeated; after that the viewer says so and offers **Reconnect**. Forty-five seconds without a line or a sign of life from the agent are marked *stale* in the status line.
 
 ## Deploy a new application
 
@@ -185,6 +187,7 @@ Since 0.7 **Change the configuration**, on an application's Configuration tab, o
 - **The values that stood in the deployed file in plain sight are there**, since 0.8: an `env` value that `shipwick deploy` found written in the file, such as `LOG_LEVEL: debug`. A plain value that is left as it was stays plain; one that is changed or typed here is masked from then on, until the file it belongs in is deployed with `shipwick deploy`.
 - **Every other secret value stands as `"********"`** and is listed above the document, each with a link that stores it as a secret and the reference to write in its place. An `env` value and a basic-auth password are secret to the agent unless their deployment said otherwise.
 - **The document is checked and deployed from there.** One that still holds a mask is refused, with the fields that need a value.
+- **The editor names what it masks.** Since 0.9, a plain value that is changed or typed here is listed next to the document, before the deployment is sent, as one that is masked from then on.
 
 An application that is built from source (`build:`) or is a folder of files (`static:`) is first deployed with `shipwick deploy` in the project's directory. Its configuration can be changed here afterwards; another image or other files come from the project again.
 
@@ -214,9 +217,9 @@ The rollback dialog lists exactly the deployments that are valid targets: the on
 
 On the Backups tab, Verify restores a backup into scratch volumes and starts one container on them, beside the application; opening the backup shows the verdict and the container's output. From there an admin downloads a volume of it, removes it, or restores it, which is offered only while the application is stopped and is confirmed by typing the application's name. A restore from a file of your own is offered only while the application is stopped, checks that the file is a tar archive before uploading, and offers Start when the agent reports the volume restored. See [Back up and restore volumes](/docs/tasks/backups).
 
-From the Secrets page: store or replace a secret from a password field, whose value is cleared from the page as soon as the request is sent, and remove one — `shipwick secret set`, `shipwick secret rm`; both `admin`. From the Registries page: log the server in to a registry with a username and a password or token, which the agent checks against the registry before it stores anything, and log out — `shipwick registry login`, `shipwick registry logout`; both `admin`. From the Certificates page: add or replace a certificate by pasting its chain and its private key, which is cleared from the page as soon as it is sent, and remove one — `shipwick cert set`, `shipwick cert rm`; both `admin`. From the Volumes page: remove the volume of a deleted application — `shipwick volumes rm`, `admin`.
+From the Secrets page: store or replace a secret from a password field, whose value is cleared from the page as soon as the request is sent, for the server or, since 0.9, for one application — the server's applications are offered and another name can be typed — and remove one; `shipwick secret set`, `shipwick secret set --app`, `shipwick secret rm`; all `admin`. The page says when a value holds a character a URL cannot carry as it is, without repeating the value; removing an application's own secret says that the server-wide one of the same name answers from then on. See [Keep secrets on the server](/docs/tasks/secrets). From the Registries page: log the server in to a registry with a username and a password or token, which the agent checks against the registry before it stores anything, and log out — `shipwick registry login`, `shipwick registry logout`; both `admin`. From the Certificates page: add or replace a certificate by pasting its chain and its private key, which is cleared from the page as soon as it is sent, and remove one — `shipwick cert set`, `shipwick cert rm`; both `admin`. From the Volumes page: remove the volume of a deleted application — `shipwick volumes rm`, `admin`.
 
-A deployment refused because a secret is not stored links to the Secrets page with the name filled in, and one whose image a registry refused links to the Registries page with the registry filled in.
+A deployment refused because a secret is not stored links to the Secrets page with the name and, since 0.9, the application filled in, and one whose image a registry refused links to the Registries page with the registry filled in.
 
 Controls the role does not cover are disabled with the reason. The roles are enforced by the agent, not by the page: a request the role does not cover is answered `403` whatever the browser sends, and the dashboard shows the agent's own explanation, such as "This token has the read role; deploying needs deploy or admin".
 

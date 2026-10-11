@@ -151,7 +151,7 @@ An application that handles `SIGTERM` to finish its requests still does under an
 
 ### Progress events
 
-Each deployment carries a list of events. `state` events mark transitions; `step` events are meant to be shown to users, and `shipwick deploy` prints them as they appear:
+Each deployment carries a list of events. `state` events mark transitions; `step` events are meant to be shown to users, and `shipwick deploy` prints them as they appear. Since 0.9 one more event, `probe`, follows `completed_at` for a deployment with a routed domain: what the application answered when the agent asked it its own hostname through the proxy, a warning when the answer is a redirect loop (see [A redirect loop is caught](/docs/tasks/several-hostnames#a-redirect-loop-is-caught)).
 
 ```text
 state  BUILDING

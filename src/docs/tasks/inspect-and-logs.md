@@ -174,6 +174,14 @@ The note goes to standard error, so it does not end up in a file the logs are re
 ! log stream ended: the containers were stopped or replaced. Run the command again to follow the new ones.
 ```
 
+A followed log is kept alive while the application is quiet, since 0.9: the agent sends a line of nothing every 20 seconds, which the CLI does not print, so that a proxy between the two does not close the stream as idle — Cloudflare's does, after 100 seconds without a byte. When the connection is lost all the same — the network changes, the agent restarts for an upgrade — `logs -f` reconnects after a second (then two, four, eight, sixteen) and takes the stream up at the last line it printed: it says so once, on standard error, and prints nothing twice.
+
+```text
+Reconnected; nothing was missed.
+```
+
+Against an agent older than 0.9, which cannot begin at a time, it says which minutes may be missing instead. Five losses in a row with nothing in between end the command with the error and `The stream was lost 5 times in a row and nothing came through in between. See whether the agent is reachable with: shipwick doctor`; Ctrl-C ends it at once. A stream the agent ends because the containers were replaced by a deployment is not taken up: the old containers' last lines are in the kept output, below, and the new ones are followed by running the command again.
+
 ### Logs of containers that are gone
 
 These commands read the containers that run. What a container printed before it crashed, was restarted or was replaced by a deployment is kept by the agent since 0.7, in its log archive:

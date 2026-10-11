@@ -47,6 +47,8 @@ Every hostname, in either role, sits in a host matcher on `:443` like the domain
 
 A hostname that is redirected belongs to one application. One that is served, as a domain or an alias, can be shared by several applications, path by path.
 
+An application that redirects its domain to a hostname of `redirects` itself — the bare domain to `www`, which the proxy sends back — passes every health check and serves nobody. Since 0.9 the agent asks the application its own hostname once through the proxy after each deployment, following no redirect, and such an answer is a warning under the deployment's summary and in `shipwick status`; see [A redirect loop is caught](/docs/tasks/several-hostnames#a-redirect-loop-is-caught).
+
 ## Paths on one hostname
 
 `path` limits an application to one part of its domain, so that several applications answer under one hostname:
@@ -143,7 +145,7 @@ So the agent lets such an address rest before a container of another application
 
 - **When the agent stops a replica itself** — retired by a deployment, stopped, restarted — it tells the proxy to forget that replica, and the address rests for half a second after the proxy has answered.
 - **When a container stops by itself**, a crash, nobody could tell the proxy in time, and the address rests for 2.5 seconds, which is longer than the proxy remembers it.
-- **A deployment of one application never waits for itself**, and several deployed at once ([`shipwick.yaml`](/docs/reference/deploy-yaml#several-applications-shipwick-yaml)) hardly wait for each other: three applications of two replicas each, redeployed together, took 7.3 to 7.8 seconds where one alone took about 6.
+- **A deployment of one application never waits for itself**, and several deployed at once ([`shipwick.yaml`](/docs/reference/deploy-yaml#several-applications-shipwick-yaml)) wait a little for each other: three applications of two replicas each, redeployed together, took 7.3 to 7.8 seconds where one alone took about 6; measured again for 0.9, 6.0 to 6.7 seconds against 5.0. The second and a half is the rest itself — each application's second replica starts just as the others' first old replicas have stopped, and waits the half second for their addresses — and the three deployments taking turns at the proxy's routing, which is done for one application at a time.
 
 ### A proxy image of your own
 
@@ -278,7 +280,7 @@ The agent knows the server's addresses, so the message spells the record out: an
 
 The reason is Let's Encrypt's rate limit of five failed authorizations per hostname per hour. Caddy asks for a certificate the moment it hears of a hostname, and a hostname that does not resolve fails within seconds: deployed before its DNS, a domain would use up the five within minutes and stay without a certificate for the rest of the hour, however quickly the record was fixed.
 
-The agent asks public resolvers (Cloudflare's, Google's and Quad9's) rather than the server's own: a server's resolver remembers that a record did not exist for as long as the zone's negative TTL says, half an hour on Cloudflare, and would keep the hostname waiting that long after the record was created. When none of the public resolvers can be reached — behind a firewall that lets no DNS out — the server's own decides, and the public ones are left alone for five minutes. Since 0.6 `SHIPWICK_DNS_RESOLVERS` names others to ask, or `system` for the server's own from the start; see [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network#dns). The agent learns the server's addresses from `SHIPWICK_AGENT_DOMAIN` and `SHIPWICK_DASHBOARD_DOMAIN` at startup. Without either, a hostname only has to resolve at all. The agent's and the dashboard's own hostnames are never held back: they are the operator's, not an application's, and holding them back could lock the operator out.
+The agent asks public resolvers (Cloudflare's, Google's and Quad9's) rather than the server's own: a server's resolver remembers that a record did not exist for as long as the zone's negative TTL says, half an hour on Cloudflare, and would keep the hostname waiting that long after the record was created. When none of the public resolvers can be reached — behind a firewall that lets no DNS out — the server's own decides, and the public ones are left alone for five minutes. Every hostname is asked about again every 30 seconds, since 0.9 eight hostnames at a time, each under its own three-second bound, instead of one after the other in the path of every rollout and of the supervisor's pass: with a resolver that took 180 ms and 200 hostnames, a rolling deployment took 57 s before. A hostname that is being served stays served while the resolver is silent. Since 0.6 `SHIPWICK_DNS_RESOLVERS` names others to ask, or `system` for the server's own from the start; see [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network#dns). The agent learns the server's addresses from `SHIPWICK_AGENT_DOMAIN` and `SHIPWICK_DASHBOARD_DOMAIN` at startup. Without either, a hostname only has to resolve at all. The agent's and the dashboard's own hostnames are never held back: they are the operator's, not an application's, and holding them back could lock the operator out.
 
 Three kinds of hostname are decided without looking at where they point:
 
@@ -294,9 +296,10 @@ With the orange cloud on, a visitor's connection ends at Cloudflare, and so does
 - **Proxied records are served instead of held back**, as described under [DNS first](#dns-first).
 - **The visitor's address.** Cloudflare's address ranges become trusted proxies of Caddy, so applications find the visitor's address first in `X-Forwarded-For`, followed by Cloudflare's. From any other sender the header is replaced, since anyone can send one. The ranges are the ones Cloudflare publishes, as of 2026-10-03; they are compiled into the agent.
 - **SSL/TLS mode: Full (strict).** In *Flexible* mode Cloudflare talks to the server over plain HTTP, which Caddy redirects to HTTPS, which Cloudflare fetches over HTTP again: a redirect loop. *Full* works but accepts any certificate from the server; *Full (strict)* checks the one Caddy obtained.
-- **Where the token is.** In `/opt/shipwick/.env`, in the agent's environment, and inside the configuration the agent loads into Caddy, and therefore in Caddy's autosaved copy of it on the `caddy-config` volume. It is never logged and never returned by the API. `GET /server` says only that the DNS challenge is on, as `proxy.dns_challenge`.
+- **Where the token is.** In `/opt/shipwick/.env`, in the agent's environment, and inside the configuration the agent loads into Caddy, and therefore in Caddy's autosaved copy of it on the `caddy-config` volume. It is never logged and never returned by the API. `GET /server` says that the DNS challenge is on, as `proxy.dns_challenge`, and since 0.9 what the agent found out when it checked the token, as `cloudflare`.
+- **The token is checked**, since 0.9, the way the proxy is going to use it: when the agent starts, and when `shipwick doctor` asks, the agent verifies that Cloudflare accepts the token from the address the server really calls from, which zones it sees, and that it can create a DNS record in each — a TXT record of its own, removed at once, the only sure test of *Zone → DNS → Edit*. A token with *DNS Settings*, *DNS Firewall* or *DNS Views* in place of *DNS → Edit* lists the zones and cannot create a record; an IP filter that names the server's IPv4 address alone refuses a server that calls from its IPv6 address. Both are said in words. See [Check it](/docs/tasks/cloudflare#check-it).
 
-Without the token nothing changes: Caddy's own challenges apply, and records must point straight at the server. See [Put Cloudflare in front of the server](/docs/tasks/cloudflare).
+Without the token nothing changes: Caddy's own challenges apply, and records must point straight at the server. See [Put Cloudflare in front of the server](/docs/tasks/cloudflare), and for a firewall that admits Cloudflare's addresses alone, [Admit Cloudflare only](/docs/tasks/cloudflare-only).
 
 ## A certificate of your own
 
@@ -318,6 +321,8 @@ Caddy obtains and renews certificates without being asked, and says little while
 | being obtained | Caddy serves the hostname and presents no certificate for it yet. HTTPS connections to it fail until it does. |
 | expiring | The certificate has 14 days or less to go. Caddy renews a ninety-day certificate thirty days before its end, so a certificate that gets that far is one whose renewal has been failing. |
 | in order | Everything else. |
+
+Why a certificate did not come is read out of Caddy's log for you, since 0.9: the agent follows the proxy's own messages as it follows its access log, and the last failure it logged for each hostname — which challenge, what the authority answered — is in `shipwick status` next to *being obtained*, in the application's events once per reason, in `GET /applications/:name` (`certificates[].failure`) and in `shipwick doctor` as a problem. A failure is forgotten when a certificate arrives.
 
 `shipwick status` names every hostname whose certificate is not in order, and why; the application's events record a certificate being obtained and one running out, and a [webhook](/docs/tasks/notifications) is told `certificate.expiring` at 14 days and again at 3. The agent reaches Caddy at `caddy:443`; [`SHIPWICK_PROXY_TLS_ADDR`](/docs/reference/agent-configuration#shipwick-proxy-tls-addr) changes that. See [Use a certificate of your own](/docs/tasks/certificates#certificate-status).
 

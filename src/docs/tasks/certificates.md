@@ -109,28 +109,33 @@ Whether a certificate was supplied or obtained, the agent reports what a visitor
 HOSTNAME            CERTIFICATE
 www.example.com     waiting for DNS: does not resolve yet; add an A record: www.example.com → 62.238.109.115 (DNS only, not proxied)
 new.example.com     being obtained: the proxy has no certificate for it yet; HTTPS connections to it fail until it does
+shop.example.com    being obtained: the proxy has no certificate for it yet: Let's Encrypt could not connect to the server on port 443 (tls-alpn-01): a firewall in front of it?
 old.example.com     expires in 9 days, on 2026-03-10 (Let's Encrypt E7)
 ```
 
 | Line | Meaning | What to do |
 |---|---|---|
 | `waiting for DNS` | The hostname is not in the proxy yet, because it does not resolve to this server. | Create or change the record the line names. The agent looks again every 10 seconds. See [DNS first](/docs/concepts/routing-and-https#dns-first). |
-| `being obtained` | The proxy serves the hostname and presents no certificate for it yet. | Usually nothing: a certificate takes seconds. If the line stays, the proxy's log says why: `docker logs shipwick-caddy-1` on the server. |
-| `expires in …` | The certificate has 14 days or less to go. | For an obtained certificate, renewal has been failing: the proxy renews a ninety-day certificate thirty days before its end, and its log says why. A supplied one is replaced with `shipwick cert set`. |
+| `being obtained` | The proxy serves the hostname and presents no certificate for it yet. | Usually nothing: a certificate takes seconds. If the line stays, since 0.9 it ends with why, read out of the proxy's log: which challenge failed and what the authority answered. Caddy's own words stay in `docker logs shipwick-caddy-1` on the server. |
+| `expires in …` | The certificate has 14 days or less to go. | For an obtained certificate, renewal has been failing: the proxy renews a ninety-day certificate thirty days before its end, and since 0.9 the reason is in the application's events and in `shipwick doctor`. A supplied one is replaced with `shipwick cert set`. |
+
+The agent follows the proxy's own messages as it follows its access log, and keeps the last failure it logged for each hostname. The two a real server produced read *Let's Encrypt could not connect to the server on port 443 (tls-alpn-01): a firewall in front of it?* — the provider's firewall; see [Prepare a server](/docs/tasks/prepare-a-server#before-the-first-command) — and *the DNS record for the challenge could not be created: the token cannot edit DNS records of example.com: it needs Zone → DNS → Edit*; see [Put Cloudflare in front of the server](/docs/tasks/cloudflare#check-it). A failure is forgotten when a certificate arrives.
 
 `shipwick status --verbose` lists the hostnames that are in order too, with their issuer and last day: `valid until 2026-06-01 (Let's Encrypt E7)`. On a development machine the issuer is Caddy's own authority, and is reported as that.
 
 The same is told in other places:
 
-- **Events.** The application's events record a certificate being obtained, `Certificate for new.example.com obtained from Let's Encrypt E7, valid until 2026-06-01`, and one running out, with what to do: for an obtained certificate the proxy's log, for a supplied one the `cert set` command that replaces it.
+- **Events.** The application's events record a certificate being obtained, `Certificate for new.example.com obtained from Let's Encrypt E7, valid until 2026-06-01`, and one running out, with what to do: for an obtained certificate the proxy's log, for a supplied one the `cert set` command that replaces it. Since 0.9 each new reason a certificate could not be obtained or renewed is recorded once, as a warning.
 - **Webhook.** A [webhook](/docs/tasks/notifications) is told `certificate.expiring` at 14 days and again at 3.
-- **`shipwick doctor`** reports a supplied certificate that will expire within 30 days, and one that has expired as a problem:
+- **`shipwick doctor`** reports a supplied certificate that will expire within 30 days, and one that has expired as a problem; since 0.9 also an obtained certificate the proxy could not get or renew, with the reason:
 
   ```text
   ! The certificate you supplied for example.com expires on 2026-10-24. Replace it before then with: shipwick cert set example.com --cert <file> --key <file>
+  ✗ shop.example.com has no certificate: Let's Encrypt could not connect to the server on port 443 (tls-alpn-01): a firewall in front of it?
+  ✗ The certificate for old.example.com is not being renewed: Let's Encrypt refuses for now, its rate limit is reached: …; it lifts within the hour
   ```
 
-- **The API.** The application detail carries `certificates`, one entry per hostname.
+- **The API.** The application detail carries `certificates`, one entry per hostname, since 0.9 with `failure` — when, which challenge, the reason and the proxy's own words — for a certificate the proxy could not obtain or renew; see [`GET /applications/:name`](/docs/reference/api#get-applications-name).
 
 The agent reaches the proxy at `caddy:443`. Where the proxy listens somewhere else, [`SHIPWICK_PROXY_TLS_ADDR`](/docs/reference/agent-configuration#shipwick-proxy-tls-addr) says where.
 

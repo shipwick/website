@@ -210,6 +210,7 @@ Deploying my-api...
 my-api 20260927-153000-a1b2  deployed in 8.2s
 2/2 replicas healthy
 https://api.example.com
+✓ https://api.example.com/ answers HTTP 200 through the proxy
 
 Next:
   shipwick logs -f my-api          follow the logs
@@ -223,6 +224,8 @@ Next:
 <p>With <code>image:</code> the build lines are one <code>✓ Pulled image ghcr.io/company/my-api:1.4.1</code>. Either way a summary follows: the version, how long the deployment took, how many replicas are healthy, and the URL; a first deployment ends with the two commands to run next, and with the dashboard's address when the server has one. Caddy obtains the certificate for the domain on the first request.</p>
 
 </div>
+
+The line under the URL is the agent asking the application its own hostname once, the way a visitor would, after the deployment is done (since 0.9). An application that sends its domain to `www` while `redirects` sends `www` back passes every health check and serves nobody; that answer is a warning there instead, with what to swap. See [A redirect loop is caught](/docs/tasks/several-hostnames#a-redirect-loop-is-caught).
 
 Pressing Ctrl+C while `deploy` waits stops the waiting, not the deployment.
 
@@ -245,21 +248,21 @@ shipwick doctor
 ```
 
 ```text
-✓ shipwick v0.8.1, the latest release
-✓ Agent https://agent.example.com runs v0.8.1, the latest release
+✓ shipwick v0.9.0, the latest release
+✓ Agent https://agent.example.com runs v0.9.0, the latest release
 ✓ Token laptop (admin)
 ✓ Docker 29.8.0 on the server
 ✓ Proxy serving 2 routes
 ✓ agent.example.com → 203.0.113.10
 ✓ Port 80 open on 203.0.113.10
-✗ Port 443 is not reachable on 203.0.113.10: open it in the server's firewall; certificates are issued and renewed through ports 80 and 443
+✗ Port 443 on 203.0.113.10 timed out after 3s: a firewall in front of the server drops the packets — the provider's firewall (Hetzner Cloud Firewall, an AWS security group, a DigitalOcean cloud firewall). Open 80 and 443 TCP and 443 UDP there; certificates cannot be obtained until then
 ✗ api.example.com resolves to Cloudflare's proxy (104.16.0.1), not to the server: turn the proxy off for this record (DNS only), or set SHIPWICK_CLOUDFLARE_API_TOKEN on the agent to keep it on
 ✓ https://api.example.com/ answers HTTP 200
 
 2 problems found.
 ```
 
-Hostnames are resolved through public resolvers, as the agent does; the server's address is the one the agent's own hostname resolves to, so through an SSH tunnel the ports and the records' targets are not checked. `doctor` also prints the server's active [alerts](/docs/tasks/alerts-and-metrics), a disk that is filling up for one; a critical alert counts as a problem.
+A port that refuses the connection — nothing listens, the proxy is not up — is told from one that is silent, which is a firewall dropping the packets, at the provider. When the agent itself does not answer, the agent's line tells the causes apart the same way: a connection that times out after ten seconds, a connection refused, a TLS handshake that fails because the proxy has no certificate for the hostname yet. Hostnames are resolved through public resolvers, as the agent does; the server's address is the one the agent's own hostname resolves to, so through an SSH tunnel the ports and the records' targets are not checked. `doctor` also prints the server's active [alerts](/docs/tasks/alerts-and-metrics), a disk that is filling up for one; a critical alert counts as a problem.
 
 ## Look at what is running
 
@@ -272,7 +275,7 @@ shipwick open       # open https://api.example.com in the browser
 
 Run in the directory that holds `deploy.yaml`, these commands act on the application named in it. Elsewhere, name the application: `shipwick status my-api`. More in [Inspect applications and read logs](/docs/tasks/inspect-and-logs).
 
-The same is in the [dashboard](/docs/tasks/dashboard), if the server has one; `shipwick open --dashboard` opens it, and `shipwick server status` shows its address. Sign in with the API token: after `shipwick server install` it is `SHIPWICK_AGENT_TOKEN` in `/opt/shipwick/.env` on the server. The application's page opens with what is wrong, if anything is, and follows a deployment live, whether it was started from `shipwick`, from CI or from the dashboard itself; its history shows who made each deployment. An application with `build:` says there that its image is built by `shipwick deploy`.
+The same is in the [dashboard](/docs/tasks/dashboard), if the server has one; `shipwick open --dashboard` opens it, and `shipwick server status` shows its address. Sign in with a token of its own, `shipwick token create dashboard --role admin`, not the root token from `/opt/shipwick/.env`, which is root on the server and never leaves it. The application's page opens with what is wrong, if anything is, and follows a deployment live, whether it was started from `shipwick`, from CI or from the dashboard itself; its history shows who made each deployment. An application with `build:` says there that its image is built by `shipwick deploy`.
 
 ## Deploy a new version
 
@@ -308,7 +311,7 @@ This is a rolling update. Replicas are replaced one at a time. Each new replica 
 
 For a moment both versions serve side by side, so the two must be able to coexist. Database migrations, above all, must be backward compatible. [Deployments](/docs/concepts/deployments) explains the mechanism in full.
 
-If `logs -f` was running, it ends when the old containers are replaced. Run it again to follow the new ones. The server keeps the image that runs and the one before it, the rollback target; older ones are removed.
+If `logs -f` was running, it ends when the old containers are replaced. Run it again to follow the new ones. A connection that is lost instead — the network changes, the agent restarts — is taken up where it left off since 0.9; see [Read logs](/docs/tasks/inspect-and-logs#read-logs). The server keeps the image that runs and the one before it, the rollback target; older ones are removed.
 
 ## When a deployment fails
 

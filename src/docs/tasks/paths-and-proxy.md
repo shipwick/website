@@ -146,7 +146,7 @@ The password is a secret, treated like an `env` value. Store it on the server on
 shipwick secret set ADMIN_PASSWORD
 ```
 
-and the agent fills it in at every deployment. Or keep it on your machine: the CLI fills `${ADMIN_PASSWORD}` in from its environment or from `--env-file`.
+and the agent fills it in at every deployment; with `--app <name>` it is this application's alone, since 0.9 (see [Keep secrets on the server](/docs/tasks/secrets)). Or keep it on your machine: the CLI fills `${ADMIN_PASSWORD}` in from its environment or from `--env-file`.
 
 ```bash
 shipwick deploy --env-file .env.production

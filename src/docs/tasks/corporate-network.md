@@ -192,7 +192,7 @@ Everything in a bundle follows from its `checksums.txt`, and the bundle brings t
 
 ### The signature is checked where the bundle is made
 
-Since 0.8.0 a release's `checksums.txt` is signed by the workflow that published it. With cosign (2.4 or later) installed on the machine that makes the bundle, `shipwick server bundle` verifies that signature before it downloads anything else, and says which it was: verified, not checked for want of cosign, or a release from before releases were signed. A signature that does not verify, and with cosign installed a release from 0.8.0 on that has none, stops the command, and no bundle is written.
+Since 0.8.0 a release's `checksums.txt` is signed by the workflow that published it. With cosign (2.5 or later) installed on the machine that makes the bundle, `shipwick server bundle` verifies that signature before it downloads anything else, and says which it was: verified, not checked for want of cosign, or a release from before releases were signed. A signature that does not verify, and with cosign installed a release from 0.8.0 on that has none, stops the command, and no bundle is written.
 
 The signature travels in the bundle as `checksums.txt.sigstore.json`. The installer on the server does not verify it by itself: cosign asks Sigstore for the keys it trusts, and that server reaches nothing. With `SHIPWICK_REQUIRE_SIGNATURE=1` it does, for a server whose cosign was given those keys beforehand. See [Verify a release](/docs/tasks/verify-a-release).
 

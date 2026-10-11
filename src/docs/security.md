@@ -19,7 +19,7 @@ The agent holds the Docker socket, which makes it root on the server it runs on.
 
 The agent container runs as root because it needs the Docker socket, which already is root-equivalent access to the host.
 
-Since 0.8 two arrangements give the agent less than that socket: a socket proxy that answers only the calls the agent makes, and rootless Docker, where the daemon and everything it starts is an ordinary user of the server. Neither is what the installer sets up, and the first does not stop whoever takes the agent over from becoming root. See [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket).
+Three arrangements give the agent less than that socket: since 0.8 a socket proxy that answers only the calls the agent makes, and rootless Docker, where the daemon and everything it starts is an ordinary user of the server; since 0.9 Docker's authorization plugin with a policy of the repository's, which refuses, for every client of the daemon, what makes a container root on the server. None is what the installer sets up, and the socket proxy does not stop whoever takes the agent over from becoming root. See [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket).
 
 ## Exposing the API
 
@@ -63,7 +63,7 @@ Three arrangements leave the API open to applications, protected by the token al
 |---|---|
 | A compose file of your own without the control network | Add it as [`compose.production.yml`](https://github.com/shipwick/shipwick/blob/main/configs/compose.production.yml) has it: the agent on `shipwick-control` alone (it joins `shipwick` by itself), Caddy on all three networks, the dashboard on `shipwick-control` alone |
 | `SHIPWICK_LISTEN_ADDR` set for the agent's container | Leave it unset: the image's default lets the agent choose the control network |
-| The API's port published (`ports: ["127.0.0.1:9000:9000"]`) on Docker before 28 | Upgrade Docker, or give the API a hostname and remove the port. Docker forwards a published port to the network a container's default route goes through, and before 28 that is the `shipwick` network for the agent; the agent keeps listening there so that the port works. On Docker 28 and later the port arrives on the control network and nothing is open |
+| The API's port published (`ports: ["127.0.0.1:9000:9000"]`) on Docker before 28 | Upgrade Docker, or give the API a hostname and remove the port. Docker forwards a published port to the network a container's default route goes through, and before 28 that is the `shipwick` network for the agent; the agent keeps listening there so that the port works. On Docker 28 and later the port arrives on the control network and nothing is open. There is no third way on Docker 27: the agent starts on the control network alone, and the moment it joins `shipwick` for its health checks the daemon moves the port there — measured on Docker 27.5.1, where the forwarding rule followed the join and a listener on the control address alone was reset; on 29.9 with the agent's gateway priority it stayed. That is why the installer publishes no port |
 
 An agent installed [from a package](/docs/getting-started/install-from-a-package) is a process of the host, and the addresses of a host are reachable from every container on it. It refuses every address of the two application networks, and on the address it has on the control network every address that is not of that network; nothing is open.
 
@@ -142,10 +142,11 @@ When the key may have been seen — a backup that held it went astray, someone w
 
 ### Secrets kept on the server
 
-A value for `${NAME}` in `env` can be stored on the server once, with `shipwick secret set NAME`, so that no laptop and no pipeline has to hold it. What the agent does with it:
+A value for `${NAME}` in `env` can be stored on the server once, with `shipwick secret set NAME`, so that no laptop and no pipeline has to hold it. Since 0.9 a secret belongs to one application (`--app my-api`) or to the whole server; see [Keep secrets on the server](/docs/tasks/secrets). What the agent does with it:
 
 - The value is never an argument: `shipwick secret set` asks for it without echo, reads it from standard input, or from a file with `--from-file`. Arguments leak through `ps` and shell history.
-- It is written encrypted, like an `env` value, with its name as additional authenticated data, and is read by nobody afterwards: `GET /secrets` lists names and dates only, and the value is never returned, logged or repeated in an error. It goes into containers and nowhere else.
+- It is written encrypted, like an `env` value, with its name as additional authenticated data — `applications/<application>/secrets/<name>` for an application's own, so that a ciphertext moved between scopes does not open — and is read by nobody afterwards: `GET /secrets` lists names, scopes and dates only, and the value is never returned, logged or repeated in an error. It goes into containers and nowhere else; a secret stored with `--app` reaches that application's containers and no other's.
+- A value with characters a URL cannot carry unescaped — `@`, `:`, `/`, `?`, `#`, `%`, whitespace — is stored all the same, and `shipwick secret set` warns which ones it saw, never the value: written into a connection string, such a password breaks it.
 - The agent fills it into the `env` values of a deployment when the deployment is recorded, so the record holds the value and a rollback restores what that deployment ran with. A `${NAME}` that is set neither where `shipwick` runs nor on the server refuses the deployment before anything is recorded.
 - Storing and removing a secret needs the `admin` role; listing the names needs `read`. In the dashboard, the value is cleared from the page the moment the request is sent.
 - Since 0.7 the agent remembers, with each deployment, which values it filled in and how the document wrote them — `postgres://app:${DB_PASSWORD}@db:5432/app` — encrypted like a secret. That text, never the value, is what [`shipwick config`](/docs/tasks/get-the-configuration-back) gives back. The text around a reference is more than a reader is shown elsewhere, which is why getting the document takes the `deploy` role, and a limited token gets the documents of its applications only.
@@ -174,10 +175,11 @@ The key does leave the database for one place, the proxy, which cannot serve the
 
 ### The Cloudflare token
 
-`SHIPWICK_CLOUDFLARE_API_TOKEN` can edit the DNS of your zones. Give it the two permissions it needs and no more: *Zone → Zone → Read* and *Zone → DNS → Edit*, on the zones your hostnames are in. Not the Global API Key. Caddy uses it to create and remove the `_acme-challenge` TXT records, nothing else.
+`SHIPWICK_CLOUDFLARE_API_TOKEN` can edit the DNS of your zones. Give it the two permissions it needs and no more: *Zone → Zone → Read* and *Zone → DNS → Edit*, on the zones your hostnames are in, those two exactly; *DNS Settings*, *DNS Firewall* and *DNS Views* are other permissions. Not the Global API Key. Caddy uses it to create and remove the `_acme-challenge` TXT records, nothing else. An IP filter on the token, if you give it one, must name every address the server calls from, its IPv6 address included.
 
 - **Where it is.** In `/opt/shipwick/.env`, in the agent's memory, and inside the configuration the agent loads into Caddy — and therefore in Caddy's autosaved copy of it on the `caddy-config` volume.
-- **Where it is not.** It is never logged and never returned by the API; `GET /server` says only that the DNS challenge is on. The agent removes it from Caddy's errors before they are logged or shown, and refuses at startup a value that is not of a token's form, without repeating it.
+- **Where it is not.** It is never logged and never returned by the API; `GET /server` says that the DNS challenge is on and, since 0.9, what the agent found out when it checked the token — the address Cloudflare saw, the zones and the problems, as sentences — and nothing of the token itself. The agent removes it from Caddy's errors before they are logged or shown, and refuses at startup a value that is not of a token's form, without repeating it.
+- **What the check does.** Since 0.9 the agent verifies the token when it starts and when `shipwick doctor` asks with an `admin` token: whether Cloudflare accepts it from the server's address, which zones it sees, and whether it can create a DNS record in each — a TXT record of its own, `_shipwick-check.<zone>`, removed at once. Because it writes, the check runs at most once a minute. See [Put Cloudflare in front](/docs/tasks/cloudflare#check-it).
 - **Cloudflare's ranges become trusted proxies.** With the token set, Cloudflare's address ranges are trusted proxies of Caddy, so applications find the visitor's address first in `X-Forwarded-For`, followed by Cloudflare's. From any other sender the header is replaced, since anyone can send one. The ranges are the ones Cloudflare publishes; they are compiled into the agent.
 - Set the zone's SSL/TLS mode to *Full (strict)*, which checks the certificate Caddy obtained. *Full* accepts any certificate from the server.
 
@@ -311,7 +313,7 @@ Every container made later from the same deployment — a restart, a job, a comm
 
 **What the block does not touch.** The seccomp and AppArmor profiles are Docker's defaults for every container, with or without it, and there is no key to change them; user namespaces are the daemon's to configure.
 
-**An agent older than 0.8 does not know `security`** and refuses a `deploy.yaml` that has it, as it refuses every key it does not know: the application is not deployed without what the block asks for, and `shipwick deploy` says that the server is older than the file and how to upgrade it. An export is the exception: an agent older than 0.8 that imports an export written by a newer one reads the applications without the block.
+**An agent older than 0.8 does not know `security`** and refuses a `deploy.yaml` that has it, as it refuses every key it does not know: the application is not deployed without what the block asks for, and `shipwick deploy` says that the server is older than the file and how to upgrade it. An export written before 0.9 is the exception: an agent older than 0.8 that imports one reads the applications without the block. From 0.9 on an export names the keys it uses, and an agent that lacks one refuses it; see [Move to a new server](/docs/tasks/move-to-a-new-server#what-import-does).
 
 ### A distroless agent image
 
@@ -329,7 +331,7 @@ The checksums say that the files are the ones the release lists. Since 0.8.0 a s
 
 - **No key is stored anywhere.** GitHub tells Sigstore which workflow is running and for which tag, Sigstore issues a certificate for that identity that is valid for ten minutes, and the signature goes into a public log.
 - **What it proves** is that the file or image was produced by that workflow file, at that tag, in that repository: a commit you can read. It does not prove that the commit is good.
-- **The installer, `shipwick upgrade` and `shipwick server bundle` verify it when cosign (2.4 or later) is installed**, and stop if the signature is not the release workflow's. Without cosign, which is every new server, they say that the signature was not checked and go by the checksums, as before.
+- **The installers, `shipwick upgrade` and `shipwick server bundle` verify it when cosign (2.5 or later) is installed**, and stop if the signature is not the release workflow's. Without cosign, which is every new server, they say that the signature was not checked and go by the checksums, as before. Cosign 2.4 does not read the signature.
 - **`SHIPWICK_REQUIRE_SIGNATURE=1` makes the installer refuse anything short of a verified signature.** Without it a release that has no signature is installed with a warning: releases before 0.8.0 have none, and the installer cannot tell one of those from a release whose signature somebody removed.
 - **Each file and each image has a provenance attestation**, kept by GitHub, and each binary and image a bill of materials in SPDX.
 
@@ -346,7 +348,7 @@ Since 0.7, one request a day, from the agent to `https://github.com/shipwick/shi
 - **It goes through the proxy and the certificate authorities the agent was given**, and gives up after 15 seconds. A server that cannot reach GitHub notices nothing.
 - **`SHIPWICK_UPDATE_CHECK=off` stops it.** The agent says at startup, once, that it asks and how to stop it.
 
-Everything else that leaves the server does so because you configured it: the webhook, the bucket, the sign-in provider, the certificate authority, the registries your images come from. The CLI asks GitHub for the latest release only when you run `shipwick upgrade`, `shipwick doctor` or `shipwick server bundle`, with the `User-Agent` `shipwick/<version>`. The dashboard makes no request to any third party.
+Everything else that leaves the server does so because you configured it: the webhook, the bucket, the sign-in provider, the certificate authority, the registries your images come from, and with `SHIPWICK_CLOUDFLARE_API_TOKEN` set, since 0.9, the check of that token against Cloudflare's API when the agent starts and when `doctor` asks, at most once a minute. The CLI asks GitHub for the latest release only when you run `shipwick upgrade`, `shipwick doctor` or `shipwick server bundle`, with the `User-Agent` `shipwick/<version>`. The dashboard makes no request to any third party.
 
 ### Token handling in the CLI
 
@@ -357,7 +359,8 @@ Everything else that leaves the server does so because you configured it: the we
 - `shipwick login` verifies the token against the agent before saving it, unless `--no-check` says not to, for a hostname whose DNS record or certificate does not exist yet. `shipwick server status` shows which token and role you are using.
 - The values `shipwick` stores on the server are never arguments either: a secret, a registry password and the passphrase of an export are asked for without echo or piped in, and a certificate's key is read from a file.
 - `shipwick token create` prints the new token once, to standard output, and never stores it; put it in the CI secret and move on.
-- `shipwick upgrade` writes the new binary next to the old one and renames it over only once its SHA-256 matches the release's `checksums.txt`. With cosign on the machine, `checksums.txt` is first verified against the release's [signature](#signed-releases), and a signature that does not verify changes nothing; cosign is run as a program with arguments, never through a shell. A binary under Homebrew's or winget's directories is left to the package manager.
+- `shipwick upgrade` writes the new binary next to the old one and renames it over only once its SHA-256 matches the release's `checksums.txt`. With cosign on the machine, `checksums.txt` is first verified against the release's [signature](#signed-releases), and a signature that does not verify changes nothing; cosign is run as a program with arguments, never through a shell. `--version` installs the release it names with the same verification, the identity being the workflow at that tag. A binary under Homebrew's or winget's directories is left to the package manager.
+- `shipwick server configure` sends the agent's settings to the server as data on the standard input of a fixed script, never as part of a command, so a value may hold anything but a line break; it never prints a value, and the file keeps its mode. `shipwick server install`, when the login is refused, runs `ssh -v` once more and shows of its output only each offered key's name and fingerprint, the public half.
 
 ### Session handling in the dashboard
 

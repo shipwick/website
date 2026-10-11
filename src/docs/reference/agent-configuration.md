@@ -65,7 +65,7 @@ The API speaks plain HTTP. The default binds it to loopback so that exposing it 
 Since 0.8 an agent in a container does not listen on every address under that default. It listens on the address it has on the `shipwick-control` network, where the proxy and the dashboard reach it, and on loopback; applications are on neither. A request that comes from an application's container all the same is answered `403 APPLICATION_CALLER`.
 
 - **An address set here is used as it is.** Set for the agent's container, it leaves the API open to the containers of applications, protected by the token alone: the agent then refuses the containers it manages by their address only, warns in its log when it starts, and `shipwick doctor` and `open_to_applications` in `GET /server` report it. Leave it unset in the container.
-- **A published port on Docker before 28** has the same effect: Docker forwards the port over the network the applications are on, and the agent keeps listening there so that the port works.
+- **A published port on Docker before 28** has the same effect: Docker forwards the port over the network the applications are on, and the agent keeps listening there so that the port works. There is no third way on Docker 27 — the port follows the agent onto `shipwick` the moment it joins it for its health checks, measured on 27.5.1 — which is why the installer and the production compose file publish no port, and why the development compose file, which does, says that it is open on Docker before 28 by design.
 - **As a service of the host**, the agent listens where this variable says, and with `SHIPWICK_AGENT_DOMAIN` set also on the address the server has on the control network; it refuses every address of the two application networks.
 
 See [Who can reach the API](/docs/security#who-can-reach-the-api).
@@ -205,7 +205,7 @@ There is no rule on the value; use something long and random, `openssl rand -hex
 
 ### SHIPWICK_CLOUDFLARE_API_TOKEN
 
-A Cloudflare API token with two permissions on the zones your hostnames are in: *Zone → Zone → Read* and *Zone → DNS → Edit*. Not the Global API Key. With it, Caddy obtains every certificate through a DNS record (the ACME DNS-01 challenge) instead of from the server itself, so a hostname's record can stay proxied by Cloudflare, and `domain` and `aliases` may be wildcards. A hostname that resolves to Cloudflare's addresses is then served instead of held back, and Cloudflare's address ranges become trusted proxies of Caddy, so applications find the visitor's address in `X-Forwarded-For`. See [Put Cloudflare in front](/docs/tasks/cloudflare).
+A Cloudflare API token with two permissions on the zones your hostnames are in, those two exactly: *Zone → Zone → Read* and *Zone → DNS → Edit*. *DNS Settings*, *DNS Firewall* and *DNS Views* are other permissions, with which the proxy lists the zones and cannot create a record. Not the Global API Key. With it, Caddy obtains every certificate through a DNS record (the ACME DNS-01 challenge) instead of from the server itself, so a hostname's record can stay proxied by Cloudflare, and `domain` and `aliases` may be wildcards. A hostname that resolves to Cloudflare's addresses is then served instead of held back, and Cloudflare's address ranges become trusted proxies of Caddy, so applications find the visitor's address in `X-Forwarded-For`. An IP filter on the token must name every address the server calls from, its IPv6 address included. See [Put Cloudflare in front](/docs/tasks/cloudflare).
 
 | | |
 |---|---|
@@ -215,6 +215,10 @@ A Cloudflare API token with two permissions on the zones your hostnames are in: 
 | Requires | `SHIPWICK_CADDY_ADMIN`: `SHIPWICK_CLOUDFLARE_API_TOKEN needs a reverse proxy to obtain certificates with it: set SHIPWICK_CADDY_ADMIN as well`. |
 
 At startup the agent logs `certificates are obtained through Cloudflare DNS; hostnames may be proxied by Cloudflare, and may be wildcards`, and `GET /server` reports `proxy.dns_challenge: true`, which `shipwick doctor` reads.
+
+Since 0.9 the agent also checks what the token can do when it starts, and whenever `shipwick doctor` asks with an `admin` token (`POST /server/cloudflare/verify`, at most once a minute): whether Cloudflare accepts the token from the address the server really calls from, which zones it sees, and whether it can create a DNS record in each — a TXT record of its own, `_shipwick-check.<zone>`, removed at once. The result is one line in the agent's log, `cloudflare` in `GET /server`, and lines in `doctor` that say what to change. Nothing of the token is in any of it. See [Check it](/docs/tasks/cloudflare#check-it) and [`POST /server/cloudflare/verify`](/docs/reference/api#post-server-cloudflare-verify).
+
+The variable is set on a running server with `shipwick server configure root@203.0.113.10 SHIPWICK_CLOUDFLARE_API_TOKEN=…`, which checks the value's form as the installer does and names `shipwick doctor` as the next step; see [Change a setting later](/docs/getting-started/install#change-a-setting-later).
 
 The token can edit the DNS of your zones. The agent keeps it in memory, hands it to Caddy inside the configuration it loads, and removes it from Caddy's errors before they are logged or shown. It is never logged and never returned by the API. Caddy's autosaved copy of the configuration, on the `caddy-config` volume, contains it. See [Security](/docs/security).
 
@@ -615,7 +619,7 @@ services:
 
 ### Overlays: a socket proxy and rootless Docker
 
-Since 0.8 two more files of the repository are overlays on the production compose file. Neither is what the installer sets up. See [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket).
+Since 0.8 two more files of the repository are overlays on the production compose file. Neither is what the installer sets up. A third arrangement, since 0.9, is not an overlay: Docker's authorization plugin with `configs/docker-authz.rego`, installed into the daemon, which leaves the compose file as it is. See [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket).
 
 | File | Variable | Default | |
 |---|---|---|---|

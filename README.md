@@ -33,11 +33,13 @@ Plain language, second person, present tense; no marketing.
 ## get.shipwick.com
 
 `curl -fsSL https://get.shipwick.com | sh` must receive the installer, not a web
-page. Both hostnames are custom domains of the same Pages project;
+page, and `irm https://get.shipwick.com/windows | iex` the Windows installer of
+the CLI. Both hostnames are custom domains of the same Pages project;
 `functions/_middleware.js` redirects requests for `get.shipwick.com` to
-`scripts/install.sh` in the main repository, or, for a browser, to the
-installation guide. The installer is never copied here. `_routes.json` limits
-the function to `/`, so that ordinary page views do not invoke it.
+`scripts/install.sh` in the main repository, and `/windows` to
+`scripts/install.ps1`, or, for a browser, to the installation guide. The
+installers are never copied here. `_routes.json` limits the function to `/` and
+`/windows`, so that ordinary page views do not invoke it.
 
 ## Deployment
 

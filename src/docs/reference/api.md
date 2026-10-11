@@ -147,7 +147,7 @@ Six kinds of response have no envelope: `204 No Content` from `DELETE`, from the
 | 400 | `INVALID_CONFIG` | `deploy.yaml` failed validation. `details.fields` lists every problem as `{field, message, expected}`; `expected` is omitted when there is nothing to suggest. Also returned when a hostname is already served by another application (as its domain, an alias or a redirect), by the agent or by the dashboard: one entry whose `field` names the offending line, `domain`, `aliases[0]`, `redirects[1]`, and whose `message` names the owner. And with the field `publish[i].host` when a server port the configuration publishes is already published by another application, or is one the agent or the proxy listens on. Returned by `redeploy` and `rollback` too, since a stored configuration's hostnames and ports may have been taken since. Also when an `env` value refers to a `${NAME}` that is not among the stored [secrets](#get-secrets): one entry per reference, `field` `env.<VARIABLE>`, `expected` the command that stores it; the same for a password of `proxy.basic_auth`, under the field `proxy.basic_auth[i].password`. When two applications want the same path of a hostname, the field is `path`, or `domain` or `aliases[i]` for an application that names no path. And for a wildcard hostname (`*.example.com` as `domain` or an alias) that no certificate can be had for: the agent has no DNS challenge configured and no supplied [certificate](#put-certificates-hostname) covers it; `expected` says both ways out. Since 0.7 also for a document that holds `"********"`, the mask, as an `env` value or a basic-auth password: one entry per field, see [`GET /applications/:name/config`](#get-applications-name-config); and, from `POST /applications` and `POST /validate`, for a document whose name cannot be read, with the field `name`. Since 0.8 also for what the [`security` block](#the-security-block) refuses. |
 | 400 | `REGISTRY_LOGIN_FAILED` | A registry did not accept the credential of a [`PUT /registries/:registry`](#put-registries-registry), or could not be asked; `details: {registry, refused}`. Nothing was stored. |
 | 400 | `INVALID_CERTIFICATE` | The certificate or key in a [`PUT /certificates/:hostname`](#put-certificates-hostname) cannot serve that hostname; `message` is a sentence that says why. |
-| 400 | `INVALID_EXPORT` | The body of an import is not an export, its passphrase does not match, or it breaks off. |
+| 400 | `INVALID_EXPORT` | The body of an import is not an export, its passphrase does not match, it breaks off, or, since 0.9, it uses a key of the configuration this agent does not know; the message then names the key and the version that wrote the export, and nothing was taken in. |
 | 401 | `UNAUTHORIZED` | Missing, wrong or revoked token. |
 | 401 | `TOKEN_EXPIRED` | The token is a real one, past its `expires_at`; `details: {name, expired_at}`. |
 | 401 | `SESSION_EXPIRED` | The session of a person who signed in is past its ten hours; `details: {name, expired_at}`. |
@@ -180,6 +180,8 @@ Six kinds of response have no envelope: `204 No Content` from `DELETE`, from the
 | 409 | `STANDBY_NOT_CONFIGURED` | An import from the bucket was asked of an agent that has no bucket to read exports from. |
 | 409 | `PROMOTION_IN_PROGRESS` | A promotion is running: a second one was asked for, or an import. [`GET /standby/promotion`](#get-standby-promotion) follows the one that runs. |
 | 409 | `SIGN_IN_NOT_CONFIGURED` | A sign-in was asked of an agent without an OpenID Connect provider. |
+| 409 | `CLOUDFLARE_NOT_CONFIGURED` | Since 0.9. A check of the Cloudflare token was asked of an agent that has none: `SHIPWICK_CLOUDFLARE_API_TOKEN` is not set. |
+| 429 | `CLOUDFLARE_CHECKED_RECENTLY` | Since 0.9. The Cloudflare token was checked less than a minute ago, and a check writes a DNS record in every zone; `details: {checked_at, retry_after_seconds}`, `Retry-After` the same, and [`GET /server`](#get-server) has the result of that check. |
 | 429 | `RATE_LIMITED` | A wrong token, after 20 authentications from this address failed within a minute; `Retry-After` says in how many seconds wrong tokens are answered `401` again. A valid token is never refused. |
 | 413 | `INVALID_REQUEST` | The body of a `deploy` request is larger than 64 KB; a volume archive is larger than 10 GB; an image archive is larger than 4 GB; a static folder is larger than 512 MB. |
 | 502 | `SIGN_IN_UNAVAILABLE` | The sign-in provider could not be reached or used; `message` says what to change. |
@@ -196,8 +198,9 @@ Paths are relative to `/api/v1`. The role is the least a token needs.
 | Method | Path | Role | |
 |---|---|---|---|
 | `GET` | [`/health`](#get-health) | none | Liveness. No token. |
-| `GET` | [`/server`](#get-server) | `read` | Facts about the host, the agent, the proxy, the disk, backups, notifications and the network, the active alerts, whether people can sign in, the caller's own token, since 0.7 the log archive and whether a newer release exists, and since 0.8 the swap, the applications without a memory limit, how the Docker daemon runs and whether applications can reach the API |
+| `GET` | [`/server`](#get-server) | `read` | Facts about the host, the agent, the proxy, the disk, backups, notifications and the network, the active alerts, whether people can sign in, the caller's own token, since 0.7 the log archive and whether a newer release exists, since 0.8 the swap, the applications without a memory limit, how the Docker daemon runs and whether applications can reach the API, and since 0.9 the networks the proxy is missing, the kernel's table of neighbours and what the agent found out about its Cloudflare token |
 | `POST` | [`/server/rotate-key`](#post-server-rotate-key) | `admin` | Replace the key stored secrets are encrypted with and re-encrypt them |
+| `POST` | [`/server/cloudflare/verify`](#post-server-cloudflare-verify) | `admin` | Check what the Cloudflare token can do, from this server's address and in every zone it sees, and answer with the result; at most once a minute. Since 0.9 |
 | `GET` | [`/server/backups`](#get-server-backups) | `admin` | The backups of the agent's own state |
 | `GET` | [`/server/backups/:id`](#get-server-backups-id) | `admin` | One of them |
 | `POST` | [`/server/backups`](#post-server-backups) | `admin` | Back up the agent's state now |
@@ -217,7 +220,7 @@ Paths are relative to `/api/v1`. The role is the least a token needs.
 | `POST` | [`/applications/:name/stop`](#post-applications-name-stop) | `deploy` | Stop all replicas |
 | `POST` | [`/applications/:name/start`](#post-applications-name-start) | `deploy` | Start a stopped application |
 | `DELETE` | [`/applications/:name`](#delete-applications-name) | `admin` | Remove containers and history |
-| `GET` | [`/applications/:name/logs`](#get-applications-name-logs) | `read` | Last log lines, or a live stream |
+| `GET` | [`/applications/:name/logs`](#get-applications-name-logs) | `read` | Last log lines, or a live stream; since 0.9 the stream carries a heartbeat while it is quiet, and `since` takes it up from a time |
 | `GET` | [`/applications/:name/logs/archive`](#get-applications-name-logs-archive) | `read` | What is kept of the output of ended containers and runs, newest first, without the lines. Since 0.7 |
 | `GET` | [`/applications/:name/logs/archive/:id`](#get-applications-name-logs-archive-id) | `read` | One entry with its lines. Since 0.7 |
 | `GET` | [`/applications/:name/logs/search`](#get-applications-name-logs-search) | `read` | Lines that contain a text, in the archive and in the replicas that exist, a page at a time. Since 0.7 |
@@ -257,9 +260,9 @@ Paths are relative to `/api/v1`. The role is the least a token needs.
 | `DELETE` | [`/access/rules/:id`](#delete-access-rules-id) | `admin` | Remove a rule; sessions that rested on it end with their next request |
 | `GET` | [`/access/sessions`](#get-access-sessions) | `admin` | Who is signed in right now |
 | `DELETE` | [`/access/sessions/:email`](#delete-access-sessions-email) | `admin` | End every session of a person, named as the sessions list them |
-| `GET` | [`/secrets`](#get-secrets) | `read` | The secrets stored on the server, names and dates only |
-| `PUT` | [`/secrets/:name`](#put-secrets-name) | `admin` | Store a secret, creating or replacing it |
-| `DELETE` | [`/secrets/:name`](#delete-secrets-name) | `admin` | Remove a secret |
+| `GET` | [`/secrets`](#get-secrets) | `read` | The secrets stored on the server, names, scopes and dates only |
+| `PUT` | [`/secrets/:name`](#put-secrets-name) | `admin` | Store a secret, creating or replacing it; since 0.9 for one application with `application` in the body, else for the server |
+| `DELETE` | [`/secrets/:name`](#delete-secrets-name) | `admin` | Remove a secret: the server's, or since 0.9 an application's own with `?application=` |
 | `GET` | [`/registries`](#get-registries) | `read` | The registries the agent holds a credential for, without passwords |
 | `PUT` | [`/registries/:registry`](#put-registries-registry) | `admin` | Check a credential against its registry and store it, creating or replacing it |
 | `DELETE` | [`/registries/:registry`](#delete-registries-registry) | `admin` | Remove a registry's credential |
@@ -291,7 +294,7 @@ Liveness, for load balancers and `shipwick server status`. It takes no token and
 | `200` | [`Health`](#health) |
 
 ```json
-{ "data": { "status": "ok", "version": "v0.8.1" } }
+{ "data": { "status": "ok", "version": "v0.9.0" } }
 ```
 
 It asks neither Docker nor the database, and answers `200` while the Docker daemon does not: the agent itself is up. From the container of an application it is `403 APPLICATION_CALLER` like every endpoint, see [Authentication](#authentication).
@@ -306,7 +309,7 @@ It asks neither Docker nor the database, and answers `200` while the Docker daem
 ```json
 {
   "data": {
-    "agent_version": "v0.8.1", "hostname": "vps-1",
+    "agent_version": "v0.9.0", "hostname": "vps-1",
     "os": "linux", "kernel": "6.8.0", "architecture": "amd64", "docker_version": "29.8.0",
     "cpus": 4, "memory_bytes": 8589934592, "applications": 3, "containers": 5,
     "swap_bytes": 2147483648, "unlimited_memory": ["worker"],
@@ -343,10 +346,21 @@ Since 0.7 there are two more objects:
 
 ```json
 "log_archive": { "enabled": true, "entries": 278, "bytes": 63974240, "max_bytes": 1073741824, "retention_days": 14 },
-"update": { "enabled": true, "latest_version": "v0.8.1", "checked_at": "2026-10-04T09:00:00Z", "available": true }
+"update": { "enabled": true, "latest_version": "v0.9.0", "checked_at": "2026-10-04T09:00:00Z", "available": false }
 ```
 
 `swap_bytes`, `unlimited_memory` and `docker` are since 0.8. So are two fields that are present only when `true`, and absent from the example for that reason: `proxy.plain_lookups` and `open_to_applications`.
+
+Since 0.9 there are three more, each present only when there is something to say:
+
+```json
+"proxy": { "enabled": true, "reachable": true, "error": "", "routes": 4, "dns_challenge": false,
+           "networks_missing": ["shipwick-control"] },
+"kernel_limits": { "neighbour_table": 1024 },
+"cloudflare": { "checked_at": "2026-10-11T09:00:00Z", "ok": false, "address": "2a01:4f8:1c1b:5e07::1",
+                "zones": [ { "name": "example.com", "dns_edit": true }, { "name": "shipwick.com", "dns_edit": false } ],
+                "problems": [ "the token cannot edit DNS records of shipwick.com: it needs Zone → DNS → Edit (DNS Settings, DNS Firewall and DNS Views are other permissions)" ] }
+```
 
 `token` is the token, or the session, this request was made with, so that a client knows what it may do before it tries: its role, the applications it is limited to and when it expires, as [Authentication](#authentication) describes. `sign_in` says whether people can sign in with an OpenID Connect provider, and with which. `notifications.webhook` says whether `SHIPWICK_WEBHOOK_URL` is set on the agent. `architecture` is what a client building an image for this server passes to `docker build --platform`; see [Images built by the client](#post-applications-name-images).
 
@@ -356,6 +370,9 @@ Since 0.7 there are two more objects:
 - `unlimited_memory`, since 0.8, names the running applications that have no memory limit, sorted: each may use whatever the server has. A stopped application and a static one are not among them. The field is absent when there are none.
 - `docker`, since 0.8, is what the daemon says about itself. `rootless` is `true` when it runs as an ordinary user of the server and not as root. `unenforced_limits` lists which of `memory` and `cpu` it accepts as a limit of [`resources`](/docs/reference/deploy-yaml#resources) and does not apply, because it has no cgroup controller for them; `[]` where it applies both. See [Limits that are not enforced](/docs/concepts/resources#limits-that-are-not-enforced) and [Rootless Docker](/docs/tasks/less-than-the-docker-socket#rootless-docker).
 - `open_to_applications`, since 0.8, is present and `true` when the containers of applications can reach the API over the network, so that only the token keeps them out; absent otherwise. See [Authentication](#authentication).
+- `proxy.networks_missing`, since 0.9, names the installation's networks the proxy's container is not attached to — among `shipwick`, `shipwick-services` and `shipwick-control`, in the compose file's order — looked at every 30 seconds. A proxy on some of its networks serves some applications and not others, or cannot reach the agent; `docker compose up -d --force-recreate caddy` on the server makes the container again. The field is present only when there are any, and never when the proxy is not a container of the installation. See [When things break](/docs/tasks/when-things-break#the-proxy-cannot-be-reached).
+- `kernel_limits.neighbour_table`, since 0.9, is `net.ipv4.neigh.default.gc_thresh3`: how many neighbours the kernel keeps before containers stop reaching each other, 1024 in a stock kernel. It is present only where the agent can read it, which is an agent that runs as a process of the host, [installed from a package](/docs/getting-started/install-from-a-package); the kernel shows the setting in the host's own network namespace only, so an agent in a container cannot. `shipwick doctor` warns from a quarter of the table on. See [Prepare a server](/docs/tasks/prepare-a-server#the-kernel-s-table-of-neighbours).
+- `cloudflare`, since 0.9, is what the agent found out about its Cloudflare token when it last checked it, the shape of [`POST /server/cloudflare/verify`](#post-server-cloudflare-verify)'s answer. Absent without a token, before the first check has finished, and from an agent older than 0.9.
 - `dashboard_url` is `https://<SHIPWICK_DASHBOARD_DOMAIN>`, or `""` when the dashboard has no hostname.
 - `disk` is the filesystem that holds the agent's data directory. `used_bytes / total_bytes` is the percentage `df` shows: `total_bytes` leaves out the blocks reserved for root. It is `null` where the agent cannot measure it, a development build off Linux.
 - `alerts` are the conditions that hold right now, oldest first; `[]` when there are none. `kind` is `memory`, `disk`, `restarts`, `unhealthy` or, since 0.8, `docker`; `severity` is `warning` or `critical`: `disk` and `unhealthy` become critical, and `docker` always is. `memory` and `restarts` name an `application` and a `replica`; `unhealthy` an application, with `replica` 0; `disk` and `docker` neither. `since` is when the alert was raised, and stays when a warning turns critical. Alerts are kept in memory: an agent that restarts raises again what still holds. An alert about an application is also in [its events](#get-applications-name-events), with the type `alert`.
@@ -377,7 +394,7 @@ Since 0.7 there are two more objects:
 
 A pull that fails before the registry answers (no route, a proxy that refuses, a certificate the daemon does not trust) fails the deployment with the daemon's message followed by what to change on the server; it has no error code of its own. See [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network).
 
-An agent before 0.5 sends none of `dashboard_url`, `disk`, `alerts`, `backups` and `proxy.dns_challenge`. An agent before 0.6 sends no `network` and no `sign_in`, and only `name` and `role` in `token`. An agent before 0.7 sends no `log_archive`, no `update` and no `sign_in.name_claim`. An agent before 0.8 sends none of `swap_bytes`, `unlimited_memory`, `docker`, `open_to_applications` and `proxy.plain_lookups`, so the absence of a field says nothing there; `docker`, which an agent of 0.8 always sends, tells the two apart. See [Alerts and metrics](/docs/tasks/alerts-and-metrics).
+An agent before 0.5 sends none of `dashboard_url`, `disk`, `alerts`, `backups` and `proxy.dns_challenge`. An agent before 0.6 sends no `network` and no `sign_in`, and only `name` and `role` in `token`. An agent before 0.7 sends no `log_archive`, no `update` and no `sign_in.name_claim`. An agent before 0.8 sends none of `swap_bytes`, `unlimited_memory`, `docker`, `open_to_applications` and `proxy.plain_lookups`, so the absence of a field says nothing there; `docker`, which an agent of 0.8 always sends, tells the two apart. An agent before 0.9 sends none of `proxy.networks_missing`, `kernel_limits` and `cloudflare`, each of which an agent of 0.9 sends only when there is something to say, so their absence says nothing about the agent's version. See [Alerts and metrics](/docs/tasks/alerts-and-metrics).
 
 ### POST /server/rotate-key
 
@@ -411,6 +428,35 @@ With the key in [`SHIPWICK_ENCRYPTION_KEY`](/docs/reference/agent-configuration#
 The agent keeps working with the new key. Started again with the old one in its environment, it refuses to start and says where the new key is. Until it has been restarted with the new key, another rotation is `409 KEY_ROTATION_PENDING`.
 
 The rotation is recorded in the agent's log with the name of the token that asked for it. It is not an application event, and the key is never logged. See [Rotate the encryption key](/docs/tasks/rotate-the-encryption-key).
+
+### POST /server/cloudflare/verify
+
+Since 0.9. The agent checks what its Cloudflare token (`SHIPWICK_CLOUDFLARE_API_TOKEN`) can do, the way the proxy is going to use it: it asks Cloudflare whether it accepts the token from the address the server calls from (`GET /user/tokens/verify`), lists the zones the token sees (`GET /zones`), and in each creates and at once removes a TXT record of its own — `_shipwick-check.<zone>`, TTL 60, a value that names the server and the time — which is the only sure test of *Zone → DNS → Edit*. It runs the same check once when it starts. No body.
+
+```bash
+curl -X POST …/server/cloudflare/verify
+```
+
+| Status | Body |
+|---|---|
+| `200` | [`CloudflareStatus`](#cloudflarestatus) |
+| `409 CLOUDFLARE_NOT_CONFIGURED` | The agent has no Cloudflare token |
+| `429 CLOUDFLARE_CHECKED_RECENTLY` | The token was checked less than a minute ago; `details: {checked_at, retry_after_seconds}` and a `Retry-After` header. The result of that check is `cloudflare` in [`GET /server`](#get-server) |
+
+```json
+{ "data": {
+  "checked_at": "2026-10-11T09:00:00Z",
+  "ok": false,
+  "address": "2a01:4f8:1c1b:5e07::1",
+  "zones": [ { "name": "example.com", "dns_edit": true },
+             { "name": "shipwick.com", "dns_edit": false } ],
+  "problems": [ "the token cannot edit DNS records of shipwick.com: it needs Zone → DNS → Edit (DNS Settings, DNS Firewall and DNS Views are other permissions)" ]
+} }
+```
+
+`ok` is true when the token is valid and active, sees at least one zone and can edit the DNS records of every zone it sees; `problems` is then empty. `address` is the address Cloudflare saw the check come from — the one an IP filter on the token has to name — or `""` when it could not be learned. `problems` are sentences a person acts on, one per thing that is wrong: `Cloudflare refuses the token from this server's address 2a01:…: an IP filter on the token must name that address, or the token is not valid (Cloudflare answered HTTP 403, code 10000: Authentication error)` — the two cannot be told apart from Cloudflare's answer; `the token is not valid (…)`; `the token is disabled: …`; `the token cannot list zones: it needs Zone → Zone → Read (…)`; `no zone is visible to the token: …`; the one above for a zone it cannot edit; `the check record _shipwick-check.<zone> was created and could not be removed: delete that TXT record by hand (…)`; `Cloudflare's API could not be reached from this server: …`; and `the token sees more than 50 zones, and only those were checked: …`. Nothing of the token itself is in the result, in the log or in any error.
+
+A check writes, so the agent refuses one within a minute of the last; two requests at once share one check. The request needs the `admin` role and is recorded in the [audit trail](#get-audit) as `cloudflare.verify`. `shipwick doctor` with an `admin` token makes this request, and reads `GET /server` with any other. See [Put Cloudflare in front of the server](/docs/tasks/cloudflare#check-it).
 
 ### GET /server/backups
 
@@ -530,7 +576,12 @@ Status, the active configuration with environment values and basic-auth password
   { "hostname": "api.example.com", "status": "ok", "issuer": "Let's Encrypt E7",
     "not_after": "2026-05-20T08:00:00Z", "message": "" },
   { "hostname": "www.example.com", "status": "waiting_for_dns", "issuer": "", "not_after": null,
-    "message": "does not resolve yet; add an A record: www.example.com → 203.0.113.10 (DNS only, not proxied)" }
+    "message": "does not resolve yet; add an A record: www.example.com → 203.0.113.10 (DNS only, not proxied)" },
+  { "hostname": "shop.example.com", "status": "obtaining", "issuer": "", "not_after": null,
+    "message": "the proxy has no certificate for it yet: Let's Encrypt could not connect to the server on port 443 (tls-alpn-01): a firewall in front of it?",
+    "failure": { "at": "2026-10-11T14:00:12.5Z", "challenge": "tls-alpn-01",
+                 "reason": "Let's Encrypt could not connect to the server on port 443 (tls-alpn-01): a firewall in front of it?",
+                 "detail": "203.0.113.10: Timeout during connect (likely firewall problem)" } }
 ]
 ```
 
@@ -543,6 +594,8 @@ Status, the active configuration with environment values and basic-auth password
 | `unknown` | Not looked at yet, the proxy did not answer, or the agent has no proxy; `message` says which |
 
 `issuer` and `not_after` are set once a certificate has been seen, `message` for every status but `ok`. The agent looks once a minute per hostname, every ten seconds while it is `obtaining`, by connecting to the proxy with the hostname as the server name; it reports the certificate and does not verify its chain. A certificate that lives less than 56 days is `expiring` in the last quarter of its lifetime rather than the last 14 days. The list is empty for an application without a domain. See [Certificates](/docs/tasks/certificates).
+
+`failure`, since 0.9, is the last failure the proxy logged while obtaining or renewing the hostname's certificate, read from the proxy's own log: `at`, the ACME `challenge` that failed (`tls-alpn-01`, `http-01`, `dns-01`, or `""` when the failure came before one was tried), `reason` — a sentence with the cause and what to look at — and `detail`, the proxy's own words, trimmed. It is present with any `status`: with `obtaining` the `message` ends with the reason, with `ok` or `expiring` it means the renewal is failing. It is absent while the proxy logged nothing since the certificate last arrived, and from an agent older than 0.9. The reasons the agent writes: `Let's Encrypt could not connect to the server on port 443 (tls-alpn-01): a firewall in front of it?` (port 80 for `http-01`); `the DNS record for the challenge could not be created: …` with the sentence of the [Cloudflare token](#post-server-cloudflare-verify) check when it found something, otherwise with Cloudflare's answer as the proxy quoted it; `Let's Encrypt did not find the DNS record for the challenge (dns-01): …`; `Let's Encrypt was answered by something other than this server (tls-alpn-01): …`; `Let's Encrypt refuses for now, its rate limit is reached: …; it lifts within the hour`; and `Let's Encrypt did not issue it: …` for anything else, with `the certificate authority` in place of the name when `SHIPWICK_ACME_DIRECTORY` is set. The application's events record each new reason once, as a warning. `certificate_problem` in [`GET /applications`](#get-applications) is unchanged in shape; its `message` carries the reason for `obtaining`.
 
 `containers` also lists the containers the agent is retiring in the background, replaced by a deployment or left over, each with `stopping: true` until its process exits or its `deploy.stop_timeout` is over. Such a container is not a replica any more; see [`Container`](#container).
 
@@ -962,11 +1015,12 @@ Logs of the replicas of the active deployment.
 |---|---|---|
 | `tail` | `100` | Number of lines. 1 to 5000 without `follow`; 0 to 5000 with it. |
 | `follow` | `false` | `true` answers with a live stream. See [Following logs](#following-logs). |
+| `since` | | Since 0.9, with `follow=true` only: a time in RFC 3339. The stream begins with every line logged at or after it, `tail` not applied, then follows: how a client that lost the stream takes it up where it left off. See [Following logs](#following-logs). |
 
 | Status | Body |
 |---|---|
-| `200` | Without `follow`: array of [`LogLine`](#logline), merged across replicas in chronological order. With `follow`: an NDJSON stream. |
-| `400 INVALID_REQUEST` | Invalid `tail` or `follow` |
+| `200` | Without `follow`: array of [`LogLine`](#logline), merged across replicas in chronological order. With `follow`: an NDJSON stream, with the header `X-Shipwick-Log-Since` when `since` was honoured. |
+| `400 INVALID_REQUEST` | Invalid `tail` or `follow`; `since` that is not a time in RFC 3339, or `since` without `follow=true` — lines of a time are what [`logs/search`](#get-applications-name-logs-search) finds |
 | `404 NOT_FOUND` | Unknown application |
 | `409 NOT_DEPLOYED` | No active deployment |
 | `409 STATIC_APPLICATION` | The proxy serves this application from a folder; it has no containers and no logs. The metrics, the metrics history, the jobs and `run` answer the same. |
@@ -1146,7 +1200,7 @@ The application's own feed, newest first: crashes, restarts, health changes, rec
   "message": "Replica 2 exited with code 137; restarting in 2s", "created_at": "2026-03-01T10:00:00Z" }
 ```
 
-`type` is `supervisor`, `app` (stops, starts and restored volumes: `Application stopped by ci`, `Volume data restored from a backup (12.5 MB)`) or `job` (a run that went wrong, with `level: "warn"`: `Job nightly-report failed (exit 1)`, `Job nightly-report timed out after 1h`, `Command pg_dump failed (exit 1)`). A run that succeeds records nothing. Two more types exist: `alert`, an [alert](#get-server) about the application, with level `warn` or `error` when it is raised and `info` when it is cleared; and `backup`, a [backup](#get-applications-name-backups) that failed (`Backup #12 failed: …`), a verification either way, and an application that was stopped for a backup and started again. Backups that succeed record nothing.
+The `probe` event of a deployment, since 0.9, is not in this feed either; it belongs to its deployment, see [Deployment events](#deployment-events). `type` is `supervisor`, `app` (stops, starts and restored volumes: `Application stopped by ci`, `Volume data restored from a backup (12.5 MB)`) or `job` (a run that went wrong, with `level: "warn"`: `Job nightly-report failed (exit 1)`, `Job nightly-report timed out after 1h`, `Command pg_dump failed (exit 1)`). A run that succeeds records nothing. Two more types exist: `alert`, an [alert](#get-server) about the application, with level `warn` or `error` when it is raised and `info` when it is cleared; and `backup`, a [backup](#get-applications-name-backups) that failed (`Backup #12 failed: …`), a verification either way, and an application that was stopped for a backup and started again. Backups that succeed record nothing.
 
 A replaced container that did not exit within its `deploy.stop_timeout` and was killed is an `app` event at level `warn`: `The replaced container shipwick_my-api_6_1 did not exit within 10s of SIGTERM and was killed. To let it finish its requests, handle SIGTERM in the application; to give it longer, set deploy.stop_timeout`.
 
@@ -1946,18 +2000,22 @@ Recorded in the audit trail as `access.signout`, with the name as the target.
 
 ### GET /secrets
 
-The secrets stored on the server, by name, without values. A secret is a value for `${NAME}` in the `env` values of a `deploy.yaml` and in the passwords of its `proxy.basic_auth`, kept on the server so that no client has to hold it; the agent fills it in when a deployment is recorded. See [Placeholders](/docs/reference/deploy-yaml#placeholders).
+The secrets stored on the server, by name, without values. A secret is a value for `${NAME}` in the `env` values of a `deploy.yaml` and in the passwords of its `proxy.basic_auth`, kept on the server so that no client has to hold it; the agent fills it in when a deployment is recorded. Since 0.9 it belongs to one application or to the whole server. See [Placeholders](/docs/reference/deploy-yaml#placeholders) and [Keep secrets on the server](/docs/tasks/secrets).
 
 | Status | Body |
 |---|---|
-| `200` | Array of [`Secret`](#secret) |
+| `200` | Array of [`Secret`](#secret), by name, the server's before the applications' of the same name |
 
 ```json
 { "data": [
-  { "name": "DATABASE_PASSWORD", "created_at": "2026-03-01T10:00:00Z",
-    "updated_at": "2026-03-01T10:42:00Z" }
+  { "name": "DATABASE_PASSWORD", "application": "", "created_at": "2026-03-01T10:00:00Z",
+    "updated_at": "2026-03-01T10:42:00Z" },
+  { "name": "DATABASE_PASSWORD", "application": "api", "created_at": "2026-10-11T08:00:00Z",
+    "updated_at": "2026-10-11T08:00:00Z" }
 ] }
 ```
+
+`application`, since 0.9, is always present: `""` for the server's. An agent before 0.9 lists no `application` at all; everything it has is the server's.
 
 ### PUT /secrets/:name
 
@@ -1965,24 +2023,26 @@ Stores a secret, creating or replacing it.
 
 ```bash
 curl -X PUT …/secrets/DATABASE_PASSWORD -d '{"value": "hunter2"}'
+curl -X PUT …/secrets/DATABASE_PASSWORD -d '{"value": "hunter3", "application": "api"}'
 ```
 
 | Field | Type | |
 |---|---|---|
 | `value` | string | Required. At most 64 KB, not empty, without NUL bytes. |
+| `application` | string | Since 0.9. Optional. An application name: the secret is that application's own, and its `${NAME}` is answered by it before a server-wide secret of the same name; no other application sees it. The application need not exist. Absent or `""`: the secret is the server's, which every application without one of its own falls back to, as every secret was before 0.9. The two are different secrets, and (application, name) is what names one. |
 
-`:name` matches `^[A-Za-z_][A-Za-z0-9_]*$` and is at most 64 characters: names are environment variable names. The body is at most 260 KB; unknown fields are rejected. At most 500 secrets are stored.
+`:name` matches `^[A-Za-z_][A-Za-z0-9_]*$` and is at most 64 characters: names are environment variable names. The body is at most 260 KB; unknown fields are rejected. At most 500 secrets are stored, both kinds together.
 
 | Status | Body |
 |---|---|
 | `204` | None, whether the secret was created or replaced |
-| `400 INVALID_REQUEST` | Invalid name or value, invalid JSON, unknown field, body too large, or the 501st secret |
+| `400 INVALID_REQUEST` | Invalid name or value, invalid JSON, unknown field, body too large, an `application` that is not an application name, or the 501st secret |
 
-The value is written encrypted (AES-256-GCM, the name as additional data, like an `env` value) and is never returned, logged or repeated in an error.
+The value is written encrypted (AES-256-GCM, with the name as additional data for a server-wide secret and `applications/<application>/secrets/<name>` for an application's, like an `env` value) and is never returned, logged or repeated in an error. An agent before 0.9 answers a body with `application` with `400 INVALID_REQUEST` (`invalid JSON body …`) and stores nothing, which is how a client finds out; a query parameter it would have ignored.
 
 ### DELETE /secrets/:name
 
-Removes a secret. Deployments already made keep the value they were started with; the next `deploy` whose `env` refers to the name is refused:
+Removes a secret: the server's, or with `?application=api`, since 0.9, the application's own; each leaves the other where it is. Deployments already made keep the value they were started with; the next `deploy` whose `env` refers to a name that neither the application nor the server has is refused:
 
 ```json
 { "error": { "code": "INVALID_CONFIG", "message": "invalid deploy.yaml",
@@ -1992,10 +2052,19 @@ Removes a secret. Deployments already made keep the value they were started with
                "expected": "shipwick secret set DATABASE_PASSWORD" } ] } } }
 ```
 
+`expected` is the server-wide form of the command, which answers whichever scope the application's other secrets have; `--app <application>` stores the secret for the application alone.
+
+| Parameter | Default | |
+|---|---|---|
+| `application` | | Since 0.9. The application whose own secret is removed; without it, the server's |
+
 | Status | Body |
 |---|---|
 | `204` | None |
-| `404 NOT_FOUND` | No secret by that name |
+| `400 INVALID_REQUEST` | An `application` that is not an application name |
+| `404 NOT_FOUND` | No secret by that name in that scope |
+
+An agent before 0.9 ignores the parameter and removes the server's secret, so a client that means an application's checks the listing for it first.
 
 ### GET /registries
 
@@ -2192,7 +2261,7 @@ Takes an export as the body, with `Content-Type: application/octet-stream`, and 
 |---|---|
 | `200` | [`Import`](#import), also when applications in it failed |
 | `400 INVALID_REQUEST` | The body is not sent as `application/octet-stream`; an invalid `stopped` or `overwrite`; no passphrase header, or one that is not base64 |
-| `400 INVALID_EXPORT` | The body is not an export, the passphrase does not match, or the file breaks off. What had been imported until then stays, and `GET /import` shows it. |
+| `400 INVALID_EXPORT` | The body is not an export, the passphrase does not match, or the file breaks off. What had been imported until then stays, and `GET /import` shows it. Also, since 0.9, when the export, written by a newer agent, names a key of the configuration this agent does not know (`requires` in its manifest): it is refused before anything is taken in, and the message names the key and the version that wrote the export — `the export was written by Shipwick v0.10.0 and uses the key spec.hoverboard, which this agent (Shipwick v0.9.0) does not know and would drop. Import it with an agent of that version or newer, or export without the applications that use it`. `GET /import` then shows the record as `failed` with that `error` and no applications. Exports written before 0.9 carry no list and import as before. |
 | `409 IMPORT_IN_PROGRESS` | An import is running; a server takes one at a time |
 | `409 PROMOTION_IN_PROGRESS` | Nothing is imported into a server while it is being promoted |
 | `503 RUNTIME_UNAVAILABLE` | The agent is shutting down |
@@ -2335,7 +2404,7 @@ With nothing to promote, no promotion begins, and the record of the last promoti
 
 A promotion outlives the agent. One that an agent was restarted under is resumed by the agent that starts next, from its record: applications it had finished with keep their outcome, the one it was at is started if it is not running and waited for again, the rest follow. While the agent is away the proxy answers `502`, `503` or `504` in its place, and an agent that is shutting down answers `503`; a client keeps polling.
 
-Without `wait=false` the request is held until the promotion has ended and answered `200` with the completed record, as agents before 0.6 answered. Those have no record: no `id`, `status` or times in the answer, and `404 ENDPOINT_NOT_FOUND` for `GET /standby/promotion`. The promotion is the same one either way; a held request that loses its connection loses only the answer, which `GET /standby/promotion` still has. See [Keep a second server ready](/docs/tasks/standby).
+Without `wait=false` the request is held until the promotion has ended and answered `200` with the completed record, as agents before 0.6 answered. Those have no record: no `id`, `status` or times in the answer, and `404 ENDPOINT_NOT_FOUND` for `GET /standby/promotion`. The promotion is the same one either way; a held request that loses its connection loses only the answer, which `GET /standby/promotion` still has. A held answer carries nothing until it is complete, and a proxy that closes an idle response — Cloudflare's does after 100 seconds — ends it: through one, use `wait=false` and poll. See [Keep a second server ready](/docs/tasks/standby).
 
 ### GET /standby/promotion
 
@@ -2444,11 +2513,14 @@ state  HEALTHY
 step   Routed https://api.example.com to 2 replicas   (only with a domain)
 state  ACTIVE
 step   Deployment successful
+probe  https://api.example.com/ answers HTTP 200 through the proxy   (only with a routed domain; after completed_at)
 ```
+
+The `probe` event, since 0.9, is the agent asking the application its own hostname once through the proxy — `GET https://<domain><path>/`, following no redirect, five seconds at most — after the deployment is complete; `completed_at` never waits for it, and it is the one event that appears after it, at most one per deployment. An agent before 0.9 records none. At level `info` it says what the application answered: `https://example.com/ answers HTTP 200 through the proxy`, `https://example.com/ answers HTTP 302 through the proxy to https://example.com/login`. At level `warn` it is a redirect loop — the answer sends visitors to a hostname of `redirects`, which the proxy sends back — or a proxy that could not be asked (`https://example.com/ could not be asked through the proxy: <cause>`), and the message says what to do: `https://example.com/ sends its visitors to www.example.com, which `redirects` sends back: every request loops. Make www.example.com the `domain` and example.com a redirect, or stop the application redirecting`. While the proxy cannot answer — no certificate for a new hostname yet — the agent asks again every ten seconds for up to three minutes, so the event may follow `completed_at` by minutes; a client that stops polling at completion fetches the deployment once more, or follows [`GET /applications/:name`](#get-applications-name) for the active deployment's events. A folder, an application deployed stopped, a wildcard and a hostname still waiting for DNS get no `probe` event. See [A redirect loop is caught](/docs/tasks/several-hostnames#a-redirect-loop-is-caught).
 
 A `step` event with `level: "warn"` is a warning, for example when the image could not be pulled and a local copy was used, when a domain is configured but no reverse proxy is, or when a hostname does not point at the server yet: the warning names the record to create, `add an A record: api.example.com → 203.0.113.10 (DNS only, not proxied)`. Since 0.8 a deployment that asks for a limit the server's Docker does not apply says so in one: `Docker on this server does not enforce resources.memory and resources.cpu: the replicas run without a limit. shipwick doctor says what the server lacks`. A static deployment's steps read `Received 42 files (3.1 MB)`, `Copied 42 files into the proxy`, `Found index.html` and `Routed https://example.com to the uploaded files` instead of the pull and the replicas.
 
-On failure there is a `state` event `FAILED: <reason>` with `level: "error"` and, if a replica crashed or never became healthy, a `log` event holding its last 20 lines of output. A pre-deploy command that exits non-zero or outlives its timeout fails the deployment before any replica of the new version was started, with the reason `pre-deploy command exited 1` or `pre-deploy command timed out after 10m`, and a `log` event `Last output of the pre-deploy command:` followed by its last 20 lines, at most 4096 bytes. A rollback adds the `state` events `ROLLBACK`, `RESTORING` and `ROLLED_BACK`, and steps narrating it. A deployment that ends `FAILED` or `ROLLED_BACK` removes the image it named unless something else needs it, and says so in a step. Deployment events never change afterwards.
+On failure there is a `state` event `FAILED: <reason>` with `level: "error"` and, if a replica crashed or never became healthy, a `log` event holding its last 20 lines of output. A pre-deploy command that exits non-zero or outlives its timeout fails the deployment before any replica of the new version was started, with the reason `pre-deploy command exited 1` or `pre-deploy command timed out after 10m`, and a `log` event `Last output of the pre-deploy command:` followed by its last 20 lines, at most 4096 bytes. A rollback adds the `state` events `ROLLBACK`, `RESTORING` and `ROLLED_BACK`, and steps narrating it. A deployment that ends `FAILED` or `ROLLED_BACK` removes the image it named unless something else needs it, and says so in a step. Deployment events never change afterwards, but for the one `probe` event an agent of 0.9 or later adds after `completed_at`.
 
 ## Following logs
 
@@ -2457,12 +2529,16 @@ On failure there is a `state` event `FAILED: <reason>` with `level: "error"` and
 ```json
 {"replica":1,"container":"shipwick_my-api_7_1","stream":"stdout","time":"2026-03-01T10:00:00.12Z","message":"listening on :8080"}
 {"replica":2,"container":"shipwick_my-api_7_2","stream":"stderr","time":"2026-03-01T10:00:00.31Z","message":"cache warm"}
+{"heartbeat":true,"time":"2026-03-01T10:00:20.31Z"}
+{"end":"containers"}
 ```
 
 - Each replica starts with its last `tail` lines, so two replicas and `tail=100` begin with up to 200 lines. `tail=0` means "only what is logged from now on" and is valid only when following.
+- `since=<RFC 3339>`, since 0.9, starts with every line logged at or after that time instead, `tail` not applied — inclusive, so the line at that instant comes again: how a client that lost the stream takes it up where it left off, from the time of the last line it has. The answer then carries `X-Shipwick-Log-Since` with the time as the agent read it (RFC 3339, nanoseconds, UTC); an agent before 0.9 does not know `since`, answers without the header and starts with the last `tail` lines. Without `follow=true`, `since` is `400 INVALID_REQUEST` — lines of a time are what [`logs/search`](#get-applications-name-logs-search) finds.
+- While the application prints nothing, the stream carries a heartbeat every 20 seconds, since 0.9 — `{"heartbeat":true,"time":"2026-03-01T10:00:20.31Z"}`, the agent's clock — so that nothing between the agent and the client takes a quiet stream for a dead one: Cloudflare's proxy closes a response that has carried no bytes for 100 seconds. It is not a log line: a reader tells it from one by the field (it has no `message`), and may take its `time` as where to resume from. Every line sent starts the 20 seconds over, so a busy stream carries none. Agents before 0.9 send none; see [`LogHeartbeat`](#logheartbeat).
 - Lines of one replica arrive in order. Replicas interleave as output arrives.
 - Problems found before streaming starts (unknown application, nothing deployed, bad parameters) are regular JSON errors with a non-200 status.
-- The stream ends when the client disconnects, when the agent shuts down, or when every followed container is gone, which is what a new deployment does. Reconnect to follow the new containers.
+- The stream ends when the client disconnects, when the agent shuts down, or when every followed container is gone, which is what a new deployment does. Since 0.9 a stream the agent ends carries a last line that says which: `{"end":"containers"}` — reconnect to follow the new containers — or `{"end":"shutdown"}`, the agent is stopping for a restart or an upgrade and is back in a moment; a client that wants to go on reconnects then, with `since`. Not a log line either (no `message`); see [`LogEnd`](#logend). Agents before 0.9 end a stream without one.
 
 When the API is served through Caddy at `SHIPWICK_AGENT_DOMAIN`, the route is configured without response buffering, so lines still arrive one by one. The proxy compresses the API's other responses; a followed log is not compressed, since the encoder would hold its response header back until the application printed something.
 
@@ -2493,7 +2569,7 @@ All types are defined in [`pkg/api/types.go`](https://github.com/shipwick/shipwi
 | `unlimited_memory` | array of strings | The running applications that have no memory limit: each may use whatever the server has. Absent when there are none, and from agents before 0.8. |
 | `applications` | integer | Number of applications |
 | `containers` | integer | Running Shipwick-managed containers |
-| `proxy` | object | `enabled`: a proxy is configured; `false` means domains are not served. `reachable`: the last configuration sync succeeded. `error`: why it did not. `routes`: hostnames being served. `dns_challenge`: certificates are obtained through a DNS record, so hostnames may stand behind Cloudflare's proxy and may be wildcards. `plain_lookups`, since 0.8: present and `true` when the proxy is not Shipwick's image of this version, and finds replicas without keeping the last answer of a name lookup; absent otherwise. |
+| `proxy` | object | `enabled`: a proxy is configured; `false` means domains are not served. `reachable`: the last configuration sync succeeded. `error`: why it did not. `routes`: hostnames being served. `dns_challenge`: certificates are obtained through a DNS record, so hostnames may stand behind Cloudflare's proxy and may be wildcards. `plain_lookups`, since 0.8: present and `true` when the proxy is not Shipwick's image of this version, and finds replicas without keeping the last answer of a name lookup; absent otherwise. `networks_missing`, since 0.9: the installation's networks the proxy's container is not attached to, looked at every 30 seconds; present only when there are any. |
 | `token` | [`TokenIdentity`](#tokenidentity) | The token, or the session, this request was made with |
 | `sign_in` | [`SignInStatus`](#signinstatus) | Whether people can sign in with an OpenID Connect provider. Absent from agents before 0.6. |
 | `notifications` | [`NotificationStatus`](#notificationstatus) | Where the agent reports outcomes |
@@ -2506,6 +2582,35 @@ All types are defined in [`pkg/api/types.go`](https://github.com/shipwick/shipwi
 | `update` | [`UpdateStatus`](#updatestatus) | What the agent knows about newer releases. Absent from agents before 0.7. |
 | `open_to_applications` | boolean | Present and `true` when the containers of applications can reach the API over the network: the agent shares a network with them and listens on it. Absent otherwise, and from agents before 0.8, which never say. |
 | `docker` | [`DockerStatus`](#dockerstatus) | What the Docker daemon says about itself. Absent from agents before 0.8. |
+| `kernel_limits` | [`KernelLimits`](#kernellimits) | What the agent could read of the kernel's limits. Present only where it could, an agent that runs as a process of the host; absent from agents before 0.9. |
+| `cloudflare` | [`CloudflareStatus`](#cloudflarestatus) | What the agent found out about its Cloudflare token when it last checked it. Absent without a token, before the first check has finished, and from agents before 0.9. |
+
+### KernelLimits
+
+The `kernel_limits` object of [`GET /server`](#get-server). Since 0.9.
+
+| Field | Type | |
+|---|---|---|
+| `neighbour_table` | integer | `net.ipv4.neigh.default.gc_thresh3`: how many neighbours the kernel keeps before containers stop reaching each other, 1024 in a stock kernel. See [Prepare a server](/docs/tasks/prepare-a-server#the-kernel-s-table-of-neighbours) |
+
+### CloudflareStatus
+
+The answer of [`POST /server/cloudflare/verify`](#post-server-cloudflare-verify), and `cloudflare` in [`GET /server`](#get-server). Since 0.9.
+
+| Field | Type | |
+|---|---|---|
+| `checked_at` | timestamp | When the check was made |
+| `ok` | boolean | The token is valid and active, sees at least one zone and can edit the DNS records of every zone it sees; `problems` is then empty |
+| `address` | string | The address Cloudflare saw the check come from, which an IP filter on the token has to name; `""` when it could not be learned |
+| `zones` | array of [`CloudflareZone`](#cloudflarezone) | The zones the token sees, up to 50; `[]` when it sees none or could not list them |
+| `problems` | array of strings | One sentence per thing that is wrong, for a person to act on; `[]` when `ok` |
+
+### CloudflareZone
+
+| Field | Type | |
+|---|---|---|
+| `name` | string | The zone, `example.com` |
+| `dns_edit` | boolean | The token could create a DNS record in it |
 
 ### DockerStatus
 
@@ -2535,7 +2640,7 @@ What the agent knows about newer releases. Since 0.7.
 | Field | Type | |
 |---|---|---|
 | `enabled` | boolean | `false` when the agent was told not to ask (`SHIPWICK_UPDATE_CHECK=off`) |
-| `latest_version` | string | The latest release, `v0.8.1`; `""` until the agent has been able to ask |
+| `latest_version` | string | The latest release, `v0.9.0`; `""` until the agent has been able to ask |
 | `checked_at` | timestamp or null | When GitHub last answered; null until then |
 | `available` | boolean | `latest_version` is newer than the agent itself |
 
@@ -2668,6 +2773,18 @@ The certificate the proxy presents for one of an application's hostnames.
 | `issuer` | string | Set when there is a certificate |
 | `not_after` | timestamp or null | Set when there is a certificate |
 | `message` | string | For every status but `ok`, what is going on |
+| `failure` | [`CertificateFailure`](#certificatefailure) | Since 0.9. The last failure the proxy logged while obtaining or renewing the certificate; with `ok` or `expiring` it means the renewal is failing. Absent while the proxy logged nothing since the certificate last arrived, and from agents before 0.9. |
+
+### CertificateFailure
+
+Why the proxy could not obtain or renew a hostname's certificate, from the last failure it logged. Since 0.9. See [`GET /applications/:name`](#get-applications-name).
+
+| Field | Type | |
+|---|---|---|
+| `at` | timestamp | When the proxy logged it |
+| `challenge` | string | The ACME challenge that failed: `tls-alpn-01`, `http-01`, `dns-01`, or `""` when the failure came before one was tried |
+| `reason` | string | A sentence: the cause, and what to look at |
+| `detail` | string | What the proxy logged, as it logged it, trimmed |
 
 ### CertificateProblem
 
@@ -2776,7 +2893,7 @@ The `security` object of a [`Spec`](#spec). Every field takes away; none adds. S
 | `id` | integer | Increasing. Clients use it to tell new events from ones already seen. |
 | `deployment_id` | integer or null | Null for application events |
 | `level` | string | `info`, `warn` or `error` |
-| `type` | string | Deployment events: `step`, `state`, `log`. Application events: `supervisor`, `app` (stop, start, restored volume, a replaced container that had to be killed, a certificate being obtained or running out), `job` (a scheduled job or one-off command that failed or timed out), `alert` (an alert about the application raised or cleared), `backup` (a backup that failed, a verification). |
+| `type` | string | Deployment events: `step`, `state`, `log`, and since 0.9 `probe`, the agent's one look at the deployed application through the proxy, recorded after `completed_at` — at most one per deployment, `warn` for something to fix (a redirect loop, a proxy that could not be asked), `info` for what the hostname answered; see [Deployment events](#deployment-events). Application events: `supervisor`, `app` (stop, start, restored volume, a replaced container that had to be killed, a certificate being obtained or running out, since 0.9 why one could not be obtained or renewed), `job` (a scheduled job or one-off command that failed or timed out), `alert` (an alert about the application raised or cleared), `backup` (a backup that failed, a verification). |
 | `message` | string | |
 | `created_at` | timestamp | |
 
@@ -2789,6 +2906,23 @@ The `security` object of a [`Spec`](#spec). Every field takes away; none adds. S
 | `stream` | string | `stdout` or `stderr` |
 | `time` | timestamp | |
 | `message` | string | |
+
+### LogHeartbeat
+
+A line of a followed log that is not a log line, since 0.9: sent after 20 seconds without a line, so that a proxy between the agent and the client does not close a quiet stream as idle. A reader tells it from a [`LogLine`](#logline) by its field; it has no `message`. See [Following logs](#following-logs).
+
+| Field | Type | |
+|---|---|---|
+| `heartbeat` | boolean | Always `true` |
+| `time` | timestamp | The agent's clock when it was sent: where to take the stream up from with `since` |
+
+### LogEnd
+
+The last line of a followed log the agent ends on purpose, since 0.9. Agents before 0.9 end a stream without one. See [Following logs](#following-logs).
+
+| Field | Type | |
+|---|---|---|
+| `end` | string | `containers`: every followed container is gone, which is what a deployment does; reconnect to follow the new ones. `shutdown`: the agent is stopping for a restart or an upgrade and is back in a moment; reconnect with `since`. |
 
 ### LogArchiveEntry
 
@@ -3091,10 +3225,11 @@ What a static deployment serves; carried by [`Deployment`](#deployment) as `stat
 | Field | Type | |
 |---|---|---|
 | `name` | string | An environment variable name |
+| `application` | string | Since 0.9. The application the secret belongs to, or `""` for the server's. Absent from agents before 0.9, whose secrets are all the server's. |
 | `created_at` | timestamp | |
 | `updated_at` | timestamp | When the value was last replaced |
 
-The value is never part of any response.
+The value is never part of any response. (application, name) is what names a secret: the server's and an application's of the same name are two.
 
 ### Registry
 

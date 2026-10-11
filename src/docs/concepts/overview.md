@@ -48,7 +48,7 @@ There is no control plane, no cluster and no external database. The installer se
 
 Two things come back from Caddy. It writes its access log to standard output, without headers and without query strings, and the agent follows it through the Docker Engine API, the way it reads a replica's log: that is where [`shipwick traffic`](/docs/tasks/traffic) gets its numbers. And the agent asks the proxy for each hostname's certificate the way a visitor would, with a TLS handshake, to report its issuer and expiry. See [Certificates](/docs/tasks/certificates).
 
-**Caddy to Cloudflare.** Only with `SHIPWICK_CLOUDFLARE_API_TOKEN` set on the agent: Caddy then obtains certificates through a DNS record it creates with Cloudflare's API, so a hostname can stay behind Cloudflare's proxy and can be a wildcard. See [Put Cloudflare in front](/docs/tasks/cloudflare).
+**Caddy to Cloudflare.** Only with `SHIPWICK_CLOUDFLARE_API_TOKEN` set on the agent: Caddy then obtains certificates through a DNS record it creates with Cloudflare's API, so a hostname can stay behind Cloudflare's proxy and can be a wildcard. Since 0.9 the agent itself asks Cloudflare's API once, when it starts and when `shipwick doctor` asks, whether the token can do that job. See [Put Cloudflare in front](/docs/tasks/cloudflare).
 
 **Application to application.** Every application with a `port` is `http://<name>:<port>` for the other applications on the server, over the services network. No domain and no trip through the proxy. See [Call one application from another](/docs/tasks/call-another-application).
 
@@ -71,7 +71,7 @@ One parser and one validator serve both `shipwick` and the agent, so error messa
 - **The replica count.** A replica whose container has disappeared is recreated from the stored configuration.
 - **Caddy's configuration, entirely.** The agent regenerates and reloads the full configuration whenever a hostname, a path or a port changes, or a `proxy` block, a supplied certificate or a static application's folder does. A rollout, a crash or a restart does not touch it. Manual edits are overwritten.
 - **The folders of static applications.** The agent copies an uploaded folder into Caddy's container and keeps the one serving and the one before it. See [Deployments](/docs/concepts/deployments#a-folder-instead-of-a-container).
-- **The secrets.** Values stored with `shipwick secret set`, encrypted like environment values, filled into `${NAME}` in `env` values when a deployment is recorded.
+- **The secrets.** Values stored with `shipwick secret set`, encrypted like environment values, filled into `${NAME}` in `env` values when a deployment is recorded. Since 0.9 a secret belongs to one application or to the whole server, and an application's own answers before the server's.
 - **Registry credentials.** Stored with `shipwick registry login`, encrypted like a secret, and sent with every pull from that registry: deployments, rollbacks, jobs.
 - **Supplied certificates.** A certificate of your own, stored with `shipwick cert set`, is served for the hostnames it covers instead of one Caddy obtains. Its key is encrypted in the database and never returned.
 - **The encryption key.** One key encrypts all of the above. `shipwick server rotate-key` has the running agent replace it and re-encrypt every stored value, without a deployment or a restart. See [Rotate the encryption key](/docs/tasks/rotate-the-encryption-key).

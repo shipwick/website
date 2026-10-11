@@ -99,6 +99,12 @@ Proxy           unreachable  cannot reach Caddy's admin endpoint: dial unix /run
 
 **What is yours: Caddy.** `docker compose ps` and `docker compose logs caddy` in `/opt/shipwick`; Docker restarts its container when it exits. No alert is raised for this: a proxy that is down is noticed from outside sooner than from the agent. Deploy again when `shipwick server status` says `Proxy  ok`.
 
+**A proxy on some of its networks.** A proxy container that came back on some of its three networks after a refused start — ports below 1024 closed to it on rootless Docker, for one — serves some applications and not others, or cannot reach the agent. Since 0.9 the agent looks at the proxy's networks every half minute and says which are missing: in its log when that changes, in `GET /server` as `proxy.networks_missing`, after the `Proxy` line of `shipwick server status`, and in `shipwick doctor` as a problem with the command that makes the container again:
+
+```text
+✗ The proxy is not on the shipwick-control network: it serves some applications and not others, or cannot reach the agent. On the server: cd /opt/shipwick && docker compose up -d --force-recreate caddy
+```
+
 ## The server reboots
 
 Docker starts the agent and the proxy again; the agent starts the applications. Docker itself restarts none of them: their restarts are the supervisor's, so that one mechanism knows about backoff and crash loops.

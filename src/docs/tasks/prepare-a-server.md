@@ -1,26 +1,35 @@
 ---
 title: Prepare a server
-description: Six things Shipwick leaves to the server's operator, with the commands for Debian, Ubuntu and the RHEL family and what shipwick doctor sees of each — SSH keys, security updates, swap, a firewall, the clock, and backups that leave the server.
+description: What has to be right at the provider before the first command, and seven things Shipwick leaves to the server's operator, with the commands for Debian, Ubuntu and the RHEL family and what shipwick doctor sees of each — SSH keys, security updates, swap, a firewall, the clock, backups that leave the server, and the kernel's table of neighbours.
 ---
 
 # Prepare a server
 
-Shipwick deploys applications; it does not administer the server under them. Six things are the operator's, and worth doing before the server carries data that matters. This page lists them with the commands, and says which of them `shipwick doctor` sees.
+Shipwick deploys applications; it does not administer the server under them. Two things are decided at the provider before anything of Shipwick runs, and seven more are the operator's, worth doing before the server carries data that matters. This page lists them with the commands, and says which of them `shipwick doctor` sees.
+
+## Before the first command
+
+Two things decide whether `shipwick server install` gets in and whether certificates arrive, and both are set at the provider.
+
+**The key.** Create the server with your SSH public key selected, so that it is in `/root/.ssh/authorized_keys` from the first boot. On Ubuntu images root has no password and logs in with a key only; a server created without one can be reached through the provider's console or rescue system, where the key is pasted into that file, or through the provider's own way of installing a key on a running server. `shipwick server install` says which key it offered when the server does not know it, and names those three ways out.
+
+**The firewall in front of the server** — the one the provider offers beside the machine, not the one on it — has to admit 80 and 443 over TCP and 443 over UDP from everywhere, and SSH from where you are. One that is closed is silence, not a refusal: the installer finishes, the agent is healthy, and no certificate is ever issued. `shipwick server install` probes the two ports from your machine when it is done and names the firewall when they are silent, and so does `shipwick doctor`. A server that is to sit behind Cloudflare alone admits 80 and 443 from Cloudflare's address ranges instead of from everywhere; what that arrangement needs is in [Admit Cloudflare only](/docs/tasks/cloudflare-only).
 
 ## Before you begin
 
 - The commands are for Debian and Ubuntu and for the RHEL family (RHEL, Rocky Linux, AlmaLinux), run as root.
 - They were run in containers of Debian 12, Ubuntu 24.04 and Rocky Linux 9. A container has no systemd and may not turn swap on, so the lines marked *not run* are the standard ones and were not.
-- `shipwick doctor` asks the agent, so it sees the memory, the swap, the two ports and the backups. It does not look at SSH, at updates or at the clock.
+- `shipwick doctor` asks the agent, so it sees the memory, the swap, the two ports, the backups and the number of containers. It does not look at SSH, at updates or at the clock.
 
 | | `shipwick doctor` |
 |---|---|
 | 1. SSH takes keys, not passwords | does not look |
 | 2. Security updates install themselves | does not look |
 | 3. The server has swap | `! The server has no swap: …` |
-| 4. A firewall lets in SSH, 80 and 443 | `✗ Port 443 is not reachable on …` when it is too strict; not when it is too open |
+| 4. A firewall lets in SSH, 80 and 443 | `✗ Port 443 on … timed out` when it is too strict; not when it is too open |
 | 5. The clock is synchronised | does not look |
 | 6. Backups leave the server | `! The encryption key exists only on this server. …` |
+| 7. The kernel's table of neighbours fits the containers | `! The server runs 301 containers; the kernel's table of neighbours holds 1024 entries …` from a quarter of the table on |
 
 ## SSH without passwords
 
@@ -104,11 +113,14 @@ On most distributions Docker inserts its own rules ahead of ufw's or firewalld's
 
 With the agent [installed from a package](/docs/getting-started/install-from-a-package#where-the-api-listens), the firewall on the server must let Docker's networks reach the agent's port.
 
-`shipwick doctor` tries 80 and 443 from where it runs, and says so when one is closed; a port that is open and should not be is not something it sees.
+`shipwick doctor` tries 80 and 443 from where it runs, and says so when one is closed, telling a port that refuses — nothing listens, the proxy is not up — from one that is silent, which is a firewall dropping the packets, at the provider; a port that is open and should not be is not something it sees.
 
 ```text
-✗ Port 443 is not reachable on 203.0.113.10: open it in the server's firewall; certificates are issued and renewed through ports 80 and 443
+✗ Port 443 on 203.0.113.10 timed out after 3s: a firewall in front of the server drops the packets — the provider's firewall (Hetzner Cloud Firewall, an AWS security group, a DigitalOcean cloud firewall). Open 80 and 443 TCP and 443 UDP there; certificates cannot be obtained until then
+✗ Port 443 on 203.0.113.10 refused the connection: nothing listens there. The proxy is not up; on the server: cd /opt/shipwick && docker compose ps
 ```
+
+`shipwick server install` makes the same probe from your machine once the installer is done, so a provider's firewall that is closed is said before the first certificate is waited for.
 
 ## The clock
 
@@ -127,6 +139,23 @@ A backup on the server's own disk is gone with the server. [Back up and restore 
 ```text
 ! The encryption key exists only on this server. Set SHIPWICK_BACKUP_PASSPHRASE (and an S3 bucket) in /opt/shipwick/.env to back it up; losing it loses every secret
 ✓ Agent state backed up 3h ago to the server's own disk (set SHIPWICK_BACKUP_S3_* in /opt/shipwick/.env to keep a copy elsewhere)
+```
+
+## The kernel's table of neighbours
+
+Every address on the server's networks — each container's on each of its two networks, the proxy's, the agent's, and the entries every container keeps of the peers it talks to — is a neighbour to the kernel, and it keeps at most `net.ipv4.neigh.default.gc_thresh3` of them: 1024 in a stock kernel. When the table is full, containers stop reaching each other (`neighbour: arp_cache: neighbor table overflow!` in the kernel log), which the measurement of what one server carries met between 300 and 400 containers. A server meant for hundreds of containers raises the three thresholds before that; the file is read at boot.
+
+```bash
+printf 'net.ipv4.neigh.default.gc_thresh1 = 2048\nnet.ipv4.neigh.default.gc_thresh2 = 4096\nnet.ipv4.neigh.default.gc_thresh3 = 8192\n' \
+  > /etc/sysctl.d/90-neighbours.conf
+sysctl -p /etc/sysctl.d/90-neighbours.conf
+sysctl net.ipv4.neigh.default.gc_thresh3    # 8192
+```
+
+Since 0.9 `shipwick doctor` warns from a quarter of the table on, counting the managed containers and the proxy. An agent [installed from a package](/docs/getting-started/install-from-a-package) reads the table's size from the kernel and `GET /server` carries it (`kernel_limits.neighbour_table`); the agent in its container cannot — the kernel shows the setting in the host's own network namespace only — and `doctor` then names the stock size and says to check the server's:
+
+```text
+! The server runs 301 containers; the kernel's table of neighbours holds 1024 entries and each container takes several: raise net.ipv4.neigh.default.gc_thresh3 (and gc_thresh1/2) in /etc/sysctl.d before it fills
 ```
 
 ## What's next

@@ -37,6 +37,7 @@ shipwick [command] [flags]
 | [`standby`](#standby) | A second server kept ready: what it holds; `pull` imports the newest export, `promote` takes over |
 | [`server status`](#server-status) | Show whether the agent is reachable, what it runs on, how full its disk is, which token you are using, the active alerts, and whether a newer release exists |
 | [`server install`](#server-install) | Install or upgrade the server over SSH, from here |
+| [`server configure`](#server-configure) | Change the agent's settings in `/opt/shipwick/.env` over SSH, from here, and restart it |
 | [`server bundle`](#server-bundle) | Make one file that installs or upgrades a server with no connection |
 | [`server rotate-key`](#server-rotate-key) | Replace the key the server encrypts stored secrets with |
 | [`server backup`](#server-backup) | Back up the agent's own state now: its database and encryption key |
@@ -47,10 +48,10 @@ shipwick [command] [flags]
 | [`token`](#token) | Manage API tokens and their roles: `create`, `ls`, `update`, `revoke` |
 | [`audit`](#audit) | Show who changed what on the server, and when, or export it |
 | [`access`](#access) | Say who may sign in to the dashboard, and as what: `grant`, `ls`, `revoke`, `sessions`, `signout` |
-| [`secret`](#secret) | Manage the secrets kept on the server for `${NAME}`: `set`, `ls`, `rm` |
+| [`secret`](#secret) | Manage the secrets kept on the server for `${NAME}`, of one application or of the server: `set`, `ls`, `rm` |
 | [`registry`](#registry) | Store the credentials the server pulls private images with: `login`, `ls`, `logout` |
 | [`cert`](#cert) | Serve a hostname with a certificate of your own: `set`, `ls`, `rm` |
-| [`upgrade`](#upgrade) | Replace this `shipwick` with the latest release, and report whether the server is behind |
+| [`upgrade`](#upgrade) | Replace this `shipwick` with the latest release, or with the release `--version` names, and report whether the server is behind |
 
 ## Global behavior
 
@@ -481,6 +482,7 @@ Deploying my-api...
 my-api 1.4.2  deployed in 6.1s
 2/2 replicas healthy
 https://api.example.com
+✓ https://api.example.com/ answers HTTP 200 through the proxy
 ```
 
 Behavior:
@@ -493,7 +495,8 @@ Behavior:
 - **With `static:`**, the folder is sent as it is, up to 512 MB, as a tar archive with fixed metadata, so the same files make the same digest and the same version everywhere: `✓ Uploaded dist/: 42 files, 3.1 MB`. Run the build first; a folder without an `index.html` is refused before anything is sent. A symbolic link that leads out of the folder is skipped, with a warning. `deploy.yaml`, `shipwick.yaml`, `.git` and `.env` files are never sent: everything in the archive is served. The progress line then reads `Checking the uploaded files`, `Copying the files to the proxy`, `Looking for index.html`, `Switching over`.
 - **`deploy` waits for `completed_at`**, not for the first `ACTIVE`. When it returns, the next operation on the application is guaranteed not to be rejected as busy.
 - `--image` edits the YAML document in memory. The agent still receives one plain `deploy.yaml`, and the file on disk is untouched. This is the form for CI: keep `deploy.yaml` in the repository and pass the image that was just built. It is refused for an application with `build:`. Since 0.8 it also applies to one named application of a `shipwick.yaml`; see [Some applications of a shipwick.yaml](#some-applications-of-a-shipwick-yaml).
-- The last line is the application's address, with its `path` when it has one: `https://example.com/api`.
+- The last line of the summary is the application's address, with its `path` when it has one: `https://example.com/api`.
+- **The application is asked its own hostname** (since 0.9). Once the deployment is complete, the agent asks `https://<domain><path>/` once through the proxy, the way a visitor would, following no redirect, and records the answer as a `probe` event of the deployment; `deploy` waits up to six seconds for it and prints it under the summary. `✓ https://api.example.com/ answers HTTP 200 through the proxy` is the usual line; a redirect to a hostname of `redirects` is a loop, and a warning that says what to swap: `! https://example.com/ sends its visitors to www.example.com, which `redirects` sends back: every request loops. Make www.example.com the `domain` and example.com a redirect, or stop the application redirecting`. Any other answer is recorded and not judged. While the proxy cannot answer yet — a new hostname's certificate on its way — the agent asks again every ten seconds for three minutes, and `deploy` ends with `The agent is still asking https://… through the proxy; what it finds is shown by: shipwick status my-api`. An application without a domain, a static folder, a hostname waiting for DNS and an agent older than 0.9 give no line, and the older agent costs no wait. See [A redirect loop is caught](/docs/tasks/several-hostnames#a-redirect-loop-is-caught).
 - A first deployment ends with the two commands to run next, `shipwick logs -f <app>` and `shipwick status <app>`, and with the dashboard's address when the server has one:
 
   ```text
@@ -539,7 +542,7 @@ invalid deploy.yaml
 line 5:
   unknown field "security"
 
-The agent is version v0.7.0 and does not know "security", which this shipwick (v0.8.1) does: the server is older than deploy.yaml.
+The agent is version v0.7.0 and does not know "security", which this shipwick (v0.9.0) does: the server is older than deploy.yaml.
 Nothing was deployed. Upgrade the server, then deploy again:
   curl -fsSL https://get.shipwick.com | sh (on the server)
 ```
@@ -723,13 +726,14 @@ CPU        42% / 400%
 Memory     412 MB / 2 GB
 ```
 
-The output has up to five parts:
+The output has up to six parts:
 
 1. **Summary.** Status, with `(deployment in progress)` while one is in flight. Then `Version` (with the deployment number and when it was deployed), `Image`, `URL` if there is a domain (with the application's `path`: `https://example.com/api`), `Replicas`, `CPU` and `Memory` if anything is running, `Health` if a health check is configured, `Limits`, and `Backups` for an application with volumes. CPU is in percent of one core; with a limit it is shown as `used / limit`. Since 0.8, `Limits` says when the server's Docker does not enforce them; see below. For a static application a `Files` line (`42 files, 3.1 MB, served by the proxy`) replaces the image, replicas and usage, and there are no containers to list.
 2. **Certificates.** One line per hostname whose certificate is not in order, and why; nothing when all are. See below.
-3. **Containers.** Columns `REPLICA`, `CONTAINER`, `STATE`, `HEALTH`, `RESTARTS`, `STARTED`. `STATE` is `running`, `exited (<code>)`, `out of memory`, or another Docker state. `HEALTH` is `healthy`, `unhealthy`, `starting`, `checking` (not probed yet), or `-` without a health check. `RESTARTS` shows `N (crash loop)` while restarts are rate-limited. Since 0.6, a container that a deployment replaced and that is still on its way out is listed below the replicas with the state `stopping`; see below.
-4. **Deployments.** The 5 most recent, with columns `DEPLOY` (the `#number`), `VERSION`, `STATUS`, `VIA` (`deploy`, `redeploy`, `rollback`, or `import` and `standby` for a deployment made by [`import`](#import)), `WHEN`, and the error of a failed deployment, truncated to 90 characters.
-5. **Events.** The 8 most recent application events: what the supervisor has been doing, stops and starts (`Application stopped by ci` when a token other than root did it), restored backups, scheduled jobs or one-off commands that failed or timed out, alerts raised and cleared, and certificates being obtained or running out.
+3. **The proxy's answer** (since 0.9). When the agent asked the application its own hostname after the active deployment and found a redirect loop, the warning, as [`deploy`](#deploy) printed it: `! https://example.com/ sends its visitors to www.example.com, which `redirects` sends back: …`. Nothing when the answer was in order, and nothing from an agent older than 0.9.
+4. **Containers.** Columns `REPLICA`, `CONTAINER`, `STATE`, `HEALTH`, `RESTARTS`, `STARTED`. `STATE` is `running`, `exited (<code>)`, `out of memory`, or another Docker state. `HEALTH` is `healthy`, `unhealthy`, `starting`, `checking` (not probed yet), or `-` without a health check. `RESTARTS` shows `N (crash loop)` while restarts are rate-limited. Since 0.6, a container that a deployment replaced and that is still on its way out is listed below the replicas with the state `stopping`; see below.
+5. **Deployments.** The 5 most recent, with columns `DEPLOY` (the `#number`), `VERSION`, `STATUS`, `VIA` (`deploy`, `redeploy`, `rollback`, or `import` and `standby` for a deployment made by [`import`](#import)), `WHEN`, and the error of a failed deployment, truncated to 90 characters.
+6. **Events.** The 8 most recent application events: what the supervisor has been doing, stops and starts (`Application stopped by ci` when a token other than root did it), restored backups, scheduled jobs or one-off commands that failed or timed out, alerts raised and cleared, and certificates being obtained or running out.
 
 ```text
 my-api  ● CRASH_LOOP
@@ -778,10 +782,11 @@ The schedule reads `daily at 03:00 UTC` or `hourly at :15` for those shapes, and
 HOSTNAME            CERTIFICATE
 www.example.com     waiting for DNS: does not resolve yet; add an A record: www.example.com → 62.238.109.115 (DNS only, not proxied)
 new.example.com     being obtained: the proxy has no certificate for it yet; HTTPS connections to it fail until it does
+shop.example.com    being obtained: the proxy has no certificate for it yet: Let's Encrypt could not connect to the server on port 443 (tls-alpn-01): a firewall in front of it?
 old.example.com     expires in 9 days, on 2026-03-10 (Let's Encrypt E7)
 ```
 
-With `--verbose`, the hostnames whose certificate is in order are listed too: `valid until 2026-06-01 (Let's Encrypt E7)`, the certificate's last day and its issuer. See [Certificates](/docs/tasks/certificates).
+Since 0.9 a certificate the proxy could not obtain says why, in the proxy's words as the agent reads them out of its log: which challenge failed and what the authority answered, at the end of the `being obtained` line. With `--verbose`, the hostnames whose certificate is in order are listed too: `valid until 2026-06-01 (Let's Encrypt E7)`, the certificate's last day and its issuer. See [Certificates](/docs/tasks/certificates).
 
 **The command that says why** (since 0.7). A replica that died, or a deployment that failed, took its output with it; where the agent kept it, the output ends with the command that shows it:
 
@@ -844,6 +849,7 @@ shipwick logs [app] [flags]
 - Without `--follow`, `--tail` is the merged total: the last N lines across all replicas. With `--follow` it applies per replica: each replica's stream starts with its own last N lines. `--tail 0` with `--follow` shows only what is logged from now on.
 - **`logs -f` says that it is following.** In a terminal, when no line has arrived after two seconds, it prints once, on standard error: `Following my-api; nothing printed yet. Ctrl-C stops.` An application that has printed nothing is then not taken for a hang.
 - **`logs -f` ends by itself** when the containers are stopped or replaced by a new deployment, with a warning saying so. Run it again to follow the new ones. Ctrl+C is the normal way out and prints nothing.
+- **`logs -f` survives a lost connection** (since 0.9). The agent sends a heartbeat line every 20 seconds while the application prints nothing, which the CLI does not print, so that a proxy in between does not close the stream as idle; Cloudflare's does, after 100 seconds without a byte. When the stream is cut all the same, when the agent ends it to restart, or — once it was open before — when the agent does not answer, `logs -f` waits a second (then two, four, eight, sixteen) and reconnects from the time of the last line or heartbeat it saw, prints nothing twice, and says once on standard error: `Reconnected; nothing was missed.` Against an agent older than 0.9, which starts a stream with its last lines instead of at a time, it says `Reconnected; lines between 10:41:03 and 10:41:09 may be missing: this agent is older than 0.9 and begins with its last lines again instead of where the stream stopped.` Five losses in a row that brought nothing end the command with the error (see [Error messages](#error-messages)); Ctrl-C ends it at once. A stream the agent ends because a deployment replaced the containers is not taken up, as above.
 - With a `logging` driver in `deploy.yaml`, the lines come from the local copy Docker keeps next to the remote driver.
 - A static application has no containers and no logs; the command says so (see [Error messages](#error-messages), `STATIC_APPLICATION`). The same goes for `run`, `jobs` and the metrics in `status`.
 
@@ -1523,8 +1529,8 @@ shipwick server status
 ```text
 https://agent.example.com  ● reachable
 
-Agent           v0.8.1
-CLI             v0.8.1
+Agent           v0.9.0
+CLI             v0.9.0
 Host            vps-1
 OS              linux (amd64, kernel 6.8.0)
 Docker          29.8.0
@@ -1542,7 +1548,7 @@ Disk            61 GB of 75 GB used (81%)
 An agent of 0.7 or later adds a line, and says in the first when it knows of a newer release:
 
 ```text
-Agent           v0.8.1  v0.8.2 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+Agent           v0.8.1  v0.9.0 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
 Log archive     1.1 KB of 1 GB, 1 entry, kept 14 days
 ```
 
@@ -1557,7 +1563,7 @@ The command first calls the health endpoint, which needs no token. This separate
 
 | Line | |
 |---|---|
-| `Agent` | The agent's version. Since 0.7, followed by `v0.8.1 is available` and the installer line when the agent knows of a release newer than itself. The agent asks GitHub itself, once a day; an agent from before 0.7, one told not to ask (`SHIPWICK_UPDATE_CHECK=off`) and one that cannot reach GitHub say nothing, and neither does this line |
+| `Agent` | The agent's version. Since 0.7, followed by `v0.9.0 is available` and the installer line when the agent knows of a release newer than itself. The agent asks GitHub itself, once a day; an agent from before 0.7, one told not to ask (`SHIPWICK_UPDATE_CHECK=off`) and one that cannot reach GitHub say nothing, and neither does this line |
 | `CLI` | The version of `shipwick` |
 | `Host` | The server's hostname |
 | `OS` | Operating system, architecture and kernel |
@@ -1566,7 +1572,7 @@ The command first calls the health endpoint, which needs no token. This separate
 | `Memory` | Of the server. Since 0.8, followed by its swap: `8 GB, 2 GB swap`, or `8 GB, no swap`. Without swap a full memory is a killed process at once; see [Prepare a server](/docs/tasks/prepare-a-server). The memory alone with an agent older than 0.8, and where the agent cannot tell |
 | `Applications` | Number of applications |
 | `Containers` | Number of running Shipwick-managed containers |
-| `Proxy` | `ok  serving N domains`, `unreachable` with the error, or `not configured` when `SHIPWICK_CADDY_ADMIN` is not set on the agent |
+| `Proxy` | `ok  serving N routes`, `unreachable` with the error, or `not configured` when `SHIPWICK_CADDY_ADMIN` is not set on the agent. Since 0.9, when the proxy's container is not on all three of the installation's networks: `ok  serving 4 routes; not on the shipwick-control network (on the server: docker compose up -d --force-recreate caddy)` |
 | `Notifications` | `webhook configured`, or `none  (set SHIPWICK_WEBHOOK_URL on the agent)` |
 | `Token` | The name and role of the token this command used: `ci (deploy)`, or `root (admin)` for the token the agent is configured with. Since 0.6, what narrows the token follows the role: the applications a `deploy` token is limited to, and when it expires: `ci (deploy, limited to my-api, web, expires in 87 days)`. Omitted with an agent from before tokens had names |
 | `Dashboard` | The dashboard's address, which [`open --dashboard`](#open) opens, or `no hostname  (set SHIPWICK_DASHBOARD_DOMAIN on the agent)`. Since 0.5 |
@@ -1609,7 +1615,7 @@ shipwick server install <user@host> [flags]
 | `--agent-domain <host>` | | Hostname for the API, for example `agent.example.com` |
 | `--dashboard-domain <host>` | | Hostname for the dashboard, for example `dashboard.example.com` |
 | `--context <name>` | the hostname | Name to save the server under |
-| `--version <tag>` | the latest release | Release to install, for example `v0.8.1` |
+| `--version <tag>` | the latest release | Release to install, for example `v0.9.0` |
 
 ```text
 $ shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com
@@ -1623,21 +1629,56 @@ Running the Shipwick installer...
   ...
 ✓ Shipwick is running on root@203.0.113.10
 ✓ Saved the API token as context 203.0.113.10 (https://agent.example.com), now current
+✓ Port 80 open on 203.0.113.10
+✓ Port 443 open on 203.0.113.10
 
 Create these DNS records, DNS only (not proxied):
   A     agent.example.com  →  203.0.113.10
   A     dashboard.example.com  →  203.0.113.10
+
+Dashboard: https://dashboard.example.com
+  It asks for a token; make it one of its own: shipwick token create dashboard --role admin
+  (not the root token from /opt/shipwick/.env, which is root on the server and never leaves it)
 
 Next: in your project, run: shipwick init
       once the records exist, check the setup with: shipwick doctor
 ```
 
 - The command runs your own `ssh` as a program with arguments, never through a shell, with `BatchMode=yes`, so it fails instead of asking for a password (use a key that logs in without one), and `StrictHostKeyChecking=accept-new`, so a fresh server's host key is accepted on first contact while a key that changed is refused with the advice to run `ssh-keygen -R <host>` if you reinstalled the server. The remote commands are fixed; the hostnames and the version are validated first and reach the installer as environment assignments.
+- **When `ssh` fails before a command runs, the command says what the failure means** (since 0.9), reading `ssh`'s last line. *Permission denied* is a server that does not know the key `ssh` offered: `203.0.113.10 does not know the SSH key this machine offered`, then `Offered, and refused:` with each key's file (the public half, `.pub`), type and fingerprint, learned from one more run of `ssh -v` on that path only, then the three ways to put the key in `/root/.ssh/authorized_keys` — select it when the server is created at the provider, paste it through the provider's console or rescue system, or use the provider's own key installation — and, where the server would take a password too, `ssh-copy-id root@203.0.113.10`; `shipwick` never types a password. When `ssh` offered no key at all, the command says so and names `ssh-keygen -t ed25519`. A host key that changed: `the SSH host key of root@203.0.113.10 is not the one this machine knows`, with the `ssh-keygen -R 203.0.113.10` line for a server that was rebuilt, and the advice not to connect until you know why it changed otherwise. A connection refused: `nothing accepts SSH connections on 203.0.113.10 port 22`, a server still starting or SSH on another port, named in `~/.ssh/config`. A timeout: `no answer from 203.0.113.10 on port 22 within 15 seconds`, a wrong address, another port, or a firewall in front of the server that admits SSH from certain addresses only. A name that does not resolve is said as such. The port in the sentence is the one `ssh` named.
 - Docker is installed with `get.docker.com` when the server has none: `Docker is not installed. Installing it with get.docker.com; this takes a minute.`
 - The token is read from the installer's summary and saved as a context, which becomes current. Run again, the command upgrades the server; the installer then prints no token, nothing is fetched from the server, and the context keeps the token it has: `Context 203.0.113.10 (https://agent.example.com) is current; its token is unchanged`. A context that never had a token is saved without one, and the command says how to log in.
-- A hostname that already resolves to the server is reported as such instead of listed among the records to create. Without `--agent-domain` the API is not exposed, the context points at `http://127.0.0.1:9000` for an [SSH tunnel](/docs/tasks/access-without-a-hostname), and the command says so.
+- **Ports 80 and 443 are probed from here** once the installer is done (since 0.9): a connection to each at the server's address, with nothing sent. `✓ Port 80 open on 203.0.113.10`; `✗ Port 443 on 203.0.113.10 refused the connection: nothing listens there. The proxy is not up; on the server: cd /opt/shipwick && docker compose ps`; or, after three seconds of silence, `✗ Port 443 on 203.0.113.10 timed out after 3s: a firewall in front of the server drops the packets — the provider's firewall (Hetzner Cloud Firewall, an AWS security group, a DigitalOcean cloud firewall). Open 80 and 443 TCP and 443 UDP there; certificates cannot be obtained until then`, followed by `Once the ports are open, Caddy obtains the certificates by itself; check with: shipwick doctor`. A host that does not resolve from here is not probed, and the command says so. The same probe is `doctor`'s.
+- A hostname that already resolves to the server is reported as such instead of listed among the records to create. Without `--agent-domain` the API is not exposed, the context points at `http://127.0.0.1:9000` for an [SSH tunnel](/docs/tasks/access-without-a-hostname), and the command says so. With `--dashboard-domain`, since 0.9, the command ends with how to sign in to the dashboard: with a token of its own, `shipwick token create dashboard --role admin`, not the root token.
 
 See [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
+
+## server configure
+
+Change the agent's settings in `/opt/shipwick/.env` on the server over SSH, from here, and restart the agent. Since 0.9.
+
+```text
+shipwick server configure <user@host> KEY=value [KEY=value ...] [flags]
+```
+
+| Flag | |
+|---|---|
+| `--unset <KEY>` | Remove this setting from `.env`; repeatable. `KEY=` does the same |
+
+```text
+$ shipwick server configure root@203.0.113.10 SHIPWICK_WEBHOOK_URL=https://hooks.example.com/shipwick SHIPWICK_WEBHOOK_SECRET=…
+✓ /opt/shipwick/.env on root@203.0.113.10: SHIPWICK_WEBHOOK_URL changed, SHIPWICK_WEBHOOK_SECRET added
+✓ The agent is healthy
+```
+
+- Each `KEY=value` sets or replaces that line of `.env`; `KEY=` or `--unset KEY` removes it. Then `docker compose up -d` runs there, which recreates the agent with the new environment, and the command waits for it to be healthy the way the installer does, a minute at most. When nothing in the file would change: `✓ Nothing to change in /opt/shipwick/.env on root@203.0.113.10; the agent was not restarted`. Names that already had the value, and names to remove that were not in the file, are listed under the first line.
+- **Names are the agent's settings**, the variables of [Install on a server](/docs/getting-started/install#what-the-installer-does), which the installer also lists with `--help`; another name is refused: `SHIPWICK_WEBHOK_URL is not a setting of the agent`. `SHIPWICK_AGENT_TOKEN` and `SHIPWICK_ENCRYPTION_KEY` are not settings, and the command names `shipwick token create` and `shipwick server rotate-key` instead. A name given twice is refused.
+- **Values are checked as the installer checks them**, in its words: a Cloudflare token that is not letters, digits, `-` and `_`, a hostname with `https://`, a port or a path, the same hostname for the API and the dashboard, a value with a line break, which a line of `.env` cannot carry.
+- **Values travel as data.** They go to the server on the standard input of one fixed script, never as a word of a command, so quotes, `$(…)` and backticks reach `.env` as they are; they are never printed. The file is rewritten through a temporary file created under `umask 077` and moved into place, so it keeps its mode, `0600`, and the token in it is not touched.
+- **A setting with a next step gets its line**: `Next: check that the token can do its job with: shipwick doctor` for a Cloudflare token; `Next: point an A record for the API's hostname at the server, then sign in to it: shipwick login --url https://<hostname>`; `Next: point an A record for the dashboard's hostname at the server; shipwick doctor checks it`.
+- **Where it refuses.** A server without `/opt/shipwick/.env`: `203.0.113.10 has no /opt/shipwick/.env: Shipwick is not installed there. Install it with: shipwick server install root@203.0.113.10`. A compose command that failed: its output is above, the settings were written, and the command says what to run on the server once the cause is fixed. An agent that did not become healthy within a minute: the command names `docker compose logs agent` on the server, and says to run it again with the previous values to go back. An `ssh` failure is explained as for [`server install`](#server-install).
+
+See [Change a setting later](/docs/getting-started/install#change-a-setting-later).
 
 ## server bundle
 
@@ -1650,7 +1691,7 @@ shipwick server bundle [flags]
 | Flag | Default | |
 |---|---|---|
 | `--arch <arch>` | `amd64` | The server's architecture: `amd64` or `arm64` |
-| `--version <tag>` | the latest release | Release to bundle, for example `v0.8.1` |
+| `--version <tag>` | the latest release | Release to bundle, for example `v0.9.0` |
 | `-o`, `--output <file>` | `shipwick-<version>-linux-<arch>.tar.gz` in the current directory | File to write |
 | `--no-pull` | | Save the images this machine has under the release's names instead of pulling them. Nothing proves them: they are not checked against the release's digests |
 
@@ -1658,14 +1699,14 @@ Run it on a machine that has a connection and Docker. It talks to no agent and n
 
 ```text
 $ shipwick server bundle --arch amd64
-✓ Release v0.8.1: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
-✓ Release v0.8.1 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)
-✓ The three images are the ones release v0.8.1 published for linux/amd64
-✓ Wrote shipwick-v0.8.1-linux-amd64.tar.gz (113 MB)
+✓ Release v0.9.0: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
+✓ Release v0.9.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)
+✓ The three images are the ones release v0.9.0 published for linux/amd64
+✓ Wrote shipwick-v0.9.0-linux-amd64.tar.gz (113 MB)
 
 Copy it to the server, and there, as root:
-  tar -xzf shipwick-v0.8.1-linux-amd64.tar.gz
-  sh shipwick-v0.8.1-linux-amd64/install.sh
+  tar -xzf shipwick-v0.9.0-linux-amd64.tar.gz
+  sh shipwick-v0.9.0-linux-amd64/install.sh
 The server needs Docker Engine and the Compose plugin; nothing is downloaded there.
 checksums.txt of the release: sha256 646205a7…
 ```
@@ -1673,18 +1714,18 @@ checksums.txt of the release: sha256 646205a7…
 This is the output for a release from 0.8.0 on, on a machine that has cosign. The second line says what became of the release's signature, and the third is a warning for a release before 0.7.0, which publishes no digests of its images; see below.
 
 - **What is in it.** The release's compose file, installer and checksums, since 0.8 the signature of the checksums (`checksums.txt.sigstore.json`) when the release has one, the `shipwick` binary for the server, and the three Shipwick images as one archive, `images.tar`, with a checksum of its own. The file unpacks into one directory named like the bundle.
-- **The release's signature is verified** (since 0.8). From 0.8.0 on, a release's `checksums.txt` is signed by the workflow that published it. With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 2.4 or later on this machine, the command runs `cosign verify-blob` on the checksums, as a program with arguments, with the release workflow at that tag as the identity the certificate must name, before it downloads anything else. The second line of the output is one of three:
+- **The release's signature is verified** (since 0.8). From 0.8.0 on, a release's `checksums.txt` is signed by the workflow that published it. With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 2.5 or later on this machine, the command runs `cosign verify-blob` on the checksums, as a program with arguments, with the release workflow at that tag as the identity the certificate must name, before it downloads anything else. The second line of the output is one of three:
 
   | Situation | Line |
   |---|---|
-  | The signature verified | `✓ Release v0.8.1 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)` |
+  | The signature verified | `✓ Release v0.9.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)` |
   | No cosign on this machine | `The release's signature was not checked: cosign is not installed on this machine.` The bundle goes by the checksums, as before, and still carries the signature |
   | A release before 0.8.0 | `Release v0.7.0 has no signature: releases before 0.8.0 were not signed.` |
 
-  A signature that is not the workflow's stops the command, and no bundle is written: `the signature of release v0.8.0's checksums did not verify as one made by the release workflow of github.com/shipwick/shipwick for v0.8.0; nothing was changed`, followed by cosign's last line and `cosign 2.4 or later reads this signature; an older one fails here whatever the file`. With cosign installed, a release from 0.8.0 on without a signature is refused as well: `release v0.8.0 has no signature (checksums.txt.sigstore.json), and every release since 0.8.0 has one; nothing was changed`. The installer on the server does not verify the signature by itself: cosign asks Sigstore for the keys it trusts, and that server reaches nothing. See [Verify a release](/docs/tasks/verify-a-release).
+  A signature that is not the workflow's stops the command, and no bundle is written: `the signature of release v0.8.0's checksums did not verify as one made by the release workflow of github.com/shipwick/shipwick for v0.8.0; nothing was changed`, followed by cosign's last line and `cosign 2.5 or later reads this signature; an older one fails here whatever the file`. With cosign installed, a release from 0.8.0 on without a signature is refused as well: `release v0.8.0 has no signature (checksums.txt.sigstore.json), and every release since 0.8.0 has one; nothing was changed`. The installer on the server does not verify the signature by itself: cosign asks Sigstore for the keys it trusts, and that server reaches nothing. See [Verify a release](/docs/tasks/verify-a-release).
 - **The release's files are verified** against its published `checksums.txt` as they are downloaded. A mismatch is refused and nothing is written: `install.sh does not match the checksum published with the release; no bundle was written`. The installer verifies them again on the server, and checks the image archive against its checksum before it changes anything, so a copy that arrived damaged is refused.
 - **The images** are the ones the release's compose file names. They are pulled with `docker pull` for the server's architecture and written with `docker save`, both run as programs with arguments, never through a shell. In a terminal a progress line names the image being pulled. Without Docker here: `docker is not installed on this machine, and the images of a bundle are pulled and saved with it`. When a pull or the save fails, the last line `docker` printed is the reason.
-- **The images are proven** (since 0.7). A release from 0.7.0 on publishes `image-digests.txt`, listed in its `checksums.txt`: the digests of its three images as the registry holds them, per platform. The archive `docker save` wrote is checked against it before the bundle is written: it must hold the configuration the release published for the server's platform and the layers that configuration lists, and name that image, and no other, by the release's tag. An archive that does not is refused, and no bundle is written: `<image> is not the image release v0.8.1 published for linux/amd64: …; no bundle was written`. The installer checks once more what Docker made of the archive before it replaces anything.
+- **The images are proven** (since 0.7). A release from 0.7.0 on publishes `image-digests.txt`, listed in its `checksums.txt`: the digests of its three images as the registry holds them, per platform. The archive `docker save` wrote is checked against it before the bundle is written: it must hold the configuration the release published for the server's platform and the layers that configuration lists, and name that image, and no other, by the release's tag. An archive that does not is refused, and no bundle is written: `<image> is not the image release v0.9.0 published for linux/amd64: …; no bundle was written`. The installer checks once more what Docker made of the archive before it replaces anything.
 - **Two bundles are not proven**, and the command says so in place of the line about the images. With `--no-pull`: `The images are the ones this machine had under the release's names (--no-pull): they were not checked against the release's digests, and the installer will say so.` Of a release before 0.7.0: `Release v0.6.0 does not publish the digests of its images (0.7.0 and later do): the images are what the registry serves under its tags, unchecked, and the installer will say so.`
 - **The last line** is the SHA-256 of the release's `checksums.txt`, from which everything in the bundle follows. The installer prints the same line on the server; compare the two.
 - **`--version`** takes a release tag. A bundle can be made of 0.6.0 and later: `release v0.5.1 does not publish its installer: a bundle can be made of 0.6.0 and later`. Anything that is not a release version is refused: `releases look like v0.6.0`.
@@ -1748,8 +1789,8 @@ shipwick doctor
 ```
 
 ```text
-✓ shipwick v0.8.1, the latest release
-✓ Agent https://agent.example.com runs v0.8.1, the latest release
+✓ shipwick v0.9.0, the latest release
+✓ Agent https://agent.example.com runs v0.9.0, the latest release
 ✓ Token laptop (admin)
 ✓ Docker 29.8.0 on the server
 ✓ Proxy serving 2 routes
@@ -1757,14 +1798,18 @@ shipwick doctor
 ! The server has no swap: once its 4 GB of memory is used, the kernel kills a process at once. Add a swap file on the server
 ✓ agent.example.com → 203.0.113.10
 ✓ Port 80 open on 203.0.113.10
-✗ Port 443 is not reachable on 203.0.113.10: open it in the server's firewall; certificates are issued and renewed through ports 80 and 443
+✗ Port 443 on 203.0.113.10 timed out after 3s: a firewall in front of the server drops the packets — the provider's firewall (Hetzner Cloud Firewall, an AWS security group, a DigitalOcean cloud firewall). Open 80 and 443 TCP and 443 UDP there; certificates cannot be obtained until then
 ✗ api.example.com → 198.51.100.7, which is not the server (203.0.113.10). Point the record at the server
 ✓ https://api.example.com/ answers HTTP 200
 
 2 problems found.
 ```
 
-One line per check: the CLI's and the agent's versions against the latest release (`!` and the upgrade command when one is behind), the token and its role, Docker on the server, the proxy and how many domains it serves, the server's active alerts, since 0.8 the applications without a memory limit, the server's swap, whether application containers can reach the API and whether Docker enforces limits, the certificates you supplied, the backup of the agent's own state, whether the agent's hostname resolves to the server, whether ports 80 and 443 answer there, and for every application's domain, alias and redirect whether DNS points at the server, and whether `https://` answers at the application's address, its `path` included. The last line is `Everything checks out.`, `No problems; 1 thing worth a look.` or `2 problems found.`; the command exits non-zero when something is broken (`✗`), not for things merely worth a look (`!`).
+One line per check: the CLI's and the agent's versions against the latest release (`!` and the upgrade command when one is behind), the token and its role, Docker on the server, the proxy and how many domains it serves, the server's active alerts, since 0.8 the applications without a memory limit, the server's swap, whether application containers can reach the API and whether Docker enforces limits, the certificates you supplied, the backup of the agent's own state, whether the agent's hostname resolves to the server, whether ports 80 and 443 answer there, and for every application's domain, alias and redirect whether DNS points at the server, and whether `https://` answers at the application's address, its `path` included; since 0.9 also whether the proxy is on all of its networks, whether the containers approach the kernel's table of neighbours, whether the answer at the application's address is a redirect loop, why a certificate did not come, and what the agent found out about its Cloudflare token. The last line is `Everything checks out.`, `No problems; 1 thing worth a look.` or `2 problems found.`; the command exits non-zero when something is broken (`✗`), not for things merely worth a look (`!`).
+
+The version lines read `the latest release`, `v0.8.1; v0.9.0 is available. Upgrade with: shipwick upgrade` (`!`), since 0.9 `ahead of the latest release (v0.9.0)` for a pre-release installed on purpose, or `This shipwick is a development build (v0.8.1-3-gabcdef); the latest release is v0.9.0` for a build without a release version, which is not behind anything.
+
+When the agent itself does not answer, the second line says which of four things happened, since 0.9, because each has a different remedy: `The agent at https://agent.example.com did not answer within 10s: nothing at that address accepted the connection. On a server that was just installed, a firewall in front of the server drops the packets — …` (the provider's firewall, named as for a port); `The agent at … refused the connection: nothing listens on that port. The proxy is not running; on the server: cd /opt/shipwick && docker compose ps`; `The agent at … answered, but the TLS handshake failed: …. The proxy has no certificate for this hostname yet, or serves another: it needs the hostname's DNS record pointing at the server and ports 80 and 443 open from the internet, then a minute. What stands in the way is in Caddy's log, on the server: docker logs shipwick-caddy-1`; or the error as it came, with the hint to reach a remote server at its hostname or through a tunnel. At a loopback address the refusal names the tunnel instead of the proxy.
 
 Since 0.5, `doctor` also reports:
 
@@ -1796,9 +1841,21 @@ Since 0.8, `doctor` also reports the following, each as something worth a look (
 
 Shipwick reports the memory limits and the swap and changes neither: a limit is a line in `deploy.yaml`, swap is the server's.
 
-On a network without a way to GitHub the latest release cannot be looked up; the version lines then say so, and the checks go on: `✓ shipwick v0.8.1 (could not check for a newer release)`.
+Since 0.9, `doctor` also reports the following. An agent older than 0.9 reports none of what comes from the agent, and nothing is read into its silence.
 
-Hostnames are resolved through public resolvers (Cloudflare's, Google's and Quad9's) before this machine's, the same view of DNS the agent takes. Since 0.6 each resolver is given two seconds, and when none of them can be reached, as behind a firewall that lets no DNS out, this machine's resolver is asked for the rest of the run. The server's address is learned by resolving the agent's own hostname, so through a tunnel (`127.0.0.1`) ports and record targets are not checked. An agent whose own hostname is behind Cloudflare's proxy hides the server's address in the same way, and ports 80 and 443 and the records' targets are not checked then either.
+| Check | Lines |
+|---|---|
+| Ports 80 and 443, told apart | A port that refuses is nothing listening: `✗ Port 443 on 203.0.113.10 refused the connection: nothing listens there. The proxy is not up; on the server: cd /opt/shipwick && docker compose ps`. One that is silent for three seconds is a firewall in front of the server: `✗ Port 443 on 203.0.113.10 timed out after 3s: a firewall in front of the server drops the packets — the provider's firewall (Hetzner Cloud Firewall, an AWS security group, a DigitalOcean cloud firewall). Open 80 and 443 TCP and 443 UDP there; certificates cannot be obtained until then`. Anything else: `✗ Port 443 on … could not be reached: <cause>. Check the address, and the route from this machine to it`. See [Prepare a server](/docs/tasks/prepare-a-server#before-the-first-command) |
+| The proxy's networks | `✗ The proxy is not on the shipwick-control network: it serves some applications and not others, or cannot reach the agent. On the server: cd /opt/shipwick && docker compose up -d --force-recreate caddy`, naming every network it is missing. The agent looks every 30 seconds. See [When things break](/docs/tasks/when-things-break#the-proxy-cannot-be-reached) |
+| The kernel's table of neighbours | From a quarter of the table on, counting the managed containers and the proxy: `! The server runs 301 containers; the kernel's table of neighbours holds 1024 entries and each container takes several: raise net.ipv4.neigh.default.gc_thresh3 (and gc_thresh1/2) in /etc/sysctl.d before it fills`. An agent in a container cannot read the setting, and the line then names the stock 1024 and says to check `sysctl net.ipv4.neigh.default.gc_thresh3` on the server. See [Prepare a server](/docs/tasks/prepare-a-server#the-kernel-s-table-of-neighbours) |
+| A redirect loop | Where `https://<domain>/` answers with a redirect to a hostname of the application's `redirects`: `✗ https://example.com/ sends its visitors to www.example.com, which `redirects` sends back: every request loops. Make www.example.com the `domain` and example.com a redirect, or stop the application redirecting`. Any other redirect is reported as the answer it is. See [A redirect loop is caught](/docs/tasks/several-hostnames#a-redirect-loop-is-caught) |
+| Certificates the proxy could not obtain or renew | After the hostnames, for every application with a domain, with the reason read out of the proxy's log: `✗ shop.example.com has no certificate: Let's Encrypt could not connect to the server on port 443 (tls-alpn-01): a firewall in front of it?`; `✗ The certificate for old.example.com is not being renewed: …`. See [Certificate status](/docs/tasks/certificates#certificate-status) |
+| The Cloudflare token | On an agent with `SHIPWICK_CLOUDFLARE_API_TOKEN`: `✓ Cloudflare: the token can edit the DNS records of example.com (checked just now)`, or one line per problem, in the agent's words: `✗ Cloudflare: the token cannot edit DNS records of example.com: it needs Zone → DNS → Edit (DNS Settings, DNS Firewall and DNS Views are other permissions) (checked 3 minutes ago)`; `Cloudflare: Cloudflare refuses the token from this server's address 2a01:…: an IP filter on the token must name that address, or the token is not valid (…)`; `Cloudflare: no zone is visible to the token: …`; and `✗ Cloudflare: shop.example.net is not in a zone the token sees (example.com), so its certificate cannot be obtained through DNS. Give the token Zone → Zone → Read and Zone → DNS → Edit on its zone`. A zone the token cannot edit is a problem (`✗`) when a hostname is served from it, and anything wrong with the token itself when any hostname is served; otherwise `!`. With an `admin` token the agent is asked to check again now, and the line reads `checked just now`; a check less than a minute old, or any other token, reads the last one with its age. See [Put Cloudflare in front of the server](/docs/tasks/cloudflare#check-it) |
+| Behind Cloudflare only | When the agent's own hostname is proxied and the agent has the token, in place of the port lines: `! Behind Cloudflare only: ports and record targets are not checked from outside`. See [Admit Cloudflare only](/docs/tasks/cloudflare-only) |
+
+On a network without a way to GitHub the latest release cannot be looked up; the version lines then say so, and the checks go on: `✓ shipwick v0.9.0 (could not check for a newer release)`.
+
+Hostnames are resolved through public resolvers (Cloudflare's, Google's and Quad9's) before this machine's, the same view of DNS the agent takes. Since 0.6 each resolver is given two seconds, and when none of them can be reached, as behind a firewall that lets no DNS out, this machine's resolver is asked for the rest of the run. The server's address is learned by resolving the agent's own hostname, so through a tunnel (`127.0.0.1`) ports and record targets are not checked. An agent whose own hostname is behind Cloudflare's proxy hides the server's address in the same way, and ports 80 and 443 and the records' targets are not checked then either; `doctor` says so in one line, above.
 
 ## open
 
@@ -1834,7 +1891,7 @@ shipwick login [flags]
 ```text
 $ shipwick login --url https://agent.example.com
 API token:
-✓ Logged in to https://agent.example.com (my-server, agent v0.8.1)
+✓ Logged in to https://agent.example.com (my-server, agent v0.9.0)
   saved as context default in /home/me/.config/shipwick/config.yaml
 ```
 
@@ -2196,7 +2253,7 @@ An agent older than 0.6 has no sign-in, and every `access` command says so: `the
 
 ## secret
 
-Manage the secrets kept on the server: values for `${NAME}` in the `env` values and the `proxy.basic_auth` passwords of a `deploy.yaml`, stored once so that no laptop or pipeline has to hold them. The agent fills them in when a deployment is recorded; see [Placeholders](#placeholders).
+Manage the secrets kept on the server: values for `${NAME}` in the `env` values and the `proxy.basic_auth` passwords of a `deploy.yaml`, stored once so that no laptop or pipeline has to hold them. The agent fills them in when a deployment is recorded; see [Placeholders](#placeholders). Since 0.9 a secret belongs to one application (`--app`) or to the whole server: an application's `${NAME}` is answered by its own secret first and by the server's otherwise, so two applications can each have a `DATABASE_PASSWORD`, and one registry token can serve them all. See [Keep secrets on the server](/docs/tasks/secrets).
 
 ```text
 shipwick secret set <NAME> [flags]
@@ -2210,38 +2267,45 @@ Store a value, creating or replacing it. The value is never an argument: argumen
 
 | Flag | |
 |---|---|
+| `--app <name>` | Store the secret for this application only; its `${NAME}` resolves to it before a server-wide one. Since 0.9 |
 | `--from-file <path>` | Read the value from this file instead of standard input |
 
 ```bash
-shipwick secret set DATABASE_PASSWORD                             # asked without echo
-printf '%s' "$DATABASE_PASSWORD" | shipwick secret set DATABASE_PASSWORD
+shipwick secret set DATABASE_PASSWORD --app api                   # asked without echo
+printf '%s' "$DATABASE_PASSWORD" | shipwick secret set DATABASE_PASSWORD --app api
+shipwick secret set REGISTRY_TOKEN                                # the server's: every application without one of its own
 shipwick secret set TLS_KEY --from-file key.pem
 ```
 
-In a terminal the value is asked for without echo; outside one it is read from standard input, and with nothing there the command says how to pipe it in. Prints `✓ Stored secret DATABASE_PASSWORD` and a line saying that `${DATABASE_PASSWORD}` is filled in from the next deployment on. Names are environment variable names, letters, digits and underscores not starting with a digit, at most 64 characters; a value is at most 64 KB and not empty. The value is stored encrypted, like `env` values, and is never returned by the API. Needs the `admin` role.
+In a terminal the value is asked for without echo; outside one it is read from standard input, and with nothing there the command says how to pipe it in. Prints `✓ Stored secret DATABASE_PASSWORD for api` and `${DATABASE_PASSWORD} in api's deploy.yaml resolves to it from the next deployment on, before a server-wide DATABASE_PASSWORD; other applications do not see it.`; without `--app`, `✓ Stored secret DATABASE_PASSWORD` and a line saying that `${DATABASE_PASSWORD}` is filled in from the next deployment on. The application need not exist yet; its name is checked as an application name. Names are environment variable names, letters, digits and underscores not starting with a digit, at most 64 characters; a value is at most 64 KB and not empty. One trailing newline is dropped, so that `echo` works too; nothing else is trimmed. The value is stored encrypted, like `env` values, and is never returned by the API. Needs the `admin` role.
+
+- **A value a URL cannot carry is stored with a warning** (since 0.9): `! this value has characters a URL cannot carry unescaped (@, /); if it goes into a connection string, use another`. The characters are `@`, `:`, `/`, `?`, `#`, `%` and whitespace; the warning names the ones it saw, never the value.
+- **Against an agent older than 0.9**, `--app` stores nothing: `the agent is older than this shipwick and keeps no secrets per application; nothing was stored`, with the installer line and the advice to store the secret for every application without `--app`.
 
 ### secret ls
 
-List the secrets on the server: names and dates, never values.
+List the secrets on the server: names, scopes and dates, never values.
 
 ```text
 $ shipwick secret ls
-NAME               CREATED  UPDATED
-DATABASE_PASSWORD  3d ago   2h ago
-STRIPE_KEY         3d ago   3d ago
+NAME               SCOPE   CREATED  UPDATED
+DATABASE_PASSWORD  server  3d ago   2h ago
+DATABASE_PASSWORD  api     2h ago   2h ago
+STRIPE_KEY         api     3d ago   3d ago
 ```
 
-Without any: `No secrets on the server. Store one with: shipwick secret set DATABASE_PASSWORD`. Needs the `read` role.
+`SCOPE` is `server` or the application's name (since 0.9; an older agent's secrets are all `server`). The server's secret of a name comes before the applications'. Without any: `No secrets on the server. Store one with: shipwick secret set DATABASE_PASSWORD --app <application>`. Needs the `read` role.
 
 ### secret rm
 
-Remove a secret.
+Remove a secret: the server's, or with `--app` the application's own. The other stays.
 
 | Flag | |
 |---|---|
+| `--app <name>` | Remove the secret this application has of its own; the server-wide one stays. Since 0.9 |
 | `-y`, `--yes` | Do not ask for confirmation |
 
-Prints `✓ Removed secret DATABASE_PASSWORD`. Deployments already made keep the value they were started with; the next `deploy` whose `env` refers to the name is refused with the command to store it again. Needs the `admin` role.
+Prints `✓ Removed secret DATABASE_PASSWORD`, or `✓ Removed secret DATABASE_PASSWORD of api` with `--app`. Without `--app`, when applications keep a secret of their own by that name: `The DATABASE_PASSWORD of api, web stays: ${DATABASE_PASSWORD} is unchanged there.` Deployments already made keep the value they were started with; the next `deploy` whose `env` refers to a name that neither the application nor the server has is refused with the command to store it again. The command lists the secrets first, and refuses before anything goes when the one meant is not there: `there is no secret DATABASE_PASSWORD for application api`, with the server-wide command when the server has one; `there is no server-wide secret DATABASE_PASSWORD, only the own of api`, with the `--app` command. Against an agent older than 0.9, which keeps one list, `--app` sends nothing and says that secrets of one application need an agent of 0.9 or newer. Needs the `admin` role.
 
 ## registry
 
@@ -2359,7 +2423,7 @@ In a terminal, `rm` asks `Remove the certificate for example.com? The server wil
 
 ## upgrade
 
-Replace this `shipwick` with the latest release, and report whether the server is behind.
+Replace this `shipwick` with the latest release, or with the release `--version` names, and report whether the server is behind.
 
 ```text
 shipwick upgrade [flags]
@@ -2368,40 +2432,43 @@ shipwick upgrade [flags]
 | Flag | |
 |---|---|
 | `--check` | Report what is available and change nothing |
+| `--version <tag>` | Install exactly this release, a pre-release included, in place of whatever runs now; without it, the latest release. Since 0.9 |
 
 ```text
 $ shipwick upgrade
-✓ Upgraded shipwick v0.3.1 → v0.8.1
+✓ Upgraded shipwick v0.3.1 → v0.9.0
   /usr/local/bin/shipwick
-  Release v0.8.1 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign).
+  Release v0.9.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign).
 
-The server runs v0.3.1; v0.8.1 is available. On the server run:
+The server runs v0.3.1; v0.9.0 is available. On the server run:
   curl -fsSL https://get.shipwick.com | sh
 ```
 
 How the binary is replaced:
 
-- The latest release, never a pre-release, is looked up on GitHub. The release's `checksums.txt` is downloaded, then the binary for this operating system and architecture (`shipwick_linux_amd64`, `shipwick_windows_amd64.exe`, and so on; since 0.7 `shipwick_windows_arm64.exe` on Windows on Arm, picked by the machine's architecture also when the `shipwick` that runs is the x64 build) is written next to the running one as `.shipwick-new`, its SHA-256 is compared with the published checksum, and only then is it renamed over the old binary, with the old binary's permissions. A mismatch is refused, `<asset> does not match the checksum published with release <tag>; nothing was changed`, and so is a release without a binary for this platform. On Windows, where a running executable cannot be deleted, the old binary is moved aside as `shipwick.old.exe` and removed the next time `shipwick` runs.
-- **The release's signature** (since 0.8). From 0.8.0 on, a release's `checksums.txt` is signed by the workflow that published it; the signature is a file of the release, `checksums.txt.sigstore.json`. With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 2.4 or later on this machine, the command verifies the checksums against it before it looks anything up in them: `cosign verify-blob`, run as a program with arguments, with the release workflow of `github.com/shipwick/shipwick` at that tag as the identity the certificate must name. The third line of the output says what became of it:
+- The latest release, never a pre-release, is looked up on GitHub — or, with `--version`, the release named is taken as it is, a pre-release included, and nothing is looked up. The release's `checksums.txt` is downloaded, then the binary for this operating system and architecture (`shipwick_linux_amd64`, `shipwick_windows_amd64.exe`, and so on; since 0.7 `shipwick_windows_arm64.exe` on Windows on Arm, picked by the machine's architecture also when the `shipwick` that runs is the x64 build) is written next to the running one as `.shipwick-new`, its SHA-256 is compared with the published checksum, and only then is it renamed over the old binary, with the old binary's permissions. A mismatch is refused, `<asset> does not match the checksum published with release <tag>; nothing was changed`, and so is a release without a binary for this platform. On Windows, where a running executable cannot be deleted, the old binary is moved aside as `shipwick.old.exe` and removed the next time `shipwick` runs.
+- **The release's signature** (since 0.8). From 0.8.0 on, a release's `checksums.txt` is signed by the workflow that published it; the signature is a file of the release, `checksums.txt.sigstore.json`. With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 2.5 or later on this machine, the command verifies the checksums against it before it looks anything up in them: `cosign verify-blob`, run as a program with arguments, with the release workflow of `github.com/shipwick/shipwick` at that tag as the identity the certificate must name. The third line of the output says what became of it:
 
   | Situation | Line |
   |---|---|
-  | The signature verified | `Release v0.8.1 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign).` |
+  | The signature verified | `Release v0.9.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign).` |
   | No cosign on this machine | `The release's signature was not checked: cosign is not installed on this machine.` The upgrade goes by the checksums, as before |
 
-  A signature that is not the workflow's stops the upgrade before the binary is downloaded: `the signature of release v0.8.0's checksums did not verify as one made by the release workflow of github.com/shipwick/shipwick for v0.8.0; nothing was changed`, followed by cosign's last line and `cosign 2.4 or later reads this signature; an older one fails here whatever the file`. With cosign installed, a release from 0.8.0 on that has no signature is refused: `release v0.8.0 has no signature (checksums.txt.sigstore.json), and every release since 0.8.0 has one; nothing was changed`. Nothing installs cosign for you, and nothing needs it. See [Verify a release](/docs/tasks/verify-a-release).
-- **Homebrew and winget.** A binary under Homebrew's Cellar or winget's Packages directory is recognized by its path and left to the package manager. The command prints `shipwick v0.3.1 was installed with Homebrew; v0.8.1 is available.` followed by `Upgrade with: brew upgrade shipwick`, or the same with `winget upgrade Shipwick.Shipwick`, and changes nothing.
-- **Already current:** `shipwick v0.8.1 is up to date.` A build without a release version: `This shipwick is a development build (dev); the latest release is v0.8.1.` Neither changes anything.
-- **`--check`** prints `shipwick v0.3.1 is installed; v0.8.1 is available.` and `Upgrade with: shipwick upgrade`, and changes nothing.
+  A signature that is not the workflow's stops the upgrade before the binary is downloaded: `the signature of release v0.8.0's checksums did not verify as one made by the release workflow of github.com/shipwick/shipwick for v0.8.0; nothing was changed`, followed by cosign's last line and `cosign 2.5 or later reads this signature; an older one fails here whatever the file`. With cosign installed, a release from 0.8.0 on that has no signature is refused: `release v0.8.0 has no signature (checksums.txt.sigstore.json), and every release since 0.8.0 has one; nothing was changed`. Nothing installs cosign for you, and nothing needs it. See [Verify a release](/docs/tasks/verify-a-release).
+- **`--version <tag>`** (since 0.9) installs exactly that release in place of whatever runs now, a pre-release included, with the same checksum and signature verification; the identity the signature must name is the release workflow at that tag. `✓ Upgraded shipwick v0.9.0 → v0.9.0-rc.2` reads like any upgrade, and the way back is the same command with the release before. A release that does not exist: `release v9.9.9 was not found at …; the releases are listed at https://github.com/shipwick/shipwick/releases`; something that is not a release version: `--version "latest" is not a release version; releases look like v0.9.0 or v0.9.0-rc.1`. The release that runs already: `shipwick v0.9.0-rc.1 is installed already.` With `--check`, `shipwick v0.9.0 is installed.` and `Install v0.9.0-rc.1 with: shipwick upgrade --version v0.9.0-rc.1`. A binary from Homebrew or winget is left to the package manager, with where to download the release named and the advice to put it on the `PATH` ahead of the package manager's.
+- **Homebrew and winget.** A binary under Homebrew's Cellar or winget's Packages directory is recognized by its path and left to the package manager. The command prints `shipwick v0.3.1 was installed with Homebrew; v0.9.0 is available.` followed by `Upgrade with: brew upgrade shipwick`, or the same with `winget upgrade Shipwick.Shipwick`, and changes nothing.
+- **Already current:** `shipwick v0.9.0 is up to date.` A build without a release version — `dev`, or since 0.9 a build made past a tag, `v0.8.1-3-gabcdef` as `git describe` names it, which until 0.9 was taken for a pre-release of that tag — is a development build: `This shipwick is a development build (v0.8.1-3-gabcdef); the latest release is v0.9.0.` Neither changes anything. A pre-release ahead of the latest release counts as current: `shipwick v0.9.0-rc.1 is up to date.`
+- **`--check`** prints `shipwick v0.3.1 is installed; v0.9.0 is available.` and `Upgrade with: shipwick upgrade`, and changes nothing.
 - **Where it refuses.** A directory it cannot write to: `cannot write to /usr/local/bin: permission denied`, then `Run it as root: sudo shipwick upgrade` or the installer line `curl -fsSL https://get.shipwick.com | sh -s -- --cli`; on Windows, the advice is an administrator prompt or downloading the `.exe` from the releases page. Nothing is downloaded before the staging file could be created.
 
 The server is not upgraded by this command: the installer does that, on the server, with access to Docker. After the binary step, `upgrade` asks the configured agent's health endpoint, which needs no token, and prints one of:
 
 | Situation | Line |
 |---|---|
-| The server is behind | `The server runs v0.3.1; v0.8.1 is available. On the server run:` and the installer command |
-| The server is current | `The server runs v0.8.1, the latest release.` |
-| The server runs a development build | `The server runs a development build (dev).` |
+| The server is behind | `The server runs v0.3.1; v0.9.0 is available. On the server run:` and the installer command; after `--version`, the command carries `SHIPWICK_VERSION=<tag>` and the server is compared with that release |
+| The server is current | `The server runs v0.9.0, the latest release.` |
+| The server is ahead of the latest release | `The server runs v0.9.0-rc.1, ahead of the latest release (v0.8.1).` Since 0.9 |
+| The server runs a development build | `The server runs a development build (dev).` A build made past a tag, `v0.8.1-3-gabcdef`, is one too since 0.9 |
 | The server cannot be reached | `The server at http://127.0.0.1:9000 could not be reached; its version was not checked.` |
 | The URL does not answer as an agent | `The server at <url> did not answer as a Shipwick agent; its version was not checked.` |
 | No server could be resolved | `The server was not checked: ` and the reason, such as an unknown context |
@@ -2443,7 +2510,11 @@ None of these fail the command. See [Upgrade Shipwick](/docs/tasks/upgrade).
 | `NO_VOLUMES` | `This application has no volumes, so there is nothing to back up.` Give it some under `volumes` in `deploy.yaml` |
 | `BACKUPS_NOT_ENCRYPTED` | `Error: <the agent's message>`, then `Set SHIPWICK_BACKUP_PASSPHRASE in /opt/shipwick/.env on the server, then: cd /opt/shipwick && docker compose up -d` |
 | `IMPORT_IN_PROGRESS` | `An import is already running on this server; it takes one at a time.` Follow it with `shipwick import --status` |
-| `INVALID_EXPORT` | `Error: <the agent's message>`, then `What the import had finished before it stopped is in place: shipwick import --status. An export is written with: shipwick export` |
+| `INVALID_EXPORT` | `Error: <the agent's message>`, then `What the import had finished before it stopped is in place: shipwick import --status. An export is written with: shipwick export`. Since 0.9 the agent's message is also `the export was written by Shipwick v0.10.0 and uses the key spec.hoverboard, which this agent (Shipwick v0.9.0) does not know and would drop. Import it with an agent of that version or newer, or export without the applications that use it`, refused before anything is taken in; see [Move to a new server](/docs/tasks/move-to-a-new-server#what-import-does) |
+| `CLOUDFLARE_NOT_CONFIGURED` | `This agent has no Cloudflare API token to check.` Then `Set SHIPWICK_CLOUDFLARE_API_TOKEN in /opt/shipwick/.env on the server, then: cd /opt/shipwick && docker compose up -d`. Since 0.9 |
+| `CLOUDFLARE_CHECKED_RECENTLY` | `The Cloudflare token was checked less than a minute ago; a check writes a DNS record in every zone, so the agent does not repeat it sooner.` Then `Its result is in: shipwick doctor`. `doctor` itself reads the last result in that case. Since 0.9 |
+| A followed log lost five times in a row | `Error: <the last error>`, then `The stream was lost 5 times in a row and nothing came through in between. See whether the agent is reachable with: shipwick doctor`. Since 0.9; see [`logs`](#logs) |
+| `secret set --app` against an agent older than 0.9 | `the agent is older than this shipwick and keeps no secrets per application; nothing was stored`, then the installer line and `or store the secret for every application without --app. Compare versions with: shipwick server status`. Since 0.9 |
 | `EXPORT_IN_PROGRESS` | `The server is writing an export already.` See it with `shipwick export --list` |
 | `STANDBY_NOT_CONFIGURED` | `This server has no bucket to fetch exports from.` Set the `SHIPWICK_BACKUP_S3_*` variables and `SHIPWICK_BACKUP_PASSPHRASE` of the first server, and `SHIPWICK_STANDBY_SCHEDULE`, in `/opt/shipwick/.env` on this server; or import a file with `shipwick import <file> --stopped` |
 | `PROMOTION_IN_PROGRESS` | `This server is being promoted; nothing is imported into it meanwhile.` Follow the promotion with `shipwick standby promote`. `standby promote` itself answers this code by following the promotion that is under way. Since 0.6 |

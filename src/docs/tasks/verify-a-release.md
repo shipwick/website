@@ -10,16 +10,16 @@ The agent is root on your server, so it should be possible to say where it came 
 ## Before you begin
 
 - Releases before 0.8.0 have no signature. Their files are verified against the release's checksums, as before.
-- Verifying a file takes [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 2.4 or later. An older cosign fails on this signature whatever the file.
+- Verifying a file takes [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 2.5 or later. An older cosign fails on this signature whatever the file: 2.4.1 answers `bundle does not contain cert for verification` to the bundle the release workflow writes; 2.5.0 and later read it.
 - Verifying an image takes cosign 3; cosign 2.6 reads these signatures with `--new-bundle-format`.
 - A provenance attestation is read with the GitHub CLI, signed in.
 
 ## What the signature proves
 
-A release is signed by the workflow that built it, and by nothing else: there is no signing key, in the repository or anywhere. GitHub tells Sigstore which workflow is running and for which tag, Sigstore issues a certificate for that identity that is valid for ten minutes, and the signature goes into a public log. A signature verifies only for the identity you name, which for release `v0.8.1` is
+A release is signed by the workflow that built it, and by nothing else: there is no signing key, in the repository or anywhere. GitHub tells Sigstore which workflow is running and for which tag, Sigstore issues a certificate for that identity that is valid for ten minutes, and the signature goes into a public log. A signature verifies only for the identity you name, which for release `v0.9.0` is
 
 ```text
-https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.8.1
+https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.9.0
 issued by https://token.actions.githubusercontent.com
 ```
 
@@ -27,13 +27,13 @@ So what it proves is that the file or image was produced by that workflow file, 
 
 ## Verify the files
 
-The release's files — the CLI for every platform, the packages, the compose file, the installer, the digests of the images — are listed in `checksums.txt`, and `checksums.txt` is what is signed. The signature is a file of the release, `checksums.txt.sigstore.json`.
+The release's files — the CLI for every platform, the packages, the compose file, the two installers, the digests of the images — are listed in `checksums.txt`, and `checksums.txt` is what is signed. The signature is a file of the release, `checksums.txt.sigstore.json`.
 
 ```bash
-curl -fsSLO https://github.com/shipwick/shipwick/releases/download/v0.8.1/checksums.txt
-curl -fsSLO https://github.com/shipwick/shipwick/releases/download/v0.8.1/checksums.txt.sigstore.json
+curl -fsSLO https://github.com/shipwick/shipwick/releases/download/v0.9.0/checksums.txt
+curl -fsSLO https://github.com/shipwick/shipwick/releases/download/v0.9.0/checksums.txt.sigstore.json
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
-  --certificate-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.8.1 \
+  --certificate-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.9.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum -c --ignore-missing checksums.txt     # the files you downloaded, against the list
 ```
@@ -45,15 +45,15 @@ The first three lines prove who wrote the list; the last holds the files you dow
 The images are signed by digest. A tag is resolved to its digest when you verify, so this proves what the registry serves under the tag now.
 
 ```bash
-cosign verify ghcr.io/shipwick/agent:0.8.1 \
-  --certificate-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.8.1 \
+cosign verify ghcr.io/shipwick/agent:0.9.0 \
+  --certificate-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.9.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 The same goes for `ghcr.io/shipwick/dashboard` and `ghcr.io/shipwick/caddy`. The digest it prints is the `index` line of that image in the release's `image-digests.txt`, and what this shows on a server that pulled the tag:
 
 ```bash
-docker image inspect --format '{{.RepoDigests}}' ghcr.io/shipwick/agent:0.8.1
+docker image inspect --format '{{.RepoDigests}}' ghcr.io/shipwick/agent:0.9.0
 ```
 
 ## Verify the provenance
@@ -62,20 +62,21 @@ Each file and each image also has a provenance attestation, kept by GitHub: the 
 
 ```bash
 gh attestation verify shipwick_linux_amd64 --repo shipwick/shipwick \
-  --cert-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.8.1
-gh attestation verify oci://ghcr.io/shipwick/agent:0.8.1 --repo shipwick/shipwick \
-  --cert-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.8.1
+  --cert-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.9.0
+gh attestation verify oci://ghcr.io/shipwick/agent:0.9.0 --repo shipwick/shipwick \
+  --cert-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.9.0
 ```
 
-## What the installer and the CLI check for you
+## What the installers and the CLI check for you
 
-The installer, `shipwick upgrade` and `shipwick server bundle` verify the signature of `checksums.txt` before they use the checksums, when cosign is installed where they run. Nothing installs cosign for you, and nothing needs it.
+The installer, the Windows installer of the CLI, `shipwick upgrade` and `shipwick server bundle` verify the signature of `checksums.txt` before they use the checksums, when cosign (2.5 or later) is installed where they run. Nothing installs cosign for you, and nothing needs it.
 
 | | With cosign installed | Without cosign |
 |---|---|---|
 | The installer | Verifies the signature and stops if it is not the release workflow's: `✓ The release is signed by the release workflow of github.com/shipwick/shipwick`. A release without a signature is installed with a warning | Says so in one line and goes by the checksums alone: `The release's signature was not checked: cosign is not installed. Every file is checked against the release's checksums.` |
 | The installer with `SHIPWICK_REQUIRE_SIGNATURE=1` | The same, and a release without a signature is refused | Installs nothing |
-| `shipwick upgrade` | Verifies the signature; a signature that does not verify changes nothing. A release from 0.8.0 on that has no signature is refused | Says that the signature was not checked |
+| The Windows installer (`irm https://get.shipwick.com/windows \| iex`, since 0.9) | Runs `cosign verify-blob` with the release workflow at exactly that tag as the identity, and stops if the signature is not the workflow's. A release without a signature is installed with a warning; `SHIPWICK_REQUIRE_SIGNATURE=1` refuses both, as for the installer above | Says so in one line and goes by the checksums |
+| `shipwick upgrade` | Verifies the signature; a signature that does not verify changes nothing. A release from 0.8.0 on that has no signature is refused. With `--version`, the identity is the workflow at the release asked for | Says that the signature was not checked |
 | `shipwick server bundle` | Verifies the signature before it downloads anything else, and says which it was. The signature travels in the bundle | Says that the signature was not checked. The signature travels in the bundle all the same |
 
 A new server has no cosign, so the installer's line about it is the second line of an ordinary installation.
@@ -107,7 +108,7 @@ Each binary of a release has a bill of materials next to it, `shipwick_linux_amd
 Each image carries one for each platform, written when it was built from the files in it, as part of the signed manifest list:
 
 ```bash
-docker buildx imagetools inspect ghcr.io/shipwick/agent:0.8.1 \
+docker buildx imagetools inspect ghcr.io/shipwick/agent:0.9.0 \
   --format '{{ json (index .SBOM "linux/amd64").SPDX }}'
 ```
 

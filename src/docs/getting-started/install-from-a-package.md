@@ -1,6 +1,6 @@
 ---
 title: Install from a package
-description: Install the Shipwick agent from its Debian or RPM package as a systemd service of the host - what the package installs and what it does not, starting the agent, the proxy and the dashboard, where the API listens, upgrading and removing.
+description: Install the Shipwick agent from its Debian or RPM package as a systemd service of the host - what the package installs and what it does not, starting the agent, the proxy and the dashboard, where the API listens, what SELinux is expected to deny, upgrading and removing.
 ---
 
 # Install from a package
@@ -18,7 +18,7 @@ The [installer](/docs/getting-started/install) remains the shortest way to a run
 
 You need:
 
-- A Linux server with systemd, amd64 or arm64. The `.deb` is for Debian and Ubuntu; the `.rpm` is built on Rocky Linux 9 and installs on 8 and later, and on Fedora.
+- A Linux server with systemd, amd64 or arm64. The `.deb` is for Debian and Ubuntu; the `.rpm` is built on Rocky Linux 9 and installs on 8 and later, and on Fedora. Since 0.9 both are installed and put through everything an installation does — deployments, rollbacks, backups, an export and an import — on Debian and Rocky Linux, in containers of those distributions inside a Docker daemon of their own (`scripts/test-package.sh` in the repository, not part of CI); what runs there is the agent with the unit's environment and the proxy from the package's compose file, not systemd, SELinux enforcing, a host firewall or the dashboard.
 - Docker Engine with the Compose plugin, from your distribution or from Docker. The package recommends Docker and does not depend on one packaging of it.
 - Ports 80 and 443 free and reachable from the internet, as for [any installation](/docs/getting-started/install#before-you-begin).
 
@@ -107,6 +107,8 @@ systemctl restart shipwick-agent
 
 Those addresses are reachable from the containers of this server and from nowhere else, and the agent refuses the containers of applications there: see [Who can reach the API](/docs/security#who-can-reach-the-api). A firewall on the server that filters traffic from Docker's networks (`ufw`, `firewalld`) must let port 9000 through from the `shipwick-control` network.
 
+One thing an agent of the host sees that an agent in a container cannot: the size of the kernel's table of neighbours, `net.ipv4.neigh.default.gc_thresh3`, which the kernel shows in the host's own network namespace only. Since 0.9 `GET /server` carries it as `kernel_limits.neighbour_table`, and `shipwick doctor` warns from a quarter of the table on; see [Prepare a server](/docs/tasks/prepare-a-server#the-kernel-s-table-of-neighbours).
+
 ::: warning Never give the API a public address
 The API is plain HTTP. On a public address the token travels in clear text, and an admin token is root on the server. The ways in are the proxy, over HTTPS, and the server itself.
 :::
@@ -118,6 +120,17 @@ Every other setting goes into the same file, one line each, followed by a restar
 It drives Docker through Docker's socket, and whoever may do that can start a container that owns the host. A user of its own in the `docker` group would be root in everything but name, and the proxy's admin socket and root's `docker login` credentials would need opening up for it.
 
 The unit takes away what the agent does not need instead: it cannot gain privileges, `/usr`, `/boot` and `/etc` are read-only to it, home directories are read-only, and it has a `/tmp` of its own. A [`SHIPWICK_BACKUP_DIR`](/docs/reference/agent-configuration#backups) must therefore lie outside those, under `/var` or `/srv`.
+
+## SELinux
+
+Reasoned, not run: the packages were installed and run on Debian and Rocky Linux in containers, where nothing enforces. On Rocky Linux and RHEL with SELinux enforcing, a service systemd starts from a binary no policy module describes runs as `unconfined_service_t`, which SELinux leaves alone, and the package ships no module: the agent's connection to Docker's socket, its files under `/var/lib/shipwick` and its connection to the proxy's socket in `/run/shipwick` are all permitted on its side.
+
+What is expected to be denied is on the containers' side, and only once Docker labels them (`"selinux-enabled": true` in `/etc/docker/daemon.json`, which Docker's own packages leave off):
+
+- **The proxy creating its admin socket** in `/run/shipwick`, a directory of the host labelled `var_run_t`, as `container_t`: in `ausearch -m AVC -ts recent` a `denied { create }` with `tclass=sock_file`. `:z` on the mount (`/run/shipwick:/run/shipwick:z`) labels the directory `container_file_t`; the package replaces `compose.yml` at each upgrade, so keep the change in a copy of the file and start the proxy from that.
+- **The dashboard connecting to the agent's port**, should that port's type be one containers may not connect to. `setsebool -P container_connect_any 1` lets containers connect to any port of the host.
+
+For anything else, `ausearch -m AVC -ts recent | audit2allow -M shipwick-local && semodule -i shipwick-local.pp` writes and installs a local module that allows exactly what was denied; read it before installing it. Confining the agent itself would be a policy module of your own.
 
 ## Upgrade
 
@@ -132,7 +145,7 @@ docker compose --env-file /etc/shipwick/agent.env -f /usr/share/shipwick/compose
 It moves the proxy and the dashboard onto the `shipwick-control` network. Until it has run, the agent refuses both, as it refuses any container that calls from an application network.
 :::
 
-The upgrade of the installer's installation was walked from every release; the packages were not. See [Upgrade Shipwick](/docs/tasks/upgrade#what-an-upgrade-does).
+The upgrade of the installer's installation was walked from every release; the packages were not. Since 0.9 the packages are installed and run on Debian and Rocky Linux by a script of the repository, as described [above](#before-you-begin). See [Upgrade Shipwick](/docs/tasks/upgrade#what-an-upgrade-does).
 
 The [notice about a newer release](/docs/tasks/upgrade#a-notice-when-a-newer-release-exists) in `shipwick server status` names the installer. On a server installed from a package, the package is what to install.
 

@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 const site = 'https://shipwick.com'
 const repo = 'https://github.com/shipwick/shipwick'
-const version = '0.8.1'
+const version = '0.9.0'
 
 export default defineConfig({
   lang: 'en-US',
@@ -117,6 +117,7 @@ export default defineConfig({
             { text: 'Find out why it died', link: '/docs/tasks/find-out-why-it-died' },
             { text: 'Use the dashboard', link: '/docs/tasks/dashboard' },
             { text: 'Run scheduled jobs and one-off commands', link: '/docs/tasks/jobs' },
+            { text: 'Keep secrets on the server', link: '/docs/tasks/secrets' },
             { text: 'Call one application from another', link: '/docs/tasks/call-another-application' },
             { text: 'Pull from private registries', link: '/docs/tasks/private-registries' },
           ],
@@ -128,6 +129,7 @@ export default defineConfig({
             { text: 'Serve several hostnames and redirect www', link: '/docs/tasks/several-hostnames' },
             { text: 'Share a hostname by path and configure the proxy', link: '/docs/tasks/paths-and-proxy' },
             { text: 'Put Cloudflare in front of the server', link: '/docs/tasks/cloudflare' },
+            { text: 'Admit Cloudflare only', link: '/docs/tasks/cloudflare-only' },
             { text: 'Use a certificate of your own', link: '/docs/tasks/certificates' },
             { text: 'Expose a service that is not HTTP', link: '/docs/tasks/non-http-services' },
           ],

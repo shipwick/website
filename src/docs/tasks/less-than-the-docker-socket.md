@@ -1,20 +1,21 @@
 ---
 title: Give the agent less than the Docker socket
-description: Two arrangements that give the Shipwick agent less than the socket of a Docker daemon that runs as root — a socket proxy with a list of exactly the calls the agent makes, and rootless Docker — with what each takes away, what it does not, what the server needs and what it was tested on.
+description: Three arrangements that give the Shipwick agent less than the socket of a Docker daemon that runs as root — a socket proxy with a list of exactly the calls the agent makes, Docker's authorization plugin with a policy that refuses what makes a container root, and rootless Docker — with what each takes away, what it does not, what the server needs and what it was tested on.
 ---
 
 # Give the agent less than the Docker socket
 
-The standard installation gives the agent `/var/run/docker.sock` of a daemon that runs as root, which is why the [trust model](/docs/security#trust-model) starts with "the Docker socket is root". Since 0.8 two arrangements give it less: a socket proxy between the agent and Docker, and rootless Docker. This page sets up each, and says exactly what each does and does not protect against.
+The standard installation gives the agent `/var/run/docker.sock` of a daemon that runs as root, which is why the [trust model](/docs/security#trust-model) starts with "the Docker socket is root". Three arrangements give it less: a socket proxy between the agent and Docker and rootless Docker, since 0.8, and since 0.9 Docker's authorization plugin with a policy of the repository's. This page sets up each, and says exactly what each does and does not protect against.
 
-They are independent and can be combined. Neither is what the installer sets up, and each costs something.
+They are independent. None is what the installer sets up, and each costs something.
 
 ## Before you begin
 
-- **A socket proxy narrows what a fault in the agent can reach. It is not a wall**: whoever takes the agent over can still create a privileged container, which is root on the server. For a server where a compromised agent must not become root, rootless Docker is the arrangement that holds.
+- **A socket proxy narrows what a fault in the agent can reach. It is not a wall**: whoever takes the agent over can still create a privileged container, which is root on the server. For a server where a compromised agent must not become root, the authorization plugin or rootless Docker is what holds.
 - The socket proxy's overlay needs Docker Compose 2.24.4 or newer.
+- The authorization plugin is installed into the daemon, as root, and judges every client of it, your own `docker` commands included.
 - Rootless Docker is set up by hand, as the user who runs the daemon. The installer is not used: it runs as root and installs into `/opt/shipwick`.
-- Both are run by a script in the repository, in a Docker daemon of its own: `sh scripts/test-socket-proxy.sh`, `sh scripts/test-rootless.sh`.
+- Each is run by a script in the repository, in a Docker daemon of its own: `sh scripts/test-socket-proxy.sh`, `sh scripts/test-docker-authz.sh`, `sh scripts/test-rootless.sh`.
 
 ## Behind a socket proxy
 
@@ -75,7 +76,43 @@ They can also do everything the agent does, to anything: run a command in any co
 What it changes is narrower: a fault that makes the agent send one request it never sends is stopped and logged, the part of the Engine API it has no use for is out of reach of anything that goes wrong in it, and the paths to root that remain all go through creating a container, which is one place to look.
 :::
 
-A filter on the body of that request — no `Privileged`, no added capabilities, no devices, no namespaces of the server — is what would make it a wall. The proxy used here checks bind mounts and stops there. The other maintained one, [Tecnativa/docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy), filters by section of the API and would allow every call on containers once any is allowed, by its documentation. Docker's own authorization plugins see the whole request, and apply to every client of the daemon, your own `docker` commands included; none was tried here.
+A filter on the body of that request — no `Privileged`, no added capabilities, no devices, no namespaces of the server — is what would make it a wall. The proxy used here checks bind mounts and stops there. The other maintained one, [Tecnativa/docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy), filters by section of the API and would allow every call on containers once any is allowed, by its documentation. Docker's own authorization plugins see the whole request: that is the next arrangement. For a server where a compromised agent must not become root, it or rootless Docker below is what holds.
+
+## Behind an authorization plugin
+
+Docker asks an [authorization plugin](https://docs.docker.com/engine/extend/plugins_authorization/), when one is configured, about every request to the daemon before it acts on it — the method, the path and the body — and does what the plugin answers. Since 0.9 [configs/docker-authz.rego](https://github.com/shipwick/shipwick/blob/main/configs/docker-authz.rego) is a policy for [opa-docker-authz](https://github.com/open-policy-agent/opa-docker-authz), the Open Policy Agent's plugin, maintained since 2016 (v0.11 is of 2026-10-06). The policy allows everything except what makes a container, or a command run in one, root on the server:
+
+- a privileged container;
+- a directory of the server mounted: `Binds`, a `Mounts` entry of type `bind`, another container's volumes (`--volumes-from`), and a volume made of a directory (`docker volume create -o o=bind`), with one path allowed, the daemon's own socket, which the agent's container is given and which leads back to the policy;
+- a namespace of the server: `--pid`, `--net`, `--ipc`, `--userns`, `--uts` or `--cgroupns` set to `host`;
+- a capability beyond Docker's default set (`--cap-add SYS_ADMIN`, `ALL`), a device, and `seccomp`, `apparmor` or `systempaths` set to `unconfined` or `label=disable`;
+- a privileged command in a container (`docker exec --privileged`);
+- Swarm, and plugins.
+
+Nothing in Shipwick changes for it: the compose file stays as it is, with or without the socket proxy. On the server, as root:
+
+```bash
+mkdir -p /etc/docker/policies
+curl -fsSL -o /etc/docker/policies/authz.rego \
+  https://raw.githubusercontent.com/shipwick/shipwick/v<version>/configs/docker-authz.rego
+docker plugin install --grant-all-permissions ghcr.io/open-policy-agent/opa-docker-authz:v0.11 \
+  opa-args="-policy-file /opa/policies/authz.rego"
+# Add to /etc/docker/daemon.json:
+#   "authorization-plugins": ["ghcr.io/open-policy-agent/opa-docker-authz:v0.11"]
+kill -HUP "$(pidof dockerd)"    # the daemon reads that setting again without a restart
+```
+
+The plugin has `/etc/docker` of the server at `/opa`, read-only, and reads the policy file again for every request, so a change to the file is in effect at once.
+
+### What it adds to the socket proxy
+
+The body of the request. Each of these was tried through the daemon's socket and refused with `authorization denied by plugin …: request rejected by administrative policy`: `docker run --privileged`, `-v /:/host`, `--mount type=bind`, `--volumes-from`, `--pid=host`, `--net=host`, `--ipc=host`, `--cap-add SYS_ADMIN`, `--cap-add ALL`, `--device`, `--security-opt seccomp=unconfined`, `docker exec --privileged`, `docker volume create -o type=none -o o=bind -o device=/`, `docker swarm init`, `docker plugin ls`. `scripts/test-docker-authz.sh` installs the plugin in a daemon of its own, runs everything an installation does through it — the agent never asks for any of the above, so everything passes — and then tries each refusal. On Docker 29.9 with the plugin's v0.11.
+
+One thing the plugin itself does not do: it decodes a request's body only when the request says `Content-Type: application/json` and nothing more, while the daemon also takes `application/json; charset=utf-8`. Sent with that header, a request for a privileged container reached the daemon with no body for the policy to see, and was accepted — tried here. The policy therefore refuses a `containers/create`, an `exec` or a `volumes/create` whose body it was not given; no Docker client sends JSON with a charset, so nothing legitimate is refused by that.
+
+### What it costs
+
+The policy judges every client of the daemon, not the agent alone: your own `docker run --privileged` on the server is refused, and so is a bind mount of your own — a CA file or a `config.json` in `compose.override.yml` — until its path is added to `allowed_binds` in the policy. `docker plugin` commands are refused too, so to change or remove the plugin, take it out of `daemon.json` and send the daemon `HUP` first. A policy file that is missing or unreadable makes the plugin allow every request; it refuses nothing by accident, and protects nothing by accident either. With the socket proxy or with rootless Docker in the same installation it was not run.
 
 ## Rootless Docker
 
@@ -117,7 +154,7 @@ Without the first setting the proxy does not start, and Docker says why:
 cannot expose privileged port 80, you can add 'net.ipv4.ip_unprivileged_port_start=80' to /etc/sysctl.conf (currently 1024), or set CAP_NET_BIND_SERVICE on rootlesskit binary, or choose a larger port number (>= 1024)
 ```
 
-After a start that was refused, `docker compose up -d` again is not enough: the proxy's container was left without all of its networks and starts that way, reaching either the agent or the applications. Make it again with `docker compose … up -d --force-recreate caddy`.
+After a start that was refused, `docker compose up -d` again is not enough: the proxy's container was left without all of its networks and starts that way, reaching either the agent or the applications. Make it again with `docker compose … up -d --force-recreate caddy`. Since 0.9 the agent looks at the proxy's networks every half minute and says which are missing: in its log when that changes, in `GET /server` (`proxy.networks_missing`), in `shipwick server status`, and in `shipwick doctor` as a problem with that command.
 
 The same message fails a deployment whose `publish` names a port below the setting; ports from it upwards are published as on any server.
 

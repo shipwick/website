@@ -141,6 +141,8 @@ running + proven for 60s ──▶ restarts = 0, crash loop cleared
 
 Health probes run outside the tick, at most one in flight per replica. A probe that takes its full timeout does not delay the restart of some other application's replica.
 
+A pass asks Docker for its containers once, whatever the number of applications, since 0.9; until 0.8 it asked three times a second and once more for every application, which from about a hundred applications on two processors no longer fit in its second. Measured at 2 CPUs and 4 GB (`scripts/measure-limits.sh apps`), before and after that change, the server idled at 57% of one processor with 50 applications of two replicas and at 103% with 100; it idles at 14% and 29%. A replica the list predates is asked about by ID before anything is concluded, as below. Since 0.9 the pass also looks at the proxy's networks every half minute, and says which it is missing; see [When things break](/docs/tasks/when-things-break#the-proxy-cannot-be-reached).
+
 Docker's own restart policy is set to `no` on every container. Two restart mechanisms would fight, and only the supervisor knows about backoff, health and crash loops.
 
 ### Restart policy

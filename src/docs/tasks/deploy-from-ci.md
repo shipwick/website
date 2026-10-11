@@ -229,10 +229,10 @@ env:
 Two places can fill it in. The simplest is the server: store the value there once, from a machine where you are logged in as an admin, and every deploy from every pipeline and laptop gets it, with nothing in the CI secret store but the token:
 
 ```bash
-shipwick secret set DATABASE_PASSWORD     # asked without echo; or pipe it in
+shipwick secret set DATABASE_PASSWORD --app my-api     # asked without echo; or pipe it in
 ```
 
-The agent fills in `${DATABASE_PASSWORD}` in `env` values when it records the deployment. Or the pipeline fills it in: expose the secret as an environment variable named like the placeholder, `DATABASE_PASSWORD` here, the same way the token is exposed, or write a `NAME=value` file and pass it with `--env-file`:
+The agent fills in `${DATABASE_PASSWORD}` in `env` values when it records the deployment. Since 0.9 a secret belongs to one application (`--app`) or to the whole server (without): store what the application owns with `--app`, and what several applications share once, for the server; see [Keep secrets on the server](/docs/tasks/secrets). Or the pipeline fills it in: expose the secret as an environment variable named like the placeholder, `DATABASE_PASSWORD` here, the same way the token is exposed, or write a `NAME=value` file and pass it with `--env-file`:
 
 ```bash
 shipwick deploy --image "ghcr.io/company/my-api:$GIT_SHA" --env-file .env.production

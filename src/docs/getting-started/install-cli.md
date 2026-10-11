@@ -1,6 +1,6 @@
 ---
 title: Install the CLI
-description: Install the shipwick command-line client on your laptop or in CI with one command, keep it current, and connect it to a server.
+description: Install the shipwick command-line client on your laptop or in CI with one command, on macOS, Linux or Windows, keep it current with shipwick upgrade, and connect it to a server.
 ---
 
 # Install the CLI
@@ -16,6 +16,12 @@ Start here. The CLI is the first thing to install, because with it on your lapto
 
 ```bash
 curl -fsSL https://get.shipwick.com | sh -s -- --cli
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://get.shipwick.com/windows | iex
 ```
 
 The server installer also puts `shipwick` on the server, and since 0.5 signs it in to its own agent when the API has a hostname; see [On the server](#on-the-server).
@@ -55,12 +61,29 @@ curl -fsSL https://get.shipwick.com | SHIPWICK_BIN_DIR="$HOME/.local/bin" sh -s 
 To install a specific version, set `SHIPWICK_VERSION`:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.8.1 sh -s -- --cli
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.9.0 sh -s -- --cli
 ```
 
 ## Windows
 
-Download `shipwick_windows_amd64.exe` from the [releases page](https://github.com/shipwick/shipwick/releases) and put it on your `PATH`. Since 0.7 there is a build for a machine with an Arm processor too, `shipwick_windows_arm64.exe`. Later releases are installed with `shipwick upgrade`, below; it picks the build for the machine, also when the `shipwick` that runs is the x64 one.
+Since 0.9 the CLI installs on Windows with one line, in Windows PowerShell 5.1 or PowerShell 7:
+
+```powershell
+irm https://get.shipwick.com/windows | iex
+```
+
+It downloads `shipwick_windows_amd64.exe` — or the Arm64 build, on a machine with an Arm processor — and `checksums.txt` from the latest release, verifies the binary's SHA-256 against the one the release lists, puts it at `%LOCALAPPDATA%\Programs\shipwick\shipwick.exe` and adds that directory to your `PATH`, once. Terminals that are already open keep the `PATH` they started with until they are opened anew. A mismatch installs nothing. A `shipwick.exe` already on your `PATH` ahead of that directory — one put somewhere by hand — is named, because it would go on being the one that runs.
+
+Where [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) (2.5 or later) is installed, `checksums.txt` is first verified against the release's signature, with the release workflow at exactly that tag as the identity, and the installer stops if it is not the workflow's; without cosign it says in one line that the signature was not checked. `SHIPWICK_REQUIRE_SIGNATURE=1` turns that, and a release without a signature, into a refusal, as for the Unix installer. See [Verify a release](/docs/tasks/verify-a-release).
+
+A release of your choice: set `SHIPWICK_VERSION` before the command, or save the script — [`scripts/install.ps1`](https://github.com/shipwick/shipwick/blob/main/scripts/install.ps1), a file of every release from 0.9.0 on — and run it with `-Version`; `-Destination` names another directory:
+
+```powershell
+$env:SHIPWICK_VERSION = 'v0.9.0'; irm https://get.shipwick.com/windows | iex
+.\install.ps1 -Version v0.9.0 -Destination C:\tools\shipwick
+```
+
+Running it again upgrades, as does `shipwick upgrade`, below, which picks the build for the machine also when the `shipwick` that runs is the x64 one. Until 0.9 the way was to download the `.exe` from the [releases page](https://github.com/shipwick/shipwick/releases) and put it on your `PATH`; that still works. `winget install Shipwick.Shipwick` follows once the package is accepted into winget-pkgs.
 
 ## From source
 
@@ -85,21 +108,27 @@ shipwick upgrade
 ```
 
 ```text
-✓ Upgraded shipwick v0.3.1 → v0.8.1
+✓ Upgraded shipwick v0.3.1 → v0.9.0
   /usr/local/bin/shipwick
 
-The server runs v0.3.1; v0.8.1 is available. On the server run:
+The server runs v0.3.1; v0.9.0 is available. On the server run:
   curl -fsSL https://get.shipwick.com | sh
 ```
 
-The release is downloaded from GitHub and verified against the release's `checksums.txt` before anything changes; the new binary is written next to the old one and renamed over it only once its SHA-256 matches. Since 0.8, where cosign (2.4 or later) is installed, `checksums.txt` is first verified against the release's signature, a signature that does not verify changes nothing, and a release from 0.8.0 on that has no signature is refused; without cosign the command says `The release's signature was not checked: cosign is not installed on this machine.` and goes by the checksums. See [Verify a release](/docs/tasks/verify-a-release). Pre-releases are never picked. On Windows the replaced binary is left behind as `shipwick.old.exe` and removed the next time `shipwick` runs. If the directory is not writable, the command says so and suggests `sudo shipwick upgrade`, or running the installer again.
+The release is downloaded from GitHub and verified against the release's `checksums.txt` before anything changes; the new binary is written next to the old one and renamed over it only once its SHA-256 matches. Since 0.8, where cosign (2.5 or later) is installed, `checksums.txt` is first verified against the release's signature, a signature that does not verify changes nothing, and a release from 0.8.0 on that has no signature is refused; without cosign the command says `The release's signature was not checked: cosign is not installed on this machine.` and goes by the checksums. See [Verify a release](/docs/tasks/verify-a-release). On Windows the replaced binary is left behind as `shipwick.old.exe` and removed the next time `shipwick` runs. If the directory is not writable, the command says so and suggests `sudo shipwick upgrade`, or running the installer again.
 
-The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there, or with `shipwick server install user@host` from your machine; `shipwick upgrade` tells you when the server is behind, and says `The server runs v0.8.1, the latest release.` when it is not. A server that cannot be reached is one line, not an error.
+Without `--version` the latest release is installed, never a pre-release. Since 0.9, `shipwick upgrade --version <tag>` installs exactly that release, a pre-release included, in place of whatever runs now, with the same checksum and signature verification: the way to try a release candidate, and the way back from one. The server is then compared with that release, and the installer line the command prints names it. A pre-release ahead of the latest release counts as current afterwards: `upgrade --check` and `doctor` do not offer the release it precedes until that release is out. A development build — `shipwick --version` reads `dev`, or `v0.8.1-3-gabcdef` for a build made past a tag — is not a release: it is neither upgraded nor told that a release is available, and both commands say that it is a development build.
+
+```bash
+shipwick upgrade --version v0.9.0-rc.1
+```
+
+The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there, or with `shipwick server install user@host` from your machine; `shipwick upgrade` tells you when the server is behind, and says `The server runs v0.9.0, the latest release.` when it is not — or `ahead of the latest release (v0.9.0)` for a server on a pre-release. A server that cannot be reached is one line, not an error.
 
 A `shipwick` installed with Homebrew is left to Homebrew:
 
 ```text
-shipwick v0.3.1 was installed with Homebrew; v0.8.1 is available.
+shipwick v0.3.1 was installed with Homebrew; v0.9.0 is available.
 
 Upgrade with: brew upgrade shipwick
 ```
@@ -111,12 +140,12 @@ shipwick upgrade --check
 ```
 
 ```text
-shipwick v0.3.1 is installed; v0.8.1 is available.
+shipwick v0.3.1 is installed; v0.9.0 is available.
 
 Upgrade with: shipwick upgrade
 ```
 
-When there is nothing to do, the first line reads `shipwick v0.8.1 is up to date.`
+When there is nothing to do, the first line reads `shipwick v0.9.0 is up to date.`
 
 ## Log in
 
@@ -128,7 +157,7 @@ shipwick login --url https://agent.example.com
 
 ```text
 API token:
-✓ Logged in to https://agent.example.com (vps-1, agent v0.8.1)
+✓ Logged in to https://agent.example.com (vps-1, agent v0.9.0)
   saved as context default in /home/you/.config/shipwick/config.yaml
 ```
 
@@ -167,7 +196,7 @@ To check the whole setup, from the versions to whether each domain's DNS points 
 shipwick doctor
 ```
 
-It prints one line per check with what to do about it, and exits non-zero when something is broken; see [Your first deployment](/docs/getting-started/first-deployment#when-the-domain-is-not-ready).
+It prints one line per check with what to do about it, and exits non-zero when something is broken; see [Your first deployment](/docs/getting-started/first-deployment#when-the-domain-is-not-ready). When the agent itself does not answer, the agent's line tells the causes apart: a connection that times out after ten seconds is a firewall in front of the server, on a server that was just installed the provider's; a connection refused is nothing listening, the proxy down; a TLS handshake that fails is a proxy without a certificate for the hostname yet, with Caddy's log as the place to look.
 
 CI jobs usually need no login at all: they set two environment variables instead. See [Deploy from CI](/docs/tasks/deploy-from-ci).
 

@@ -68,6 +68,16 @@ location: https://example.com/docs?x=1
 - **The target is always HTTPS**, whatever the request came in on. Plain HTTP on port 80 is redirected to HTTPS by Caddy first, for every hostname.
 - **A redirect needs no replica.** It is answered by the proxy from a static route, so `https://www.example.com/…` is redirected whether or not the application is running: after `shipwick stop web`, `example.com` and `api.example.com` answer `503`, `www.example.com` still redirects.
 
+## A redirect loop is caught
+
+An application that sends its bare domain to `www` — a `next.config` with `redirects`, a framework setting, a line in its own proxy — deployed with `redirects: [www.example.com]`, which sends `www` back, passes every health check and serves nobody: each request goes round until the browser gives up. So once a deployment is done, since 0.9, the agent asks the application its own hostname once, the way a visitor would: through the proxy, `GET https://<domain><path>/`, following no redirect, five seconds at most. An answer that redirects to a hostname of `redirects` is a loop, and the deployment's output says so under its summary, and what to swap:
+
+```text
+! https://example.com/ sends its visitors to www.example.com, which `redirects` sends back: every request loops. Make www.example.com the `domain` and example.com a redirect, or stop the application redirecting
+```
+
+Any other answer is recorded and not judged — `✓ https://example.com/ answers HTTP 302 through the proxy to https://example.com/login` is an application with a sign-in page, and its business. The question is asked after the deployment is complete, so nothing waits for it: `shipwick deploy` gives the answer a few seconds under its summary, and `shipwick status` shows a loop for as long as the deployment is the active one; the proxy's certificate for a new hostname may be minutes away, and the agent asks again every ten seconds for three minutes while the proxy cannot answer. `shipwick doctor` makes the same judgement from outside, from the answer `https://<domain>/` gives it. A folder, an application deployed stopped and a hostname still waiting for DNS are not asked. In the API the answer is a `probe` event of the deployment, the one event that appears after `completed_at`; see [Deployment events](/docs/reference/api#deployment-events).
+
 ## Certificates
 
 Every hostname is a host matcher in the proxy's configuration, and Caddy obtains and renews a certificate for each one, aliases and redirects alike; a redirect hostname must be answered over HTTPS before it can be redirected. Point each hostname's DNS at the server before deploying. Nothing else is needed. See [Routing and HTTPS](/docs/concepts/routing-and-https).

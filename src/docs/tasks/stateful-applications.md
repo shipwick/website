@@ -63,6 +63,8 @@ shipwick secret set POSTGRES_PASSWORD
 ✓ Stored secret POSTGRES_PASSWORD
 ```
 
+Stored without `--app`, the secret is the server's, which is right here: the application that connects to the database writes the same password into its `DATABASE_URL`, and one secret serves both. A password that goes into such a URL must not hold `@`, `:`, `/`, `?`, `#`, `%` or whitespace, which the URL reads as its own; `shipwick secret set` warns when it sees them, and `openssl rand -hex 24 | shipwick secret set POSTGRES_PASSWORD` makes one that is safe. A secret for one application alone is stored with `--app`; see [Keep secrets on the server](/docs/tasks/secrets).
+
 The other way is to keep the value where you deploy from: put it in a `NAME=value` file that stays out of the repository and pass it with `--env-file .env.production`, or set it in the environment; `shipwick` then fills it in before the file is sent, and reports `(1 variable substituted)`. Either way:
 
 ```bash

@@ -90,7 +90,15 @@ Images from a registry are pulled on the new server with the credentials the exp
 
 An application that fails does not stop the rest, and the command exits non-zero when anything failed. `shipwick import --status` shows the import that is running or ran last. A server takes one import at a time, and none while it is being [promoted](/docs/tasks/standby#a-promotion-is-followed).
 
-Since 0.6 an application's configuration is checked on the new server by every rule a `deploy.yaml` is checked by, before anything of the application is touched. One that does not pass — an export from a newer Shipwick, a damaged file — fails with the fields named, as `shipwick validate` would name them. One difference is not caught this way: an agent older than 0.8 that imports an export written by a newer one reads the applications without their [`security`](/docs/reference/deploy-yaml#security) block, so import into an agent that is at least as new as the one that wrote the export.
+Since 0.6 an application's configuration is checked on the new server by every rule a `deploy.yaml` is checked by, before anything of the application is touched. One that does not pass — a damaged file — fails with the fields named, as `shipwick validate` would name them.
+
+An export written by 0.9 or later names the keys of `deploy.yaml` its applications use, and an agent that does not know one of them refuses the import before anything is taken in, naming the key and the version that wrote the export: it would otherwise read the application without that key and deploy it without what the key asked for.
+
+```text
+Error: the export was written by Shipwick v0.10.0 and uses the key spec.hoverboard, which this agent (Shipwick v0.9.0) does not know and would drop. Import it with an agent of that version or newer, or export without the applications that use it
+```
+
+Agents older than 0.9 have no such check and cannot be given one: an agent older than 0.8 that imports a newer export drops the [`security`](/docs/reference/deploy-yaml#security) block of every application without a word, and an agent of 0.8 drops whatever a later version adds. Importing into an older agent, compare `shipwick status` with the `deploy.yaml` you expect — or import into an agent that is at least as new as the one that wrote the export. Every export written before 0.9 is still read.
 
 An import ends with its upload. If the agent is restarted under one, the import has failed and says so in `shipwick import --status`, which the restarted agent still answers. What it had finished is in place, the deployment it was at is resumed like any deployment — an application that was being deployed stopped stays stopped — and running the import again with `--overwrite` does the rest.
 
