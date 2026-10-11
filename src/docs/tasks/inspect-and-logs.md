@@ -245,7 +245,7 @@ Log archive     1.1 KB of 1 GB, 1 entry, kept 14 days
 Since 0.7 the `Agent` line also says when a newer release exists. The agent asks GitHub itself, once a day, so the line needs no connection of the CLI's own:
 
 ```text
-Agent           v0.8.0  v0.8.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+Agent           v0.8.1  v0.8.2 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
 ```
 
 See [Upgrade Shipwick](/docs/tasks/upgrade#a-notice-when-a-newer-release-exists).

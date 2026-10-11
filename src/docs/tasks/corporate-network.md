@@ -150,14 +150,14 @@ shipwick server bundle --arch amd64
 ```
 
 ```text
-✓ Release v0.8.0: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
-✓ Release v0.8.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)
-✓ The three images are the ones release v0.8.0 published for linux/amd64
-✓ Wrote shipwick-v0.8.0-linux-amd64.tar.gz (113 MB)
+✓ Release v0.8.1: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
+✓ Release v0.8.1 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)
+✓ The three images are the ones release v0.8.1 published for linux/amd64
+✓ Wrote shipwick-v0.8.1-linux-amd64.tar.gz (113 MB)
 
 Copy it to the server, and there, as root:
-  tar -xzf shipwick-v0.8.0-linux-amd64.tar.gz
-  sh shipwick-v0.8.0-linux-amd64/install.sh
+  tar -xzf shipwick-v0.8.1-linux-amd64.tar.gz
+  sh shipwick-v0.8.1-linux-amd64/install.sh
 The server needs Docker Engine and the Compose plugin; nothing is downloaded there.
 checksums.txt of the release: sha256 646205a7…
 ```
@@ -201,7 +201,7 @@ The signature travels in the bundle as `checksums.txt.sigstore.json`. The instal
 Copy the file by whatever means the network allows, unpack it and run the installer inside it. It is the same installer and asks the same questions; it downloads nothing and pulls nothing:
 
 ```text
-✓ The bundle is complete (/root/shipwick-v0.8.0-linux-amd64)
+✓ The bundle is complete (/root/shipwick-v0.8.1-linux-amd64)
   checksums.txt of the release: sha256 646205a7…
 ✓ Docker 29.8.2 with Compose 5.5.1
 ✓ Loaded the images from the bundle

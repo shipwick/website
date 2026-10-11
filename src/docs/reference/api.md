@@ -291,7 +291,7 @@ Liveness, for load balancers and `shipwick server status`. It takes no token and
 | `200` | [`Health`](#health) |
 
 ```json
-{ "data": { "status": "ok", "version": "v0.8.0" } }
+{ "data": { "status": "ok", "version": "v0.8.1" } }
 ```
 
 It asks neither Docker nor the database, and answers `200` while the Docker daemon does not: the agent itself is up. From the container of an application it is `403 APPLICATION_CALLER` like every endpoint, see [Authentication](#authentication).
@@ -306,7 +306,7 @@ It asks neither Docker nor the database, and answers `200` while the Docker daem
 ```json
 {
   "data": {
-    "agent_version": "v0.8.0", "hostname": "vps-1",
+    "agent_version": "v0.8.1", "hostname": "vps-1",
     "os": "linux", "kernel": "6.8.0", "architecture": "amd64", "docker_version": "29.8.0",
     "cpus": 4, "memory_bytes": 8589934592, "applications": 3, "containers": 5,
     "swap_bytes": 2147483648, "unlimited_memory": ["worker"],

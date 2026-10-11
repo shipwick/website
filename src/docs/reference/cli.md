@@ -539,7 +539,7 @@ invalid deploy.yaml
 line 5:
   unknown field "security"
 
-The agent is version v0.7.0 and does not know "security", which this shipwick (v0.8.0) does: the server is older than deploy.yaml.
+The agent is version v0.7.0 and does not know "security", which this shipwick (v0.8.1) does: the server is older than deploy.yaml.
 Nothing was deployed. Upgrade the server, then deploy again:
   curl -fsSL https://get.shipwick.com | sh (on the server)
 ```
@@ -1523,8 +1523,8 @@ shipwick server status
 ```text
 https://agent.example.com  ● reachable
 
-Agent           v0.8.0
-CLI             v0.8.0
+Agent           v0.8.1
+CLI             v0.8.1
 Host            vps-1
 OS              linux (amd64, kernel 6.8.0)
 Docker          29.8.0
@@ -1542,7 +1542,7 @@ Disk            61 GB of 75 GB used (81%)
 An agent of 0.7 or later adds a line, and says in the first when it knows of a newer release:
 
 ```text
-Agent           v0.8.0  v0.8.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+Agent           v0.8.1  v0.8.2 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
 Log archive     1.1 KB of 1 GB, 1 entry, kept 14 days
 ```
 
@@ -1609,7 +1609,7 @@ shipwick server install <user@host> [flags]
 | `--agent-domain <host>` | | Hostname for the API, for example `agent.example.com` |
 | `--dashboard-domain <host>` | | Hostname for the dashboard, for example `dashboard.example.com` |
 | `--context <name>` | the hostname | Name to save the server under |
-| `--version <tag>` | the latest release | Release to install, for example `v0.8.0` |
+| `--version <tag>` | the latest release | Release to install, for example `v0.8.1` |
 
 ```text
 $ shipwick server install root@203.0.113.10 --agent-domain agent.example.com --dashboard-domain dashboard.example.com
@@ -1650,7 +1650,7 @@ shipwick server bundle [flags]
 | Flag | Default | |
 |---|---|---|
 | `--arch <arch>` | `amd64` | The server's architecture: `amd64` or `arm64` |
-| `--version <tag>` | the latest release | Release to bundle, for example `v0.8.0` |
+| `--version <tag>` | the latest release | Release to bundle, for example `v0.8.1` |
 | `-o`, `--output <file>` | `shipwick-<version>-linux-<arch>.tar.gz` in the current directory | File to write |
 | `--no-pull` | | Save the images this machine has under the release's names instead of pulling them. Nothing proves them: they are not checked against the release's digests |
 
@@ -1658,14 +1658,14 @@ Run it on a machine that has a connection and Docker. It talks to no agent and n
 
 ```text
 $ shipwick server bundle --arch amd64
-✓ Release v0.8.0: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
-✓ Release v0.8.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)
-✓ The three images are the ones release v0.8.0 published for linux/amd64
-✓ Wrote shipwick-v0.8.0-linux-amd64.tar.gz (113 MB)
+✓ Release v0.8.1: compose.production.yml, install.sh and shipwick_linux_amd64 match its checksums
+✓ Release v0.8.1 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)
+✓ The three images are the ones release v0.8.1 published for linux/amd64
+✓ Wrote shipwick-v0.8.1-linux-amd64.tar.gz (113 MB)
 
 Copy it to the server, and there, as root:
-  tar -xzf shipwick-v0.8.0-linux-amd64.tar.gz
-  sh shipwick-v0.8.0-linux-amd64/install.sh
+  tar -xzf shipwick-v0.8.1-linux-amd64.tar.gz
+  sh shipwick-v0.8.1-linux-amd64/install.sh
 The server needs Docker Engine and the Compose plugin; nothing is downloaded there.
 checksums.txt of the release: sha256 646205a7…
 ```
@@ -1677,14 +1677,14 @@ This is the output for a release from 0.8.0 on, on a machine that has cosign. Th
 
   | Situation | Line |
   |---|---|
-  | The signature verified | `✓ Release v0.8.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)` |
+  | The signature verified | `✓ Release v0.8.1 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign)` |
   | No cosign on this machine | `The release's signature was not checked: cosign is not installed on this machine.` The bundle goes by the checksums, as before, and still carries the signature |
   | A release before 0.8.0 | `Release v0.7.0 has no signature: releases before 0.8.0 were not signed.` |
 
   A signature that is not the workflow's stops the command, and no bundle is written: `the signature of release v0.8.0's checksums did not verify as one made by the release workflow of github.com/shipwick/shipwick for v0.8.0; nothing was changed`, followed by cosign's last line and `cosign 2.4 or later reads this signature; an older one fails here whatever the file`. With cosign installed, a release from 0.8.0 on without a signature is refused as well: `release v0.8.0 has no signature (checksums.txt.sigstore.json), and every release since 0.8.0 has one; nothing was changed`. The installer on the server does not verify the signature by itself: cosign asks Sigstore for the keys it trusts, and that server reaches nothing. See [Verify a release](/docs/tasks/verify-a-release).
 - **The release's files are verified** against its published `checksums.txt` as they are downloaded. A mismatch is refused and nothing is written: `install.sh does not match the checksum published with the release; no bundle was written`. The installer verifies them again on the server, and checks the image archive against its checksum before it changes anything, so a copy that arrived damaged is refused.
 - **The images** are the ones the release's compose file names. They are pulled with `docker pull` for the server's architecture and written with `docker save`, both run as programs with arguments, never through a shell. In a terminal a progress line names the image being pulled. Without Docker here: `docker is not installed on this machine, and the images of a bundle are pulled and saved with it`. When a pull or the save fails, the last line `docker` printed is the reason.
-- **The images are proven** (since 0.7). A release from 0.7.0 on publishes `image-digests.txt`, listed in its `checksums.txt`: the digests of its three images as the registry holds them, per platform. The archive `docker save` wrote is checked against it before the bundle is written: it must hold the configuration the release published for the server's platform and the layers that configuration lists, and name that image, and no other, by the release's tag. An archive that does not is refused, and no bundle is written: `<image> is not the image release v0.8.0 published for linux/amd64: …; no bundle was written`. The installer checks once more what Docker made of the archive before it replaces anything.
+- **The images are proven** (since 0.7). A release from 0.7.0 on publishes `image-digests.txt`, listed in its `checksums.txt`: the digests of its three images as the registry holds them, per platform. The archive `docker save` wrote is checked against it before the bundle is written: it must hold the configuration the release published for the server's platform and the layers that configuration lists, and name that image, and no other, by the release's tag. An archive that does not is refused, and no bundle is written: `<image> is not the image release v0.8.1 published for linux/amd64: …; no bundle was written`. The installer checks once more what Docker made of the archive before it replaces anything.
 - **Two bundles are not proven**, and the command says so in place of the line about the images. With `--no-pull`: `The images are the ones this machine had under the release's names (--no-pull): they were not checked against the release's digests, and the installer will say so.` Of a release before 0.7.0: `Release v0.6.0 does not publish the digests of its images (0.7.0 and later do): the images are what the registry serves under its tags, unchecked, and the installer will say so.`
 - **The last line** is the SHA-256 of the release's `checksums.txt`, from which everything in the bundle follows. The installer prints the same line on the server; compare the two.
 - **`--version`** takes a release tag. A bundle can be made of 0.6.0 and later: `release v0.5.1 does not publish its installer: a bundle can be made of 0.6.0 and later`. Anything that is not a release version is refused: `releases look like v0.6.0`.
@@ -1748,8 +1748,8 @@ shipwick doctor
 ```
 
 ```text
-✓ shipwick v0.8.0, the latest release
-✓ Agent https://agent.example.com runs v0.8.0, the latest release
+✓ shipwick v0.8.1, the latest release
+✓ Agent https://agent.example.com runs v0.8.1, the latest release
 ✓ Token laptop (admin)
 ✓ Docker 29.8.0 on the server
 ✓ Proxy serving 2 routes
@@ -1796,7 +1796,7 @@ Since 0.8, `doctor` also reports the following, each as something worth a look (
 
 Shipwick reports the memory limits and the swap and changes neither: a limit is a line in `deploy.yaml`, swap is the server's.
 
-On a network without a way to GitHub the latest release cannot be looked up; the version lines then say so, and the checks go on: `✓ shipwick v0.8.0 (could not check for a newer release)`.
+On a network without a way to GitHub the latest release cannot be looked up; the version lines then say so, and the checks go on: `✓ shipwick v0.8.1 (could not check for a newer release)`.
 
 Hostnames are resolved through public resolvers (Cloudflare's, Google's and Quad9's) before this machine's, the same view of DNS the agent takes. Since 0.6 each resolver is given two seconds, and when none of them can be reached, as behind a firewall that lets no DNS out, this machine's resolver is asked for the rest of the run. The server's address is learned by resolving the agent's own hostname, so through a tunnel (`127.0.0.1`) ports and record targets are not checked. An agent whose own hostname is behind Cloudflare's proxy hides the server's address in the same way, and ports 80 and 443 and the records' targets are not checked then either.
 
@@ -1834,7 +1834,7 @@ shipwick login [flags]
 ```text
 $ shipwick login --url https://agent.example.com
 API token:
-✓ Logged in to https://agent.example.com (my-server, agent v0.8.0)
+✓ Logged in to https://agent.example.com (my-server, agent v0.8.1)
   saved as context default in /home/me/.config/shipwick/config.yaml
 ```
 
@@ -2371,11 +2371,11 @@ shipwick upgrade [flags]
 
 ```text
 $ shipwick upgrade
-✓ Upgraded shipwick v0.3.1 → v0.8.0
+✓ Upgraded shipwick v0.3.1 → v0.8.1
   /usr/local/bin/shipwick
-  Release v0.8.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign).
+  Release v0.8.1 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign).
 
-The server runs v0.3.1; v0.8.0 is available. On the server run:
+The server runs v0.3.1; v0.8.1 is available. On the server run:
   curl -fsSL https://get.shipwick.com | sh
 ```
 
@@ -2386,21 +2386,21 @@ How the binary is replaced:
 
   | Situation | Line |
   |---|---|
-  | The signature verified | `Release v0.8.0 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign).` |
+  | The signature verified | `Release v0.8.1 is signed by the release workflow of github.com/shipwick/shipwick (verified with cosign).` |
   | No cosign on this machine | `The release's signature was not checked: cosign is not installed on this machine.` The upgrade goes by the checksums, as before |
 
   A signature that is not the workflow's stops the upgrade before the binary is downloaded: `the signature of release v0.8.0's checksums did not verify as one made by the release workflow of github.com/shipwick/shipwick for v0.8.0; nothing was changed`, followed by cosign's last line and `cosign 2.4 or later reads this signature; an older one fails here whatever the file`. With cosign installed, a release from 0.8.0 on that has no signature is refused: `release v0.8.0 has no signature (checksums.txt.sigstore.json), and every release since 0.8.0 has one; nothing was changed`. Nothing installs cosign for you, and nothing needs it. See [Verify a release](/docs/tasks/verify-a-release).
-- **Homebrew and winget.** A binary under Homebrew's Cellar or winget's Packages directory is recognized by its path and left to the package manager. The command prints `shipwick v0.3.1 was installed with Homebrew; v0.8.0 is available.` followed by `Upgrade with: brew upgrade shipwick`, or the same with `winget upgrade Shipwick.Shipwick`, and changes nothing.
-- **Already current:** `shipwick v0.8.0 is up to date.` A build without a release version: `This shipwick is a development build (dev); the latest release is v0.8.0.` Neither changes anything.
-- **`--check`** prints `shipwick v0.3.1 is installed; v0.8.0 is available.` and `Upgrade with: shipwick upgrade`, and changes nothing.
+- **Homebrew and winget.** A binary under Homebrew's Cellar or winget's Packages directory is recognized by its path and left to the package manager. The command prints `shipwick v0.3.1 was installed with Homebrew; v0.8.1 is available.` followed by `Upgrade with: brew upgrade shipwick`, or the same with `winget upgrade Shipwick.Shipwick`, and changes nothing.
+- **Already current:** `shipwick v0.8.1 is up to date.` A build without a release version: `This shipwick is a development build (dev); the latest release is v0.8.1.` Neither changes anything.
+- **`--check`** prints `shipwick v0.3.1 is installed; v0.8.1 is available.` and `Upgrade with: shipwick upgrade`, and changes nothing.
 - **Where it refuses.** A directory it cannot write to: `cannot write to /usr/local/bin: permission denied`, then `Run it as root: sudo shipwick upgrade` or the installer line `curl -fsSL https://get.shipwick.com | sh -s -- --cli`; on Windows, the advice is an administrator prompt or downloading the `.exe` from the releases page. Nothing is downloaded before the staging file could be created.
 
 The server is not upgraded by this command: the installer does that, on the server, with access to Docker. After the binary step, `upgrade` asks the configured agent's health endpoint, which needs no token, and prints one of:
 
 | Situation | Line |
 |---|---|
-| The server is behind | `The server runs v0.3.1; v0.8.0 is available. On the server run:` and the installer command |
-| The server is current | `The server runs v0.8.0, the latest release.` |
+| The server is behind | `The server runs v0.3.1; v0.8.1 is available. On the server run:` and the installer command |
+| The server is current | `The server runs v0.8.1, the latest release.` |
 | The server runs a development build | `The server runs a development build (dev).` |
 | The server cannot be reached | `The server at http://127.0.0.1:9000 could not be reached; its version was not checked.` |
 | The URL does not answer as an agent | `The server at <url> did not answer as a Shipwick agent; its version was not checked.` |

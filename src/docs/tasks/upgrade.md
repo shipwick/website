@@ -16,7 +16,7 @@ Shipwick is at 0.x. Before 1.0, a minor version may change the API, `deploy.yaml
 Since 0.7 the agent asks GitHub once a day which release is the latest, and `GET /server` carries the answer. The dashboard and `shipwick server status` say when the server is behind, without a connection of their own:
 
 ```text
-Agent           v0.8.0  v0.8.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+Agent           v0.8.1  v0.8.2 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
 ```
 
 In the dashboard the notice is on the server's Status tab, with the command that upgrades; see [Use the dashboard](/docs/tasks/dashboard#the-server).
