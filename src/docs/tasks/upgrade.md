@@ -16,7 +16,7 @@ Shipwick is at 0.x. Before 1.0, a minor version may change the API, `deploy.yaml
 Since 0.7 the agent asks GitHub once a day which release is the latest, and `GET /server` carries the answer. The dashboard and `shipwick server status` say when the server is behind, without a connection of their own:
 
 ```text
-Agent           v0.8.1  v0.9.0 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+Agent           v0.8.1  v0.9.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
 ```
 
 In the dashboard the notice is on the server's Status tab, with the command that upgrades; see [Use the dashboard](/docs/tasks/dashboard#the-server).
@@ -69,7 +69,7 @@ From your laptop, the same over SSH:
 shipwick server install root@203.0.113.10
 ```
 
-It runs the installer on the server; the token is unchanged and not printed again, and the saved context keeps the one it has. `--version v0.4.1` picks a release. A server with no connection is upgraded from a bundle of the newer release: see [Install on a server with no way out](/docs/tasks/corporate-network#install-on-a-server-with-no-way-out). See [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
+It runs the installer on the server; the token is unchanged and not printed again, and the saved context keeps the one it has. Since 0.9.1 the hostnames the server was installed with are read from its `.env`, so they need not be given again. (The 0.9.0 CLI, run this way without them, started the agent without its hostnames and moved the context to the tunnel address: `cd /opt/shipwick && docker compose up -d` on the server and `shipwick login` put both back.) `--version v0.4.1` picks a release. A server with no connection is upgraded from a bundle of the newer release: see [Install on a server with no way out](/docs/tasks/corporate-network#install-on-a-server-with-no-way-out). See [Install on a server](/docs/getting-started/install#run-the-installer-from-your-laptop).
 
 What the installer does on an upgrade:
 
@@ -223,7 +223,7 @@ What is new is opt-in. What an operator may want to turn on or use:
 | Give an application a secret of its own | `shipwick secret set NAME --app my-api`. See [Keep secrets on the server](/docs/tasks/secrets) |
 | Change a setting of the agent from your machine | `shipwick server configure root@203.0.113.10 KEY=value`. See [Change a setting later](/docs/getting-started/install#change-a-setting-later) |
 | Install the CLI on Windows with one line | `irm https://get.shipwick.com/windows \| iex`. See [Install the CLI](/docs/getting-started/install-cli#windows) |
-| Try a release candidate, and go back | `shipwick upgrade --version v0.9.0-rc.1`. See [Install the CLI](/docs/getting-started/install-cli#upgrade) |
+| Try a release candidate, and go back | `shipwick upgrade --version v0.10.0-rc.1`. See [Install the CLI](/docs/getting-started/install-cli#upgrade) |
 | Refuse privileged containers to every client of the Docker daemon | Docker's authorization plugin with `configs/docker-authz.rego`. See [Behind an authorization plugin](/docs/tasks/less-than-the-docker-socket#behind-an-authorization-plugin) |
 | Admit Cloudflare's addresses and nothing else | See [Admit Cloudflare only](/docs/tasks/cloudflare-only) |
 
@@ -411,15 +411,15 @@ shipwick upgrade
 ```
 
 ```text
-✓ Upgraded shipwick v0.3.1 → v0.9.0
+✓ Upgraded shipwick v0.3.1 → v0.9.1
   /usr/local/bin/shipwick
 
-The server runs v0.9.0, the latest release.
+The server runs v0.9.1, the latest release.
 ```
 
 The latest release is downloaded from GitHub and verified against its `checksums.txt` before the binary is swapped; nothing changes if the checksum does not match. Since 0.8, where cosign (2.5 or later) is installed, `checksums.txt` is verified against the release's signature first, and a release from 0.8.0 on that has no signature is refused; without cosign the command says that the signature was not checked. See [Verify a release](/docs/tasks/verify-a-release). The command then compares the server's version with the release. When the server is behind, it says so and prints the installer line to run there; a server it cannot reach is one dim line, not an error. `shipwick upgrade --check` reports and changes nothing.
 
-Since 0.9, `shipwick upgrade --version v0.9.0-rc.1` installs exactly that release, a pre-release included, in place of whatever runs now, verified the same way: the way to try a release candidate, and the way back from one. The server is then compared with that release, and the installer line names it (`SHIPWICK_VERSION=v0.9.0-rc.1`). A pre-release ahead of the latest release counts as current afterwards. A development build, `dev` or a build made past a tag, is neither upgraded nor told that a release is available; `upgrade` and `doctor` say that it is a development build.
+Since 0.9, `shipwick upgrade --version v0.10.0-rc.1` installs exactly that release, a pre-release included, in place of whatever runs now, verified the same way: the way to try a release candidate, and the way back from one. The server is then compared with that release, and the installer line names it (`SHIPWICK_VERSION=v0.10.0-rc.1`). A pre-release ahead of the latest release counts as current afterwards. A development build, `dev` or a build made past a tag, is neither upgraded nor told that a release is available; `upgrade` and `doctor` say that it is a development build.
 
 A `shipwick` from Homebrew is left to Homebrew — the command prints `Upgrade with: brew upgrade shipwick` — because the package manager would otherwise be confused by a file it did not put there. On Windows, `shipwick upgrade` replaces `shipwick.exe` the same way and leaves the old binary behind as `shipwick.old.exe` until the next run removes it; running the [Windows installer](/docs/getting-started/install-cli#windows) again upgrades as well.
 
