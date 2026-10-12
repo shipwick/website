@@ -28,7 +28,7 @@ The agent is configured through environment variables only: its own `SHIPWICK_*`
 | [`SHIPWICK_ALERT_DISK_PERCENT`](#shipwick-alert-memory-percent-and-shipwick-alert-disk-percent) | `85` | The disk that holds the data directory raises an alert when it is this full. A whole number from 50 to 94. Since 0.5. |
 | [`SHIPWICK_LOG_RETENTION_DAYS`](#shipwick-log-retention-days-and-shipwick-log-retention-size) | `14` | How long the last output of an ended container stays in the log archive, in days after it ended. A number from 1 to 365. Since 0.7. |
 | [`SHIPWICK_LOG_RETENTION_SIZE`](#shipwick-log-retention-days-and-shipwick-log-retention-size) | `1gb` | What the log archive may take on the disk, as `500mb` or `2gb`, at least `6mb`. `0` keeps nothing. Since 0.7. |
-| [`SHIPWICK_BACKUP_DIR`](#backups) | `<data dir>/backups` | Where the backups the agent takes are kept on the server, a path inside the agent's container. Since 0.5; carried into `.env` by the installer and accepted by `shipwick server configure` since 1.0. |
+| [`SHIPWICK_BACKUP_DIR`](#backups) | `<data dir>/backups` | Where the backups the agent takes are kept on the server, a path inside the agent's container. Since 0.5; carried into `.env` by the installer and accepted by `shipwick server configure` since 0.10. |
 | [`SHIPWICK_BACKUP_PASSPHRASE`](#backups) | none | Encrypts every backup, and is what allows the agent's own database and encryption key to be backed up at all. At least 12 characters. Since 0.5. |
 | [`SHIPWICK_BACKUP_S3_ENDPOINT`](#backups) | none | An S3-compatible service the backups are also sent to, as a URL. Needs the next three as well. Since 0.5. |
 | [`SHIPWICK_BACKUP_S3_BUCKET`](#backups) | none | The bucket. It must exist. |
@@ -103,7 +103,7 @@ An application that claims either hostname, as its `domain`, an alias or a redir
 
 ### SHIPWICK_ENCRYPTION_KEY
 
-The key the agent encrypts secret values with before it writes them to the database. Every `env` value and every basic-auth password of every deployment, since 1.0 its `logging.options.splunk-token`, every secret stored with `shipwick secret set`, every registry password stored with `shipwick registry login`, the key of every certificate supplied with `shipwick cert set` and the secret values a deployment's document referred to with `${NAME}` is stored as AES-256-GCM ciphertext; the variable names, and everything else in the record, stay readable. A copy of `shipwick.db` without the key reveals no secrets.
+The key the agent encrypts secret values with before it writes them to the database. Every `env` value and every basic-auth password of every deployment, since 0.10 its `logging.options.splunk-token`, every secret stored with `shipwick secret set`, every registry password stored with `shipwick registry login`, the key of every certificate supplied with `shipwick cert set` and the secret values a deployment's document referred to with `${NAME}` is stored as AES-256-GCM ciphertext; the variable names, and everything else in the record, stay readable. A copy of `shipwick.db` without the key reveals no secrets.
 
 | | |
 |---|---|
@@ -269,7 +269,7 @@ Since 0.5 the agent takes backups itself: of an application's volumes, on the sc
 
 | Variable | Default | |
 |---|---|---|
-| `SHIPWICK_BACKUP_DIR` | `<data dir>/backups` | The directory on the server, a path inside the agent's container. Every backup is written there, as `<application>/<id>/<volume>.tar`. Whitespace is trimmed. Since 1.0 the installer carries it into `.env` when it is set, `install.sh --help` lists it, and `shipwick server configure` accepts it; before, it had to be set in `.env` by hand. |
+| `SHIPWICK_BACKUP_DIR` | `<data dir>/backups` | The directory on the server, a path inside the agent's container. Every backup is written there, as `<application>/<id>/<volume>.tar`. Whitespace is trimmed. Since 0.10 the installer carries it into `.env` when it is set, `install.sh --help` lists it, and `shipwick server configure` accepts it; before, it had to be set in `.env` by hand. |
 | `SHIPWICK_BACKUP_PASSPHRASE` | none | Encrypts every backup before it is written, in the directory and in the bucket; the files are then named `<volume>.tar.enc`. At least 12 characters; the variable is not trimmed. |
 | `SHIPWICK_BACKUP_S3_ENDPOINT` | none | The URL of an S3-compatible service, such as `https://s3.eu-central-1.amazonaws.com` or `https://<account>.r2.cloudflarestorage.com`. A plain URL, without credentials or a query. |
 | `SHIPWICK_BACKUP_S3_BUCKET` | none | The bucket's name. It must exist; the agent does not create it. |

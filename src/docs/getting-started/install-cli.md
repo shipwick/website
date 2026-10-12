@@ -61,7 +61,7 @@ curl -fsSL https://get.shipwick.com | SHIPWICK_BIN_DIR="$HOME/.local/bin" sh -s 
 To install a specific version, set `SHIPWICK_VERSION`:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.9.1 sh -s -- --cli
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.10.0 sh -s -- --cli
 ```
 
 ## Windows
@@ -76,11 +76,11 @@ It downloads `shipwick_windows_amd64.exe` — or the Arm64 build, on a machine w
 
 Where [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) (2.5 or later) is installed, `checksums.txt` is first verified against the release's signature, with the release workflow at exactly that tag as the identity, and the installer stops if it is not the workflow's; without cosign it says in one line that the signature was not checked. `SHIPWICK_REQUIRE_SIGNATURE=1` turns that, and a release without a signature, into a refusal, as for the Unix installer. See [Verify a release](/docs/tasks/verify-a-release).
 
-A release of your choice: set `SHIPWICK_VERSION` before the command, or save the script — [`scripts/install.ps1`](https://github.com/shipwick/shipwick/blob/main/scripts/install.ps1), a file of every release from 0.9.1 on — and run it with `-Version`; `-Destination` names another directory:
+A release of your choice: set `SHIPWICK_VERSION` before the command, or save the script — [`scripts/install.ps1`](https://github.com/shipwick/shipwick/blob/main/scripts/install.ps1), a file of every release from 0.10.0 on — and run it with `-Version`; `-Destination` names another directory:
 
 ```powershell
-$env:SHIPWICK_VERSION = 'v0.9.1'; irm https://get.shipwick.com/windows | iex
-.\install.ps1 -Version v0.9.1 -Destination C:\tools\shipwick
+$env:SHIPWICK_VERSION = 'v0.10.0'; irm https://get.shipwick.com/windows | iex
+.\install.ps1 -Version v0.10.0 -Destination C:\tools\shipwick
 ```
 
 Running it again upgrades, as does `shipwick upgrade`, below, which picks the build for the machine also when the `shipwick` that runs is the x64 one. Until 0.9 the way was to download the `.exe` from the [releases page](https://github.com/shipwick/shipwick/releases) and put it on your `PATH`; that still works. `winget install Shipwick.Shipwick` follows once the package is accepted into winget-pkgs.
@@ -108,10 +108,10 @@ shipwick upgrade
 ```
 
 ```text
-✓ Upgraded shipwick v0.3.1 → v0.9.1
+✓ Upgraded shipwick v0.3.1 → v0.10.0
   /usr/local/bin/shipwick
 
-The server runs v0.3.1; v0.9.1 is available. On the server run:
+The server runs v0.3.1; v0.10.0 is available. On the server run:
   curl -fsSL https://get.shipwick.com | sh
 ```
 
@@ -123,12 +123,12 @@ Without `--version` the latest release is installed, never a pre-release. Since 
 shipwick upgrade --version v0.10.0-rc.1
 ```
 
-The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there, or with `shipwick server install user@host` from your machine; `shipwick upgrade` tells you when the server is behind, and says `The server runs v0.9.1, the latest release.` when it is not — or `ahead of the latest release (v0.9.1)` for a server on a pre-release. A server that cannot be reached is one line, not an error.
+The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there, or with `shipwick server install user@host` from your machine; `shipwick upgrade` tells you when the server is behind, and says `The server runs v0.10.0, the latest release.` when it is not — or `ahead of the latest release (v0.10.0)` for a server on a pre-release. A server that cannot be reached is one line, not an error.
 
 A `shipwick` installed with Homebrew is left to Homebrew:
 
 ```text
-shipwick v0.3.1 was installed with Homebrew; v0.9.1 is available.
+shipwick v0.3.1 was installed with Homebrew; v0.10.0 is available.
 
 Upgrade with: brew upgrade shipwick
 ```
@@ -140,12 +140,12 @@ shipwick upgrade --check
 ```
 
 ```text
-shipwick v0.3.1 is installed; v0.9.1 is available.
+shipwick v0.3.1 is installed; v0.10.0 is available.
 
 Upgrade with: shipwick upgrade
 ```
 
-When there is nothing to do, the first line reads `shipwick v0.9.1 is up to date.`
+When there is nothing to do, the first line reads `shipwick v0.10.0 is up to date.`
 
 ## Log in
 
@@ -157,7 +157,7 @@ shipwick login --url https://agent.example.com
 
 ```text
 API token:
-✓ Logged in to https://agent.example.com (vps-1, agent v0.9.1)
+✓ Logged in to https://agent.example.com (vps-1, agent v0.10.0)
   saved as context default in /home/you/.config/shipwick/config.yaml
 ```
 
@@ -278,7 +278,7 @@ An admin token is equivalent to root SSH access to the server, and `shipwick` tr
 - `login` reads the token without echo, or from standard input with `--token-stdin`.
 - The config file is written with mode `0600`, in a directory created with mode `0700`. On Windows it lives in the profile's `AppData` with the profile's own permissions (the user, SYSTEM and Administrators).
 - A saved token is only sent to the agent it was saved for.
-- A redirect from the agent's URL is not followed (since 1.0): the agent never answers with one, so it is something in front of the agent, and the token is not sent where it points. The error names the target and says so.
+- A redirect from the agent's URL is not followed (since 0.10): the agent never answers with one, so it is something in front of the agent, and the token is not sent where it points. The error names the target and says so.
 - `shipwick` warns on standard error whenever the token is about to travel over plain HTTP to anything other than the local machine. Use HTTPS or an SSH tunnel.
 - A token asked to do more than its role allows is refused by the agent, and `shipwick` says which role it has and which one the command needs.
 

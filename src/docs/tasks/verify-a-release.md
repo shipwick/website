@@ -16,10 +16,10 @@ The agent is root on your server, so it should be possible to say where it came 
 
 ## What the signature proves
 
-A release is signed by the workflow that built it, and by nothing else: there is no signing key, in the repository or anywhere. GitHub tells Sigstore which workflow is running and for which tag, Sigstore issues a certificate for that identity that is valid for ten minutes, and the signature goes into a public log. A signature verifies only for the identity you name, which for release `v0.9.1` is
+A release is signed by the workflow that built it, and by nothing else: there is no signing key, in the repository or anywhere. GitHub tells Sigstore which workflow is running and for which tag, Sigstore issues a certificate for that identity that is valid for ten minutes, and the signature goes into a public log. A signature verifies only for the identity you name, which for release `v0.10.0` is
 
 ```text
-https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.9.1
+https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.10.0
 issued by https://token.actions.githubusercontent.com
 ```
 
@@ -30,10 +30,10 @@ So what it proves is that the file or image was produced by that workflow file, 
 The release's files — the CLI for every platform, the packages, the compose file, the two installers, the digests of the images — are listed in `checksums.txt`, and `checksums.txt` is what is signed. The signature is a file of the release, `checksums.txt.sigstore.json`.
 
 ```bash
-curl -fsSLO https://github.com/shipwick/shipwick/releases/download/v0.9.1/checksums.txt
-curl -fsSLO https://github.com/shipwick/shipwick/releases/download/v0.9.1/checksums.txt.sigstore.json
+curl -fsSLO https://github.com/shipwick/shipwick/releases/download/v0.10.0/checksums.txt
+curl -fsSLO https://github.com/shipwick/shipwick/releases/download/v0.10.0/checksums.txt.sigstore.json
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
-  --certificate-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.9.1 \
+  --certificate-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.10.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum -c --ignore-missing checksums.txt     # the files you downloaded, against the list
 ```
@@ -45,15 +45,15 @@ The first three lines prove who wrote the list; the last holds the files you dow
 The images are signed by digest. A tag is resolved to its digest when you verify, so this proves what the registry serves under the tag now.
 
 ```bash
-cosign verify ghcr.io/shipwick/agent:0.9.1 \
-  --certificate-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.9.1 \
+cosign verify ghcr.io/shipwick/agent:0.10.0 \
+  --certificate-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.10.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-The same goes for `ghcr.io/shipwick/dashboard` and `ghcr.io/shipwick/caddy`. The digest it prints is the `index` line of that image in the release's `image-digests.txt`, and what this shows on a server that pulled the tag — since 1.0 the installer compares the two after every pull: an image the registry serves under the release's tag that is not the one the release published is removed again, and the installation is left as it was; images of your own, named in `.env`, are not compared:
+The same goes for `ghcr.io/shipwick/dashboard` and `ghcr.io/shipwick/caddy`. The digest it prints is the `index` line of that image in the release's `image-digests.txt`, and what this shows on a server that pulled the tag — since 0.10 the installer compares the two after every pull: an image the registry serves under the release's tag that is not the one the release published is removed again, and the installation is left as it was; images of your own, named in `.env`, are not compared:
 
 ```bash
-docker image inspect --format '{{.RepoDigests}}' ghcr.io/shipwick/agent:0.9.1
+docker image inspect --format '{{.RepoDigests}}' ghcr.io/shipwick/agent:0.10.0
 ```
 
 ## Verify the provenance
@@ -62,9 +62,9 @@ Each file and each image also has a provenance attestation, kept by GitHub: the 
 
 ```bash
 gh attestation verify shipwick_linux_amd64 --repo shipwick/shipwick \
-  --cert-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.9.1
-gh attestation verify oci://ghcr.io/shipwick/agent:0.9.1 --repo shipwick/shipwick \
-  --cert-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.9.1
+  --cert-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.10.0
+gh attestation verify oci://ghcr.io/shipwick/agent:0.10.0 --repo shipwick/shipwick \
+  --cert-identity https://github.com/shipwick/shipwick/.github/workflows/release.yml@refs/tags/v0.10.0
 ```
 
 ## What the installers and the CLI check for you
@@ -108,7 +108,7 @@ Each binary of a release has a bill of materials next to it, `shipwick_linux_amd
 Each image carries one for each platform, written when it was built from the files in it, as part of the signed manifest list:
 
 ```bash
-docker buildx imagetools inspect ghcr.io/shipwick/agent:0.9.1 \
+docker buildx imagetools inspect ghcr.io/shipwick/agent:0.10.0 \
   --format '{{ json (index .SBOM "linux/amd64").SPDX }}'
 ```
 

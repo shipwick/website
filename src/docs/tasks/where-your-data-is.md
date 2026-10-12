@@ -39,7 +39,7 @@ Two keys exist, for two different things.
 
 | Sealed | Bound to |
 |---|---|
-| The `env` values of every deployment, the passwords of its `proxy.basic_auth` entries and, since 1.0, its `logging.options.splunk-token` | The variable's name; the password's position; the option's name |
+| The `env` values of every deployment, the passwords of its `proxy.basic_auth` entries and, since 0.10, its `logging.options.splunk-token` | The variable's name; the password's position; the option's name |
 | The secrets stored with `shipwick secret set`, for the server or for one application | The secret's name and scope |
 | The passwords stored with `shipwick registry login` | The registry |
 | The private keys of certificates supplied with `shipwick cert set` | The hostname |

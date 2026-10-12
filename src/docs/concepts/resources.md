@@ -197,7 +197,7 @@ The rows are raw and aggregation happens on read, in SQL. A week of 30-second sa
 | `24h` | The last day | `300` | Up to 288 |
 | `7d` | The last week | `3600` | Up to 168 |
 
-The field is `step_seconds`, an integer, since 1.0, as in the traffic history; an agent before 1.0 sends `step` as `"30s"`, `"5m"` or `"1h"`.
+The field is `step_seconds`, an integer, since 0.10, as in the traffic history; an agent before 0.10 sends `step` as `"30s"`, `"5m"` or `"1h"`.
 
 Each point aggregates the samples of one step: `cpu_percent` is their average, `memory_bytes` their peak, `at` is the start of the step. A step in which a replica has no sample, because it was not running or the agent was down, has no point: the series are sparse, never zero-filled or interpolated, so a gap in the chart is a gap in the record. Any other value of `since` is `400 INVALID_REQUEST`; an application with no active deployment answers `409 NOT_DEPLOYED`.
 

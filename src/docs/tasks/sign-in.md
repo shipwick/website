@@ -251,7 +251,7 @@ shipwick access revoke group:backend
 Whoever signed in through it is signed out with their next request, unless another rule gives them the same.
 ```
 
-Since 1.0 the command asks first in a terminal, as the other commands that remove something do; `--yes` skips the question, and outside a terminal it is required.
+Since 0.10 the command asks first in a terminal, as the other commands that remove something do; `--yes` skips the question, and outside a terminal it is required.
 
 What the agent cannot see is a change at the provider: someone removed from a group there, or whose account was disabled, keeps a session that exists until it ends, ten hours at most. To end it now:
 

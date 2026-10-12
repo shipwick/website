@@ -257,7 +257,7 @@ shipwick backups download postgres 5
 
 The archives arrive decrypted, one per volume, in the current directory or the one given with `-o`, as `shipwick restore` takes them. Existing files are never overwritten.
 
-`shipwick backups rm postgres 3` removes a backup from the server and the bucket. Since 1.0 it asks first in a terminal, as `delete` and `volumes rm` do; outside one it refuses without `--yes`.
+`shipwick backups rm postgres 3` removes a backup from the server and the bucket. Since 0.10 it asks first in a terminal, as `delete` and `volumes rm` do; outside one it refuses without `--yes`.
 
 ## When a backup fails
 

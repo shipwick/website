@@ -21,7 +21,7 @@ Rotation protects what is written from now on. A copy of the old database togeth
 
 ## What a rotation does
 
-The running agent generates a new key and re-encrypts every stored value under it, in one transaction: the `env` values, basic-auth passwords and, since 1.0, the Splunk token of every deployment record, the secret values a deployment referred to with `${NAME}`, the secrets stored with `shipwick secret set`, the registry passwords stored with `shipwick registry login` and the keys of supplied certificates. It then carries on with the new key.
+The running agent generates a new key and re-encrypts every stored value under it, in one transaction: the `env` values, basic-auth passwords and, since 0.10, the Splunk token of every deployment record, the secret values a deployment referred to with `${NAME}`, the secrets stored with `shipwick secret set`, the registry passwords stored with `shipwick registry login` and the keys of supplied certificates. It then carries on with the new key.
 
 - **Nothing is deployed and nothing restarts.** No application is touched, and the agent keeps serving.
 - **A crash at any point leaves a database and a key that fit.** The new key is written next to the key file, as `encryption.key.new`, before the database is touched, and moved into place afterwards. If the agent stops in between, its next start tries which of the two keys opens the data and finishes or discards what was interrupted.

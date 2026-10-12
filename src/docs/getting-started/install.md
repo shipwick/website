@@ -66,8 +66,8 @@ Next: in your project, run: shipwick init
 |---|---|
 | `--agent-domain <host>` | Hostname for the API. Without it the API is not exposed, and the context points at `http://127.0.0.1:9000` for the [SSH tunnel](/docs/tasks/access-without-a-hostname) |
 | `--dashboard-domain <host>` | Hostname for the dashboard |
-| `--name <name>` | Name to save the server under; default: its hostname. Since 1.0; it was `--context`, which shadowed the global flag |
-| `--version <tag>` | Release to install, such as `v0.9.1`; default: the latest |
+| `--name <name>` | Name to save the server under; default: its hostname. Since 0.10; it was `--context`, which shadowed the global flag |
+| `--version <tag>` | Release to install, such as `v0.10.0`; default: the latest |
 
 The remote commands are fixed; the hostnames and the version are validated first and reach the installer as environment assignments. Running the command again upgrades the server: the token is then unchanged and not printed again, and the context keeps the one it has.
 
@@ -178,10 +178,10 @@ What the installer does not do, and the server needs before it carries real data
 ## What the installer does
 
 1. Checks for Linux, root, a running Docker and the Compose plugin, and that the HTTP and HTTPS ports are free, unless its own Caddy holds them, which is an upgrade.
-2. Resolves `latest` to a release's tag, once, so that every file comes from that release (since 1.0; before, each file was fetched through GitHub's `latest` redirect separately). Downloads the release's `checksums.txt` and, where cosign is installed, verifies the release's signature of it; see [The signature](#the-signature). Since 1.0 a download from GitHub that fails is tried again before the installer gives up (`curl --retry 3`, or `wget --tries=3`).
+2. Resolves `latest` to a release's tag, once, so that every file comes from that release (since 0.10; before, each file was fetched through GitHub's `latest` redirect separately). Downloads the release's `checksums.txt` and, where cosign is installed, verifies the release's signature of it; see [The signature](#the-signature). Since 0.10 a download from GitHub that fails is tried again before the installer gives up (`curl --retry 3`, or `wget --tries=3`).
 3. Writes `/opt/shipwick/compose.yml`. This is the release's `compose.production.yml`, in which the three images — the agent, the dashboard and the proxy, Shipwick's build of Caddy — are pinned to the release's version. The file is verified against the release's `checksums.txt`, and Compose is asked to read it, before it replaces anything.
 4. On the first run only, writes `/opt/shipwick/.env` with a freshly generated API token and the two hostnames. Settings given in the environment of that run are written there too, so that an upgrade does not lose them: the webhook, the Cloudflare token, the backup passphrase and bucket, the ports, images of your own. The file has mode `0600` and the directory `0700`.
-5. Pulls the images and, since 1.0, compares each one's digest with the release's signed `image-digests.txt`: an image the registry serves under the release's tag that is not the release's is removed again, the compose file that ran is put back and the installer stops with the installation as it was. Images of your own, named in `.env`, are not compared, and the output says so; releases before 0.7.0 published no digests, so the installer says so and goes on, or stops under `SHIPWICK_REQUIRE_SIGNATURE=1`. Then starts the services and waits for the agent to report healthy.
+5. Pulls the images and, since 0.10, compares each one's digest with the release's signed `image-digests.txt`: an image the registry serves under the release's tag that is not the release's is removed again, the compose file that ran is put back and the installer stops with the installation as it was. Images of your own, named in `.env`, are not compared, and the output says so; releases before 0.7.0 published no digests, so the installer says so and goes on, or stops under `SHIPWICK_REQUIRE_SIGNATURE=1`. Then starts the services and waits for the agent to report healthy.
 6. On an upgrade, removes the agent, dashboard and proxy images of earlier releases, once the upgraded agent is healthy: `Removed 2 image(s) of earlier Shipwick releases`. The images that are running, and anything else on the server, are kept.
 7. Installs `shipwick` to `/usr/local/bin`, verified the same way. A checksum mismatch installs nothing and leaves a running installation as it was.
 8. With a hostname for the API, signs that `shipwick` in: see [The CLI on the server](#the-cli-on-the-server).
@@ -210,7 +210,7 @@ The installer accepts these environment variables:
 | `SHIPWICK_WEBHOOK_URL` | — | Where the agent posts notifications: a Slack or Discord webhook, or any HTTPS endpoint. Kept in `.env` when given on the first run; see [Get notified](/docs/tasks/notifications) |
 | `SHIPWICK_WEBHOOK_SECRET` | — | Signs each notification, so your endpoint can tell it came from the agent. Likewise |
 | `SHIPWICK_CLOUDFLARE_API_TOKEN` | — | A Cloudflare API token (*Zone → Zone → Read* and *Zone → DNS → Edit*, those two exactly): certificates through DNS, so hostnames can stay behind Cloudflare's proxy and can be wildcards. The agent checks what the token can do when it starts, and `shipwick doctor` on request. Likewise; see [Put Cloudflare in front](/docs/tasks/cloudflare) |
-| `SHIPWICK_BACKUP_DIR` | `<data dir>/backups` | Where the backups the agent takes are kept, a path inside the agent's container; the host directory is mounted in `compose.override.yml`. Likewise, since 1.0; before, it had to be set in `.env` by hand |
+| `SHIPWICK_BACKUP_DIR` | `<data dir>/backups` | Where the backups the agent takes are kept, a path inside the agent's container; the host directory is mounted in `compose.override.yml`. Likewise, since 0.10; before, it had to be set in `.env` by hand |
 | `SHIPWICK_BACKUP_PASSPHRASE` | — | Encrypts the backups the agent takes, and lets it back up its own database and key. Likewise; see [Back up and restore volumes](/docs/tasks/backups) |
 | `SHIPWICK_BACKUP_S3_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_REGION`, `_PREFIX` | — | An S3-compatible bucket the backups are also sent to. Likewise |
 
@@ -255,13 +255,13 @@ If you skipped the API hostname, the API is not exposed at all. See [Reach the A
 
 ## Install a specific version
 
-Everything the installer fetches comes from one [release](https://github.com/shipwick/shipwick/releases) — never from a branch — and each file is verified against that release's checksums; since 1.0 `latest` is resolved to a release's tag before the first download, so two files cannot come from two releases, and the images the pull brought are compared with the digests the release published. By default that is the latest release. To choose one:
+Everything the installer fetches comes from one [release](https://github.com/shipwick/shipwick/releases) — never from a branch — and each file is verified against that release's checksums; since 0.10 `latest` is resolved to a release's tag before the first download, so two files cannot come from two releases, and the images the pull brought are compared with the digests the release published. By default that is the latest release. To choose one:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.9.1 sh
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.10.0 sh
 ```
 
-Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade), and how you [go back](/docs/tasks/upgrade#go-back-to-the-release-before). From your laptop, `shipwick server install user@host --version v0.9.1` does the same over SSH.
+Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade), and how you [go back](/docs/tasks/upgrade#go-back-to-the-release-before). From your laptop, `shipwick server install user@host --version v0.10.0` does the same over SSH.
 
 ### The signature
 

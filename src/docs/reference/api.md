@@ -183,7 +183,7 @@ Six kinds of response have no envelope: `204 No Content` from `DELETE`, from the
 | 409 | `CLOUDFLARE_NOT_CONFIGURED` | Since 0.9. A check of the Cloudflare token was asked of an agent that has none: `SHIPWICK_CLOUDFLARE_API_TOKEN` is not set. |
 | 429 | `CLOUDFLARE_CHECKED_RECENTLY` | Since 0.9. The Cloudflare token was checked less than a minute ago, and a check writes a DNS record in every zone; `details: {checked_at, retry_after_seconds}`, `Retry-After` the same, and [`GET /server`](#get-server) has the result of that check. |
 | 429 | `RATE_LIMITED` | A wrong token, after 20 authentications from this address failed within a minute; `Retry-After` says in how many seconds wrong tokens are answered `401` again. A valid token is never refused. |
-| 413 | `INVALID_REQUEST` | A body over its limit: a `deploy` body (the deploy.yaml) larger than 64 KB; a redeploy or rollback body larger than 4 KB; a secret, registry, certificate or sign-in body larger than its limit; a volume archive larger than 10 GB; an image archive larger than 4 GB; a static folder larger than 512 MB. The message names the limit. Since 1.0 every body over its limit is `413`; before, a redeploy, rollback, secret, registry, certificate or sign-in body over it was `400`. |
+| 413 | `INVALID_REQUEST` | A body over its limit: a `deploy` body (the deploy.yaml) larger than 64 KB; a redeploy or rollback body larger than 4 KB; a secret, registry, certificate or sign-in body larger than its limit; a volume archive larger than 10 GB; an image archive larger than 4 GB; a static folder larger than 512 MB. The message names the limit. Since 0.10 every body over its limit is `413`; before, a redeploy, rollback, secret, registry, certificate or sign-in body over it was `400`. |
 | 502 | `SIGN_IN_UNAVAILABLE` | The sign-in provider could not be reached or used; `message` says what to change. |
 | 503 | `RUNTIME_UNAVAILABLE` | The agent is shutting down; or, since 0.8, the Docker daemon does not answer: it is not running, or it took a question about containers and said nothing for 15 seconds. `message` says which, and for Docker where to look. An agent before 0.8 answers `500 INTERNAL_ERROR` for a daemon that is not running, and does not answer at all for one that is silent. See [Docker does not answer](/docs/tasks/when-things-break#docker-does-not-answer). |
 | 507 | `DISK_FULL` | Since 0.8. The server's disk has no room for what the request writes: a record in the agent's database, an uploaded folder, an image. Nothing was changed, and the same request succeeds once there is room. An agent before 0.8 answers `500 INTERNAL_ERROR`, or `400 INVALID_REQUEST` for a folder. See [The disk is full](/docs/tasks/when-things-break#the-disk-is-full). |
@@ -294,7 +294,7 @@ Liveness, for load balancers and `shipwick server status`. It takes no token and
 | `200` | [`Health`](#health) |
 
 ```json
-{ "data": { "status": "ok", "version": "v0.9.1" } }
+{ "data": { "status": "ok", "version": "v0.10.0" } }
 ```
 
 It asks neither Docker nor the database, and answers `200` while the Docker daemon does not: the agent itself is up. From the container of an application it is `403 APPLICATION_CALLER` like every endpoint, see [Authentication](#authentication).
@@ -309,7 +309,7 @@ It asks neither Docker nor the database, and answers `200` while the Docker daem
 ```json
 {
   "data": {
-    "agent_version": "v0.9.1", "hostname": "vps-1",
+    "agent_version": "v0.10.0", "hostname": "vps-1",
     "os": "linux", "kernel": "6.8.0", "architecture": "amd64", "docker_version": "29.8.0",
     "cpus": 4, "memory_bytes": 8589934592, "applications": 3, "containers": 5,
     "swap_bytes": 2147483648, "unlimited_memory": ["worker"],
@@ -346,7 +346,7 @@ Since 0.7 there are two more objects:
 
 ```json
 "log_archive": { "enabled": true, "entries": 278, "bytes": 63974240, "max_bytes": 1073741824, "retention_days": 14 },
-"update": { "enabled": true, "latest_version": "v0.9.1", "checked_at": "2026-10-04T09:00:00Z", "available": false }
+"update": { "enabled": true, "latest_version": "v0.10.0", "checked_at": "2026-10-04T09:00:00Z", "available": false }
 ```
 
 `swap_bytes`, `unlimited_memory` and `docker` are since 0.8. So are two fields that are present only when `true`, and absent from the example for that reason: `proxy.plain_lookups` and `open_to_applications`.
@@ -367,10 +367,10 @@ Since 0.9 there are three more, each present only when there is something to say
 - `proxy.dns_challenge` is `true` when certificates are obtained through a DNS record ([`SHIPWICK_CLOUDFLARE_API_TOKEN`](/docs/reference/agent-configuration#shipwick-cloudflare-api-token)), so hostnames may be proxied by Cloudflare and may be wildcards.
 - `proxy.plain_lookups`, since 0.8, is present and `true` when the proxy is not Shipwick's image of this version — the proxy of an older release, the official Caddy image, an image of your own that was not built from Shipwick's `Dockerfile.caddy`. Such a proxy still serves; it finds an application's replicas without keeping the last answer of a name lookup, so a lookup that goes unanswered holds every request. The field is absent otherwise. See [A proxy image of your own](/docs/concepts/routing-and-https#a-proxy-image-of-your-own).
 - `swap_bytes`, since 0.8, is how much swap the server has; `0` is a server without swap. It is absent where the agent cannot tell, a development build off Linux.
-- `unlimited_memory`, since 0.8, names the running applications that have no memory limit, sorted: each may use whatever the server has. A stopped application and a static one are not among them. `[]` when there are none (an agent before 1.0 left the field out then), absent from an agent before 0.8.
+- `unlimited_memory`, since 0.8, names the running applications that have no memory limit, sorted: each may use whatever the server has. A stopped application and a static one are not among them. `[]` when there are none (an agent before 0.10 left the field out then), absent from an agent before 0.8.
 - `docker`, since 0.8, is what the daemon says about itself. `rootless` is `true` when it runs as an ordinary user of the server and not as root. `unenforced_limits` lists which of `memory` and `cpu` it accepts as a limit of [`resources`](/docs/reference/deploy-yaml#resources) and does not apply, because it has no cgroup controller for them; `[]` where it applies both. See [Limits that are not enforced](/docs/concepts/resources#limits-that-are-not-enforced) and [Rootless Docker](/docs/tasks/less-than-the-docker-socket#rootless-docker).
 - `open_to_applications`, since 0.8, is present and `true` when the containers of applications can reach the API over the network, so that only the token keeps them out; absent otherwise. See [Authentication](#authentication).
-- `proxy.networks_missing`, since 0.9, names the installation's networks the proxy's container is not attached to — among `shipwick`, `shipwick-services` and `shipwick-control`, in the compose file's order — looked at every 30 seconds. A proxy on some of its networks serves some applications and not others, or cannot reach the agent; `docker compose up -d --force-recreate caddy` on the server makes the container again. `[]` when the proxy is on all of them (an agent before 1.0 left the field out then), absent from an agent before 0.9. See [When things break](/docs/tasks/when-things-break#the-proxy-cannot-be-reached).
+- `proxy.networks_missing`, since 0.9, names the installation's networks the proxy's container is not attached to — among `shipwick`, `shipwick-services` and `shipwick-control`, in the compose file's order — looked at every 30 seconds. A proxy on some of its networks serves some applications and not others, or cannot reach the agent; `docker compose up -d --force-recreate caddy` on the server makes the container again. `[]` when the proxy is on all of them (an agent before 0.10 left the field out then), absent from an agent before 0.9. See [When things break](/docs/tasks/when-things-break#the-proxy-cannot-be-reached).
 - `kernel_limits.neighbour_table`, since 0.9, is `net.ipv4.neigh.default.gc_thresh3`: how many neighbours the kernel keeps before containers stop reaching each other, 1024 in a stock kernel. It is present only where the agent can read it, which is an agent that runs as a process of the host, [installed from a package](/docs/getting-started/install-from-a-package); the kernel shows the setting in the host's own network namespace only, so an agent in a container cannot. `shipwick doctor` warns from a quarter of the table on. See [Prepare a server](/docs/tasks/prepare-a-server#the-kernel-s-table-of-neighbours).
 - `cloudflare`, since 0.9, is what the agent found out about its Cloudflare token when it last checked it, the shape of [`POST /server/cloudflare/verify`](#post-server-cloudflare-verify)'s answer. Absent without a token, before the first check has finished, and from an agent older than 0.9.
 - `dashboard_url` is `https://<SHIPWICK_DASHBOARD_DOMAIN>`, or `""` when the dashboard has no hostname.
@@ -562,7 +562,7 @@ Both are read from what the agent has in memory; listing costs no more for them.
 
 ### GET /applications/:name
 
-Status, the active configuration with environment values, basic-auth passwords and, since 1.0, `logging.options.splunk-token` masked, the active deployment, every container of the application, and the certificate of each hostname.
+Status, the active configuration with environment values, basic-auth passwords and, since 0.10, `logging.options.splunk-token` masked, the active deployment, every container of the application, and the certificate of each hostname.
 
 | Status | Body |
 |---|---|
@@ -815,7 +815,7 @@ The secret values of a configuration, `env` values and the passwords of `proxy.b
 
 - **A value the deployed document wrote with a `${NAME}` that the agent filled in from its [secrets](#get-secrets)** is that text again, the placeholders in place. The agent keeps it next to the deployment, encrypted like a secret; a redeploy and a rollback carry it on, and so do a key rotation, an export and an import.
 - **An `env` value that the deployment named in [`?plain=`](#post-applications-name-deploy)**, since 0.8, is the value, a literal `${NAME}` in it written `$${NAME}`. `plain` names those fields, sorted; it is `[]` when there are none, and absent from an agent before 0.8. The statement is kept and carried on like a reference. A deployment of the document that names the same fields again keeps them plain; one that does not masks them from then on. `shipwick deploy` names the values that stand in the file as it sends them; the dashboard names the ones it was handed out as plain and that were not edited.
-- **Every other value** — filled in by the CLI from its environment or `--env-file`, or sent by a client that said nothing, which the agent cannot tell apart from a password — is the mask, `"********"`, with a comment on its line. `masked` names those fields, in the order of the document; it is `[]` when there are none. The comment at the top is there only when there are some. A basic-auth password is never plain, and neither is `logging.options.splunk-token`, which since 1.0 is masked, kept and refused like a basic-auth password (`logging.options.splunk-token` in `masked` and in `fields`).
+- **Every other value** — filled in by the CLI from its environment or `--env-file`, or sent by a client that said nothing, which the agent cannot tell apart from a password — is the mask, `"********"`, with a comment on its line. `masked` names those fields, in the order of the document; it is `[]` when there are none. The comment at the top is there only when there are some. A basic-auth password is never plain, and neither is `logging.options.splunk-token`, which since 0.10 is masked, kept and refused like a basic-auth password (`logging.options.splunk-token` in `masked` and in `fields`).
 
 What is written in a `deploy.yaml` in plain sight is therefore readable by whoever may deploy the application; a password belongs in a `${NAME}`.
 
@@ -852,7 +852,7 @@ docker save shipwick.local/my-api:20260927-153000-a1b2 \
 | Status | Body |
 |---|---|
 | `201` | [`LoadedImage`](#loadedimage): the reference that was loaded, and its size |
-| `400 INVALID_REQUEST` | The body is not `Content-Type: application/x-tar`; the archive does not carry exactly one image tagged `shipwick.local/<name>:<tag>` for this application. What was loaded is removed again, by its ID, and since 1.0 every tag the load moved — another application's, the proxy's or the agent's — is pointed back at the image it named; an agent before 1.0 left such an image without its name, and its next redeploy, rollback or replica recreation failed with "is not on this server". |
+| `400 INVALID_REQUEST` | The body is not `Content-Type: application/x-tar`; the archive does not carry exactly one image tagged `shipwick.local/<name>:<tag>` for this application. What was loaded is removed again, by its ID, and since 0.10 every tag the load moved — another application's, the proxy's or the agent's — is pointed back at the image it named; an agent before 0.10 left such an image without its name, and its next redeploy, rollback or replica recreation failed with "is not on this server". |
 | `409 IMAGE_INCOMPLETE` | The archive leaves out a layer the server's Docker cannot produce. Nothing stays loaded; send the whole archive. See [`…/images/missing`](#post-applications-name-images-missing). |
 | `413 INVALID_REQUEST` | The archive is larger than 4 GB |
 | `507 DISK_FULL` | Since 0.8. The server's disk has no room for the image |
@@ -925,19 +925,19 @@ Deploys the active configuration again, optionally with another image. The body 
 
 | Field | Type | |
 |---|---|---|
-| `image` | string | Optional. Replaces the image of the active configuration. Must be a valid image reference. For an application with `build:`, only an image under `shipwick.local/<name>` is accepted; without one, the image it has is kept. Since 1.0 an image under `shipwick.local` must be the application's own whatever the configuration: another application's is `400 INVALID_REQUEST`, with the application it belongs to. |
+| `image` | string | Optional. Replaces the image of the active configuration. Must be a valid image reference. For an application with `build:`, only an image under `shipwick.local/<name>` is accepted; without one, the image it has is kept. Since 0.10 an image under `shipwick.local` must be the application's own whatever the configuration: another application's is `400 INVALID_REQUEST`, with the application it belongs to. |
 
 The body is limited to 4096 bytes. Unknown fields are rejected: a typo such as `"imgae"` must not quietly redeploy the old image. A static application re-uses the folder the proxy serves.
 
 | Status | Body |
 |---|---|
 | `202` | [`Deployment`](#deployment) with `kind: "redeploy"`, and a `Location` header |
-| `400 INVALID_REQUEST` | Invalid JSON, unknown field, or invalid `image`; an image from elsewhere for an application with `build:`; since 1.0 an image under `shipwick.local` that is another application's |
+| `400 INVALID_REQUEST` | Invalid JSON, unknown field, or invalid `image`; an image from elsewhere for an application with `build:`; since 0.10 an image under `shipwick.local` that is another application's |
 | `400 INVALID_CONFIG` | A hostname or a published port of the stored configuration is now held by something else |
 | `404 NOT_FOUND` | Unknown application |
 | `409 NOT_DEPLOYED` | No active deployment |
 | `409 DEPLOYMENT_IN_PROGRESS` | Another operation holds the application |
-| `413 INVALID_REQUEST` | Body larger than 4 KB; the message names the limit. Since 1.0 (`400` before) |
+| `413 INVALID_REQUEST` | Body larger than 4 KB; the message names the limit. Since 0.10 (`400` before) |
 | `503 RUNTIME_UNAVAILABLE` | The agent is shutting down |
 
 ### POST /applications/:name/rollback
@@ -958,7 +958,7 @@ The body is limited to 4096 bytes. Unknown fields are rejected.
 |---|---|
 | `202` | [`Deployment`](#deployment) with `kind: "rollback"` and `source_deployment_id` set, and a `Location` header |
 | `400 INVALID_REQUEST` | Invalid JSON, unknown field, or a negative `deployment_id` |
-| `413 INVALID_REQUEST` | Body larger than 4 KB; the message names the limit. Since 1.0 (`400` before) |
+| `413 INVALID_REQUEST` | Body larger than 4 KB; the message names the limit. Since 0.10 (`400` before) |
 | `400 INVALID_CONFIG` | A hostname or a published port of the stored configuration is now held by something else |
 | `404 NOT_FOUND` | Unknown application, or no deployment with that id |
 | `409 NOT_DEPLOYED` | No active deployment |
@@ -1236,7 +1236,7 @@ A point-in-time sample of CPU and memory of the application and each replica of 
 - **CPU is in percent of one core**, as in `docker stats`: a replica keeping two cores busy reads 200, and `cpu: 2` is a `cpu_limit_percent` of 200.
 - **Memory is the working set**: usage minus the page cache the kernel would give back. It is what the limit is enforced against.
 - Limits are `0` when unlimited. Application-level numbers are sums over the replicas.
-- `unenforced_limits`, since 0.8, is present when the server's Docker has no cgroup controller for a limit — rootless Docker without delegation — and lists which: `["memory", "cpu"]`. The limits are then what `deploy.yaml` asks for and nothing holds a replica to; with both listed on a rootless daemon, the usage is that of everything the daemon runs, not the replica's. `[]` where Docker applies the limits (an agent before 1.0 left the field out then); absent from an agent older than 0.8. See [Limits that are not enforced](/docs/concepts/resources#limits-that-are-not-enforced).
+- `unenforced_limits`, since 0.8, is present when the server's Docker has no cgroup controller for a limit — rootless Docker without delegation — and lists which: `["memory", "cpu"]`. The limits are then what `deploy.yaml` asks for and nothing holds a replica to; with both listed on a rootless daemon, the usage is that of everything the daemon runs, not the replica's. `[]` where Docker applies the limits (an agent before 0.10 left the field out then); absent from an agent older than 0.8. See [Limits that are not enforced](/docs/concepts/resources#limits-that-are-not-enforced).
 - A replica that is not running reports zeros. It never fails the request.
 - It is a point-in-time sample; the record over time is [the history](#get-applications-name-metrics-history). The agent keeps the previous sample of each container, so polling every few seconds is answered instantly. A first request, or one after a pause of a minute, takes about a second: CPU usage is a rate, and Docker needs two readings for it.
 
@@ -1273,7 +1273,7 @@ The sampled CPU and memory of each replica over a window, aggregated into steps.
 }
 ```
 
-- The agent picks `step_seconds` for the window: `30` for `1h`, `300` for `24h`, `3600` for `7d`, so a series is at most a few hundred points. Since 1.0 the field is `step_seconds`, an integer, as in [`Traffic`](#traffic); an agent before 1.0 sends `step` as `"30s"`, `"5m"` or `"1h"`.
+- The agent picks `step_seconds` for the window: `30` for `1h`, `300` for `24h`, `3600` for `7d`, so a series is at most a few hundred points. Since 0.10 the field is `step_seconds`, an integer, as in [`Traffic`](#traffic); an agent before 0.10 sends `step` as `"30s"`, `"5m"` or `"1h"`.
 - The agent samples every running replica every 30 seconds and keeps seven days. Each point aggregates the samples of one step: `cpu_percent` is their average, `memory_bytes` their peak. A step in which a replica has no sample, because it was not running or the agent was down, has no point: the series are sparse, not zero-filled. `at` is the start of the step, `since` the start of the window.
 - `limits` are the active deployment's per-replica limits as written in `deploy.yaml`: `cpu` in cores, `memory_bytes` in bytes, `0` when unlimited. A limit line for a CPU chart is `cpu × 100`.
 - Units are those of [`Metrics`](#metrics). An application that was just deployed answers with empty series until the first minute has passed.
@@ -1314,7 +1314,7 @@ What the proxy's access log says about the application's requests over a window.
 - A request belongs to the application whose `domain`, alias or redirect it was sent to; where several applications share a hostname by `path`, to the one with the longest path the request is under. Requests the proxy answered by itself count too: a redirect's `308`, the `503` of a stopped application, the files of a static one. Requests for the agent's and the dashboard's own hostnames are not recorded.
 - `bytes` are response bodies as sent, after compression. Statuses outside 200–599 are in `requests` only.
 - The percentiles are estimated from a histogram of the proxy's durations, from the first byte of the request to the last of the response, with bounds at 1, 2.5, 5, 10, 25, 50, 100, 250, 500 ms and 1, 2.5, 5, 10, 30 s, and are as exact as a bucket is wide; a request slower than 30 s reads `30000`. They are `0` when there were no requests.
-- `at` is the start of the step, as in a point of the [metrics history](#get-applications-name-metrics-history); an agent before 1.0 names it `t`. A step without a request has no point: the series is sparse, and a missing point is zero. The current minute is included; minutes that have ended are kept for seven days.
+- `at` is the start of the step, as in a point of the [metrics history](#get-applications-name-metrics-history); an agent before 0.10 names it `t`. A step without a request has no point: the series is sparse, and a missing point is zero. The current minute is included; minutes that have ended are kept for seven days.
 - An application without a domain, or one nobody has asked anything of, answers zero totals and no points.
 
 See [`shipwick traffic`](/docs/tasks/traffic).
@@ -1849,7 +1849,7 @@ Content-Type: application/json
 | `401 SIGN_IN_FAILED` | The sign-in itself was refused; `details.reason` says why, see below |
 | `403 ACCESS_NOT_GRANTED` | The person is who they say, and no rule gives them a role; `details: {name, email}`, both the person's name (`name` since 0.7; `email` is kept for clients from before). The message is written to be forwarded to an admin. |
 | `409 SIGN_IN_NOT_CONFIGURED` | The agent has no provider |
-| `413 INVALID_REQUEST` | Body over 16 KB; the message names the limit. Since 1.0 (`400` before) |
+| `413 INVALID_REQUEST` | Body over 16 KB; the message names the limit. Since 0.10 (`400` before) |
 | `429 RATE_LIMITED` | Failed sign-ins count like wrong tokens, see [Authentication](#authentication); a limited address is answered without the provider being asked |
 | `502 SIGN_IN_UNAVAILABLE` | The provider could not be reached, did not answer like one, calls itself by another issuer, or refused the agent's client id or secret |
 
@@ -2040,7 +2040,7 @@ curl -X PUT …/secrets/DATABASE_PASSWORD -d '{"value": "hunter3", "application"
 |---|---|
 | `204` | None, whether the secret was created or replaced |
 | `400 INVALID_REQUEST` | Invalid name or value, invalid JSON, unknown field, an `application` that is not an application name, or the 501st secret |
-| `413 INVALID_REQUEST` | Body over 257 KB; the message names the limit. Since 1.0 (`400` before) |
+| `413 INVALID_REQUEST` | Body over 257 KB; the message names the limit. Since 0.10 (`400` before) |
 
 The value is written encrypted (AES-256-GCM, with the name as additional data for a server-wide secret and `applications/<application>/secrets/<name>` for an application's, like an `env` value) and is never returned, logged or repeated in an error. An agent before 0.9 answers a body with `application` with `400 INVALID_REQUEST` (`invalid JSON body …`) and stores nothing, which is how a client finds out; a query parameter it would have ignored.
 
@@ -2106,7 +2106,7 @@ curl -X PUT …/registries/ghcr.io -d '{"username": "octocat", "password": "ghp_
 |---|---|
 | `204` | None, whether the credential was created or replaced |
 | `400 INVALID_REQUEST` | A scheme or a path in `:registry`; invalid username or password, invalid JSON, unknown field, or the 51st registry |
-| `413 INVALID_REQUEST` | Body over its limit, 66 KB; the message names the limit. Since 1.0 (`400` before) |
+| `413 INVALID_REQUEST` | Body over its limit, 66 KB; the message names the limit. Since 0.10 (`400` before) |
 | `400 REGISTRY_LOGIN_FAILED` | The registry refused the credential, or could not be asked. Nothing was stored. |
 
 Before anything is stored the agent has the Docker daemon check the credential against the registry (the Engine API's login, which keeps nothing). A registry that says no, or that cannot be reached within 30 seconds, is `400`:
@@ -2161,7 +2161,7 @@ curl -X PUT …/certificates/example.com \
 |---|---|
 | `200` | [`Certificate`](#certificate), as stored |
 | `400 INVALID_REQUEST` | `:hostname` is not a hostname; a missing or oversized `certificate` or `key`, invalid JSON, unknown field, or the 51st certificate |
-| `413 INVALID_REQUEST` | Body over 513 KB; the message names the limit. Since 1.0 (`400` before) |
+| `413 INVALID_REQUEST` | Body over 513 KB; the message names the limit. Since 0.10 (`400` before) |
 | `400 INVALID_CERTIFICATE` | The certificate or key cannot serve the hostname; `message` says why |
 
 ```json
@@ -2267,7 +2267,7 @@ Takes an export as the body, with `Content-Type: application/octet-stream`, and 
 |---|---|
 | `200` | [`Import`](#import), also when applications in it failed |
 | `400 INVALID_REQUEST` | The body is not sent as `application/octet-stream`; an invalid `stopped` or `overwrite`; no passphrase header, or one that is not base64 |
-| `400 INVALID_EXPORT` | The body is not an export, the passphrase does not match, or the file breaks off. What had been imported until then stays, and `GET /import` shows it. Also, since 0.9, when the export, written by a newer agent, names a key of the configuration this agent does not know (`requires` in its manifest): it is refused before anything is taken in, and the message names the key and the version that wrote the export — `the export was written by Shipwick v0.10.0 and uses the key spec.hoverboard, which this agent (Shipwick v0.9.1) does not know and would drop. Import it with an agent of that version or newer, or export without the applications that use it`. `GET /import` then shows the record as `failed` with that `error` and no applications. Exports written before 0.9 carry no list and import as before. |
+| `400 INVALID_EXPORT` | The body is not an export, the passphrase does not match, or the file breaks off. What had been imported until then stays, and `GET /import` shows it. Also, since 0.9, when the export, written by a newer agent, names a key of the configuration this agent does not know (`requires` in its manifest): it is refused before anything is taken in, and the message names the key and the version that wrote the export — `the export was written by Shipwick v0.11.0 and uses the key spec.hoverboard, which this agent (Shipwick v0.10.0) does not know and would drop. Import it with an agent of that version or newer, or export without the applications that use it`. `GET /import` then shows the record as `failed` with that `error` and no applications. Exports written before 0.9 carry no list and import as before. |
 | `409 IMPORT_IN_PROGRESS` | An import is running; a server takes one at a time |
 | `409 PROMOTION_IN_PROGRESS` | Nothing is imported into a server while it is being promoted |
 | `503 RUNTIME_UNAVAILABLE` | The agent is shutting down |
@@ -2572,10 +2572,10 @@ All types are defined in [`pkg/api/types.go`](https://github.com/shipwick/shipwi
 | `cpus` | integer | |
 | `memory_bytes` | integer | Memory of the host |
 | `swap_bytes` | integer | How much swap the server has; `0` is a server without swap. Absent where the agent cannot tell, and from agents before 0.8. |
-| `unlimited_memory` | array of strings | The running applications that have no memory limit: each may use whatever the server has. `[]` when there are none (left out before 1.0); absent from agents before 0.8. |
+| `unlimited_memory` | array of strings | The running applications that have no memory limit: each may use whatever the server has. `[]` when there are none (left out before 0.10); absent from agents before 0.8. |
 | `applications` | integer | Number of applications |
 | `containers` | integer | Running Shipwick-managed containers |
-| `proxy` | object | `enabled`: a proxy is configured; `false` means domains are not served. `reachable`: the last configuration sync succeeded. `error`: why it did not. `routes`: hostnames being served. `dns_challenge`: certificates are obtained through a DNS record, so hostnames may stand behind Cloudflare's proxy and may be wildcards. `plain_lookups`, since 0.8: present and `true` when the proxy is not Shipwick's image of this version, and finds replicas without keeping the last answer of a name lookup; absent otherwise. `networks_missing`, since 0.9: the installation's networks the proxy's container is not attached to, looked at every 30 seconds; `[]` when it is on all of them (left out before 1.0). |
+| `proxy` | object | `enabled`: a proxy is configured; `false` means domains are not served. `reachable`: the last configuration sync succeeded. `error`: why it did not. `routes`: hostnames being served. `dns_challenge`: certificates are obtained through a DNS record, so hostnames may stand behind Cloudflare's proxy and may be wildcards. `plain_lookups`, since 0.8: present and `true` when the proxy is not Shipwick's image of this version, and finds replicas without keeping the last answer of a name lookup; absent otherwise. `networks_missing`, since 0.9: the installation's networks the proxy's container is not attached to, looked at every 30 seconds; `[]` when it is on all of them (left out before 0.10). |
 | `token` | [`TokenIdentity`](#tokenidentity) | The token, or the session, this request was made with |
 | `sign_in` | [`SignInStatus`](#signinstatus) | Whether people can sign in with an OpenID Connect provider. Absent from agents before 0.6. |
 | `notifications` | [`NotificationStatus`](#notificationstatus) | Where the agent reports outcomes |
@@ -2646,7 +2646,7 @@ What the agent knows about newer releases. Since 0.7.
 | Field | Type | |
 |---|---|---|
 | `enabled` | boolean | `false` when the agent was told not to ask (`SHIPWICK_UPDATE_CHECK=off`) |
-| `latest_version` | string | The latest release, `v0.9.1`; `""` until the agent has been able to ask |
+| `latest_version` | string | The latest release, `v0.10.0`; `""` until the agent has been able to ask |
 | `checked_at` | timestamp or null | When GitHub last answered; null until then |
 | `available` | boolean | `latest_version` is newer than the agent itself |
 
@@ -2743,8 +2743,8 @@ The `network` object of [`GET /server`](#get-server): how the agent and the Dock
 | `status` | string | See [Application status](#application-status) |
 | `desired_state` | string | `running` or `stopped` |
 | `image`, `version`, `domain` | string | Of the active deployment. Empty until the first deployment succeeds. |
-| `aliases` | array of strings | Hostnames served like `domain`. `[]` when there are none (omitted before 1.0). |
-| `redirects` | array of strings | Hostnames redirected to `domain`. `[]` when there are none (omitted before 1.0). |
+| `aliases` | array of strings | Hostnames served like `domain`. `[]` when there are none (omitted before 0.10). |
+| `redirects` | array of strings | Hostnames redirected to `domain`. `[]` when there are none (omitted before 0.10). |
 | `path` | string | The part of `domain` and `aliases` the application serves. Omitted when it serves all of it. |
 | `replicas` | object | `{desired, running, healthy}`. All zero for a static application. |
 | `static` | boolean | The proxy serves this application from a folder; it has no containers |
@@ -2861,8 +2861,8 @@ The JSON form of a validated `deploy.yaml`, with defaults applied. It is what th
 | `domain` | string | Omitted when not set |
 | `path` | string | Omitted when the application serves the whole domain. `path: /` is stored as no path. |
 | `proxy` | object | Omitted when not set. `{strip_prefix, headers, basic_auth, redirects}`, each omitted when not set. `basic_auth` is `[{path, username, password}]`: `path` is omitted for an account of the whole application, and `password` is always `"********"`. `redirects` is `[{from, to, status}]`; `status` is `308` when the document named none. See [Paths and the proxy block](#paths-and-the-proxy-block). |
-| `aliases` | array of strings | `[]` when empty (omitted before 1.0) |
-| `redirects` | array of strings | `[]` when empty (omitted before 1.0) |
+| `aliases` | array of strings | `[]` when empty (omitted before 0.10) |
+| `redirects` | array of strings | `[]` when empty (omitted before 0.10) |
 | `replicas` | integer | |
 | `env` | object | Omitted when empty. Names are kept; every value is `"********"`. |
 | `health` | object | Omitted without a health check. Exactly one of `path` (string), `tcp` (integer) or `command` (array of strings) is present, then `interval`, `timeout` and `retries`, and `start_period` when it is set. |
@@ -2940,7 +2940,7 @@ The kept output of one run of a container, as [`GET /applications/:name/logs/arc
 | `application` | string | |
 | `kind` | string | `replica`: one run of a replica's container, from a start to the stop after it. `run`: a run of a job, a pre-deploy command or a one-off command |
 | `deployment_id` | integer or null | The deployment the container belonged to; null once the deployment is gone |
-| `sequence` | integer | Its number in the application's history, the `sequence` of a deployment and the #N of `shipwick status`; `0` once it is gone. Named `deployment` before 1.0 |
+| `sequence` | integer | Its number in the application's history, the `sequence` of a deployment and the #N of `shipwick status`; `0` once it is gone. Named `deployment` before 0.10 |
 | `version` | string | Its version; `""` once it is gone |
 | `replica` | integer | The replica's index; `0` for a run |
 | `job` | string | The job's name for a run, `pre-deploy` and `run` included; `""` for a replica |
@@ -2974,7 +2974,7 @@ One line found by [`GET /applications/:name/logs/search`](#get-applications-name
 | … | | Every field of [`LogLine`](#logline) |
 | `archive_id` | integer or null | The entry the line is kept in; null for a line read from a container that exists |
 | `deployment_id` | integer or null | The deployment the container belongs to |
-| `sequence` | integer | Its number in the application's history. Named `deployment` before 1.0 |
+| `sequence` | integer | Its number in the application's history. Named `deployment` before 0.10 |
 | `job` | string | The job's name, for a line of a run; `""` otherwise |
 | `run_id` | integer or null | The run, for a line of a run |
 
@@ -3015,7 +3015,7 @@ The answer to [`GET /applications/:name/config`](#get-applications-name-config):
 | `memory_bytes` | integer | Working set. Sum over replicas. |
 | `memory_limit_bytes` | integer | `0` means unlimited |
 | `replicas` | array | One object per replica: `replica`, `container`, `cpu_percent`, `cpu_limit_percent`, `memory_bytes`, `memory_limit_bytes` |
-| `unenforced_limits` | array of strings | The limits the server's Docker does not apply, `memory` and `cpu`, as in [`DockerStatus`](#dockerstatus): the limits above are then what `deploy.yaml` asks for and nothing holds the replicas to. `[]` when Docker applies them (left out before 1.0); absent from agents before 0.8. |
+| `unenforced_limits` | array of strings | The limits the server's Docker does not apply, `memory` and `cpu`, as in [`DockerStatus`](#dockerstatus): the limits above are then what `deploy.yaml` asks for and nothing holds the replicas to. `[]` when Docker applies them (left out before 0.10); absent from agents before 0.8. |
 
 ### MetricsHistory
 
@@ -3023,7 +3023,7 @@ The answer to [`GET /applications/:name/config`](#get-applications-name-config):
 |---|---|---|
 | `application` | string | |
 | `since` | timestamp | Start of the window |
-| `step_seconds` | integer | Width of one point: `30`, `300` or `3600`. Since 1.0; an agent before 1.0 sends `step` as `"30s"`, `"5m"` or `"1h"` |
+| `step_seconds` | integer | Width of one point: `30`, `300` or `3600`. Since 0.10; an agent before 0.10 sends `step` as `"30s"`, `"5m"` or `"1h"` |
 | `series` | array of [`MetricsSeries`](#metricsseries) | One per replica that has samples in the window |
 | `limits` | [`MetricsLimits`](#metricslimits) | The active deployment's per-replica limits |
 
@@ -3078,7 +3078,7 @@ All fields of [`TrafficCounts`](#trafficcounts), plus:
 
 | Field | Type | |
 |---|---|---|
-| `at` | timestamp | Start of the step. Named `t` before 1.0 |
+| `at` | timestamp | Start of the step. Named `t` before 0.10 |
 
 ### Request
 
@@ -3493,7 +3493,7 @@ How the scheduled import from the bucket is doing.
 |---|---|---|
 | `schedule` | string | |
 | `last_at` | timestamp or null | |
-| `last_export_id` | integer | The export imported last; `0` when none yet. Named `last_export` before 1.0 |
+| `last_export_id` | integer | The export imported last; `0` when none yet. Named `last_export` before 0.10 |
 | `last_error` | string | |
 
 ### DNSRecord

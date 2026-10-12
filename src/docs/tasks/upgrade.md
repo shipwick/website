@@ -16,7 +16,7 @@ Shipwick is at 0.x. Before 1.0, a minor version may change the API, `deploy.yaml
 Since 0.7 the agent asks GitHub once a day which release is the latest, and `GET /server` carries the answer. The dashboard and `shipwick server status` say when the server is behind, without a connection of their own:
 
 ```text
-Agent           v0.8.1  v0.9.1 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+Agent           v0.8.1  v0.10.0 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
 ```
 
 In the dashboard the notice is on the server's Status tab, with the command that upgrades; see [Use the dashboard](/docs/tasks/dashboard#the-server).
@@ -198,9 +198,9 @@ A job that was running when the old agent stopped is marked `interrupted` and it
 
 After a server reboot, the agent brings every application back up according to its restart policy. What an agent that is killed in the middle of each kind of deployment does is in [When things break](/docs/tasks/when-things-break#the-agent-is-killed).
 
-### Upgrading from 0.9 to 1.0
+### Upgrading from 0.9 to 0.10
 
-1.0 changes names and closes gaps; applications run as before, and nothing changes for a `deploy.yaml` that worked before, with two exceptions named below. All three containers are recreated, because their images changed, and requests go unanswered while the proxy's container is replaced, as on every upgrade. The agent applies no schema migration: the database of 0.9 is the database of 1.0.
+0.10 changes names and closes gaps; applications run as before, and nothing changes for a `deploy.yaml` that worked before, with two exceptions named below. All three containers are recreated, because their images changed, and requests go unanswered while the proxy's container is replaced, as on every upgrade. The agent applies no schema migration: the database of 0.9 is the database of 1.0.
 
 Several things behave differently without being asked:
 
@@ -215,7 +215,7 @@ Several things behave differently without being asked:
 
 Three flags are renamed in the CLI: `shipwick traffic --requests` follows with `--follow` only (`-f` was `--follow` here and `--file` everywhere else but `logs`), `shipwick audit --lines` is `--tail` (`-n` is unchanged), and `shipwick server install --context` is `--name`, since the global `--context` was shadowed by it. `shipwick backups rm`, `shipwick registry logout` and `shipwick access revoke` ask before they act; `--yes` skips the question, and a script needs it. `shipwick server status` says when the CLI and the agent are of different minor versions, and which to upgrade. `shipwick server configure` and the installer accept `SHIPWICK_BACKUP_DIR`.
 
-On laptops and in CI, upgrade the CLI as described below. A 0.9 `shipwick` keeps working against a 1.0 agent for everything it knows, with the three places above where it reads a renamed field as nothing.
+On laptops and in CI, upgrade the CLI as described below. A 0.9 `shipwick` keeps working against a 0.10 agent for everything it knows, with the three places above where it reads a renamed field as nothing.
 
 ### Upgrading from 0.8 to 0.9
 
@@ -430,10 +430,10 @@ shipwick upgrade
 ```
 
 ```text
-✓ Upgraded shipwick v0.3.1 → v0.9.1
+✓ Upgraded shipwick v0.3.1 → v0.10.0
   /usr/local/bin/shipwick
 
-The server runs v0.9.1, the latest release.
+The server runs v0.10.0, the latest release.
 ```
 
 The latest release is downloaded from GitHub and verified against its `checksums.txt` before the binary is swapped; nothing changes if the checksum does not match. Since 0.8, where cosign (2.5 or later) is installed, `checksums.txt` is verified against the release's signature first, and a release from 0.8.0 on that has no signature is refused; without cosign the command says that the signature was not checked. See [Verify a release](/docs/tasks/verify-a-release). The command then compares the server's version with the release. When the server is behind, it says so and prints the installer line to run there; a server it cannot reach is one dim line, not an error. `shipwick upgrade --check` reports and changes nothing.
