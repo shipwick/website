@@ -88,6 +88,7 @@ jobs:
 | `token` | An API token with the `deploy` role, from a secret | required |
 | `image` | Deploy this image instead of the one in `deploy.yaml` (`--image`) | |
 | `file` | The `deploy.yaml` to deploy. One path per line deploys several applications in order, stopping at the first failure (`-f`, repeated); `--image` then does not apply | `deploy.yaml` |
+| `applications` | The applications of a `shipwick.yaml` to deploy, one name per line or separated by spaces (`shipwick deploy <name>...`). Needs shipwick 0.8.0 or later | every application in the file |
 | `env-file` | A `NAME=value` file that fills in `${NAME}` placeholders before the file is sent (`--env-file`). One path per line. Not needed for values stored on the server with `shipwick secret set` | |
 | `version` | The release of the CLI to use, such as `v0.4.1` | the latest release |
 | `no-wait` | Start the deployment and return at once (`--no-wait`) | `false` |
@@ -374,6 +375,9 @@ The pipeline's log is one place to look. With `SHIPWICK_WEBHOOK_URL` set on the 
 
 ## What's next
 
+- [Staging and production](/docs/tasks/staging-and-production): two servers, one file, and the approval before production in the pipeline.
+- [Scan an image before it is deployed](/docs/tasks/scan-images): a scanner between the build and the deploy step.
+- [From Docker Compose](/docs/tasks/from-docker-compose) if the application still runs from a `docker-compose.yml`.
 - [Create tokens for CI and teammates](/docs/tasks/tokens): roles, revocation, what each token did.
 - [Roll back](/docs/tasks/roll-back) when a version that deployed successfully turns out to be wrong.
 - The [shipwick reference](/docs/reference/cli).

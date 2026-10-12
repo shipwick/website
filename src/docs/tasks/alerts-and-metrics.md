@@ -173,7 +173,7 @@ shipwick_disk_bytes{state="used"} 3.758096384e+10
 shipwick_alerts{kind="disk",severity="warning"} 1
 ```
 
-The answer is `text/plain; version=0.0.4`. Errors — `401`, `403`, `429` — are the JSON envelope, as everywhere else in the API.
+The answer is `text/plain; version=0.0.4; charset=utf-8`. Errors — `401`, `403`, `429` — are the JSON envelope, as everywhere else in the API.
 
 ### What it exposes
 

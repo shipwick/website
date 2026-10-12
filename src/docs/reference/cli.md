@@ -79,6 +79,8 @@ There is deliberately no `--token` flag. Command-line arguments are visible to e
 
 **The saved token belongs to the saved URL.** If `--url` or `SHIPWICK_AGENT_URL` points `shipwick` at a different agent than the selected context's, the saved token is not sent there. A token from `SHIPWICK_AGENT_TOKEN` is always used.
 
+**A redirect is not followed** (since 1.0). The agent never answers with one, so a redirect is something in front of it, and following it would have sent the token along — Go sends the `Authorization` header to the same host on any port or scheme. It is an error that names where it pointed: `https://agent.example.com answered with a redirect (HTTP 301) to http://agent.example.com/, which was not followed and did not receive the token: check the saved URL, and what proxy stands in front of the agent`.
+
 A `--context` or `SHIPWICK_CONTEXT` that names no saved server is an error: `unknown context "ghost"`, followed by `See the saved ones with: shipwick context ls`.
 
 The URL must be an `http://` or `https://` URL with a host. The default, `http://127.0.0.1:9000`, suits both an agent on the same machine and one reached through an SSH tunnel:
@@ -114,7 +116,7 @@ shipwick deploy --image ghcr.io/company/my-api:$GIT_SHA
 |---|---|
 | Location | `<user config dir>/shipwick/config.yaml`. The user config directory is the operating system's: `$XDG_CONFIG_HOME` or `~/.config` on Linux, `~/Library/Application Support` on macOS, `%AppData%` on Windows. |
 | Override | `SHIPWICK_CONFIG` sets the full path of the file. |
-| Permissions | The file is written with mode `0600`, its directory is created with mode `0700`. The file is written to a temporary name and renamed into place, so the permissions apply even if the file already existed. |
+| Permissions | The file is written with mode `0600`, its directory is created with mode `0700`. The file is written to a temporary name and renamed into place, so the permissions apply even if the file already existed. On Windows the file lives in the profile's `AppData` with the profile's own permissions (the user, SYSTEM and Administrators); a `SHIPWICK_CONFIG` pointed at a shared folder gets no protection from the CLI. |
 | Content | `current`, the name of the current context, and `contexts`, one entry per saved server with its `url` and `token`. |
 
 ```yaml
@@ -142,8 +144,9 @@ A missing file is an empty configuration, not an error. A file from before conte
 | `SHIPWICK_BACKUP_PASSPHRASE` | Passphrase for [`backups decrypt`](#backups-decrypt): the value the variable has on the agent. Without it, the passphrase is asked for without echo. |
 | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | The proxy the requests of `shipwick` go through, to the agent and to GitHub (`upgrade`, `doctor`, `server bundle`). Since 0.6. |
 | `SHIPWICK_CA_FILE` | A PEM file of certificate authorities trusted in addition to the system's, for an agent whose certificate a company's own authority issued. Since 0.6. |
-| `NO_COLOR` | When set to any value, output is not colored. |
-| `TERM` | `dumb` disables colors. |
+| `NO_COLOR` | When set to any value, no colors and no progress line, as when the output is not a terminal. |
+| `TERM` | `dumb`: no colors and no progress line, as when the output is not a terminal. |
+| `SHIPWICK_INSTALL_DIR` | Where the server is installed on this machine when it is not `/opt/shipwick`: how `shipwick`, run on the server, knows the agent is here and says so instead of suggesting a tunnel. |
 
 Behind a proxy, a host that `NO_PROXY` covers is reached directly, and so is a name without a dot. A user name and a password go into the proxy's URL, `http://user:password@proxy.example.com:3128`.
 
@@ -420,7 +423,7 @@ The first line is `<file> is valid`, with `(N variables substituted)` when place
 | `Domain` | `example.com` | |
 | `Path` | `/api` | The [`path`](/docs/reference/deploy-yaml#path) of the domain the application serves |
 | `Aliases` | `api.example.com, app.example.com` | The `aliases` list, comma-separated |
-| `Redirects` | `www.example.com → https://example.com` | The `redirects` list, then the target every one of them redirects to |
+| `Redirects` | `www.example.com → https://example.com` | The `redirects` list, then the target every one of them redirects to: `https://<domain><path>` for an application with a `path`, as the agent routes it (since 1.0; before, the line left the path out) |
 | `Proxy` | `strips /api; 2 response headers; a password for /admin; 1 redirect` | What the [`proxy`](/docs/reference/deploy-yaml#proxy) block asks for, never its values: `a password for everything` when basic authentication covers the whole application |
 | `Health check` | `GET /health every 10s (timeout 3s, 3 retries)` | `GET <path>` for an HTTP check, `TCP :5432` for `health.tcp`, `command pg_isready -U postgres` for `health.command`; `, after a 1m start period` when `start_period` is set |
 | `Volume` | `data at /var/lib/postgresql/data` | One line per volume |
@@ -936,7 +939,7 @@ shipwick traffic [app] [flags]
 |---|---|---|
 | `--since <window>` | `1h` | How far back to look: `1h`, `24h` or `7d` |
 | `--requests` | | List the most recent requests instead of the totals. Needs an application |
-| `-f`, `--follow` | | With `--requests`: keep printing new requests |
+| `--follow` | | With `--requests`: keep printing new requests. Long form only since 1.0: `-f` is `--file` here, as in every command but `logs` |
 | `-n`, `--tail <n>` | `50` | With `--requests`: how many to show, 1 to 200 |
 
 Without an application, every application is listed, one row each:
@@ -974,10 +977,10 @@ PATH            5XX   LAST STATUS
 
 Up to five paths are shown in each table; the second is left out when no recent request failed. A window without requests prints `No requests over the last 24 hours.`
 
-`--requests` lists the most recent requests, one per line: the time (local), the status, the method and the path, the duration, the bytes sent and the client's address. `-f` asks the agent again every two seconds and prints the new ones until Ctrl+C:
+`--requests` lists the most recent requests, one per line: the time (local), the status, the method and the path, the duration, the bytes sent and the client's address. `--follow` asks the agent again every two seconds and prints the new ones until Ctrl+C:
 
 ```text
-$ shipwick traffic my-api --requests -f
+$ shipwick traffic my-api --requests --follow
 15:04:05  200  GET /api/users  12ms  2 KB  203.0.113.7
 15:04:06  502  POST /checkout  1.2s  45 B  203.0.113.9
 ```
@@ -1277,7 +1280,7 @@ The archives are named `<app>-<volume>-backup-<id>.tar` and created with mode `0
 
 ### backups rm
 
-Remove a backup from the server and the bucket. Prints `✓ Removed backup #5 of postgres`. There is no confirmation. Needs the `admin` role.
+Remove a backup from the server and the bucket. Since 1.0 it asks first in a terminal, as the other commands that remove something do; outside one it refuses without `--yes`, and `--yes`/`-y` skips the question. Prints `✓ Removed backup #5 of postgres`. Needs the `admin` role.
 
 ### backups decrypt
 
@@ -1559,6 +1562,8 @@ Docker          29.8.2, rootless; memory and CPU limits are not enforced
 Memory          4 GB, no swap
 ```
 
+Since 1.0 a line under the table says when the CLI and the agent are of different minor versions, and which of the two to upgrade: the two are released together, and a command the older one does not know fails with a word about it. `! The CLI (v1.0.0) is newer than the agent (v0.9.1); upgrade the server with: curl -fsSL https://get.shipwick.com | sh`, or `! The CLI (v0.9.1) is older than the agent (v1.0.0); upgrade it with: shipwick upgrade`. Patch releases differ without a word, and a development build of either side says nothing.
+
 The command first calls the health endpoint, which needs no token. This separates "cannot reach the agent" from "reached it, but the token is wrong". The first line is the agent's URL and `● reachable`, with `context <name>` after the URL when the configuration file holds several servers. Then:
 
 | Line | |
@@ -1614,7 +1619,7 @@ shipwick server install <user@host> [flags]
 |---|---|---|
 | `--agent-domain <host>` | | Hostname for the API, for example `agent.example.com` |
 | `--dashboard-domain <host>` | | Hostname for the dashboard, for example `dashboard.example.com` |
-| `--context <name>` | the hostname | Name to save the server under |
+| `--name <name>` | the hostname | Name to save the server under. Since 1.0; it was `--context`, which shadowed the global flag |
 | `--version <tag>` | the latest release | Release to install, for example `v0.9.1` |
 
 ```text
@@ -1672,7 +1677,7 @@ $ shipwick server configure root@203.0.113.10 SHIPWICK_WEBHOOK_URL=https://hooks
 ```
 
 - Each `KEY=value` sets or replaces that line of `.env`; `KEY=` or `--unset KEY` removes it. Then `docker compose up -d` runs there, which recreates the agent with the new environment, and the command waits for it to be healthy the way the installer does, a minute at most. When nothing in the file would change: `✓ Nothing to change in /opt/shipwick/.env on root@203.0.113.10; the agent was not restarted`. Names that already had the value, and names to remove that were not in the file, are listed under the first line.
-- **Names are the agent's settings**, the variables of [Install on a server](/docs/getting-started/install#what-the-installer-does), which the installer also lists with `--help`; another name is refused: `SHIPWICK_WEBHOK_URL is not a setting of the agent`. `SHIPWICK_AGENT_TOKEN` and `SHIPWICK_ENCRYPTION_KEY` are not settings, and the command names `shipwick token create` and `shipwick server rotate-key` instead. A name given twice is refused.
+- **Names are the settings `compose.yml` reads from `.env`**: the variables `install.sh --help` lists, and the two hostnames — since 1.0 `SHIPWICK_BACKUP_DIR` among them. Another name is refused, and since 1.0 the refusal names what is accepted: `SHIPWICK_WEBHOK_URL is not a setting of the agent; the settings are the ones install.sh --help lists, and the two hostnames`. A row of the [agent's table](/docs/reference/agent-configuration#environment-variables) the compose file does not pass on — `SHIPWICK_LOG_LEVEL`, `SHIPWICK_DATA_DIR` — is refused too: it would sit in the file and change nothing. `SHIPWICK_AGENT_TOKEN` and `SHIPWICK_ENCRYPTION_KEY` are not settings, and the command names `shipwick token create` and `shipwick server rotate-key` instead. A name given twice is refused.
 - **Values are checked as the installer checks them**, in its words: a Cloudflare token that is not letters, digits, `-` and `_`, a hostname with `https://`, a port or a path, the same hostname for the API and the dashboard, a value with a line break, which a line of `.env` cannot carry.
 - **Values travel as data.** They go to the server on the standard input of one fixed script, never as a word of a command, so quotes, `$(…)` and backticks reach `.env` as they are; they are never printed. The file is rewritten through a temporary file created under `umask 077` and moved into place, so it keeps its mode, `0600`, and the token in it is not touched.
 - **A setting with a next step gets its line**: `Next: check that the token can do its job with: shipwick doctor` for a Cloudflare token; `Next: point an A record for the API's hostname at the server, then sign in to it: shipwick login --url https://<hostname>`; `Next: point an A record for the dashboard's hostname at the server; shipwick doctor checks it`.
@@ -2097,7 +2102,7 @@ shipwick audit [flags]
 | `--action <action>` | | Only this action, or with a dot at its end this family of actions (`token.`); repeat for several, or separate them by commas, at most 20. Since 0.7 |
 | `--outcome <outcome>` | | Only what ended this way: `ok`, `refused` or `failed`; several separated by commas. Since 0.7 |
 | `--since <when>` | | How far back: days or hours (`7d`, `24h`), or a date (`2026-09-01`, from the start of that day, UTC) |
-| `-n`, `--lines <n>` | `50` | How many entries, 1 to 500 |
+| `-n`, `--tail <n>` | `50` | How many entries, 1 to 500. The long form is `--tail` since 1.0, as in `logs` and `traffic`; it was `--lines` |
 | `--before <id>` | | Continue with the entries older than the one with this id |
 | `--format <format>` | | Write out everything that matches instead of a page: `csv` or `json` (one entry per line). Since 0.7 |
 | `-o`, `--output <file>` | standard output | The file to write the export to. Since 0.7 |
@@ -2222,7 +2227,7 @@ $ shipwick access revoke group:backend
 Whoever signed in through it is signed out with their next request, unless another rule gives them the same.
 ```
 
-A session rests on what the rules gave the person when they signed in, and every request asks the rules again: revoke the rule, or change what it gives, and the sessions that rested on it end with their next request, not when they expire. There is no confirmation. An unknown rule: `there is no rule for group:backend`, then `List the rules with: shipwick access ls`.
+A session rests on what the rules gave the person when they signed in, and every request asks the rules again: revoke the rule, or change what it gives, and the sessions that rested on it end with their next request, not when they expire. Since 1.0 the command asks first in a terminal and refuses without `--yes` outside one; `--yes`/`-y` skips the question. An unknown rule: `there is no rule for group:backend`, then `List the rules with: shipwick access ls`.
 
 ### access sessions
 
@@ -2355,7 +2360,7 @@ Without any: `No registry credentials on the server. Store one with: shipwick re
 
 ### registry logout
 
-Remove a registry's credential. Prints `✓ Logged out of ghcr.io`. Images already on the server stay and running applications are not affected; the server pulls from that registry without the credential from then on. A registry without a stored credential: `no credential is stored for ghcr.io`, then `List them with: shipwick registry ls`. Needs the `admin` role.
+Remove a registry's credential. Since 1.0 it asks first in a terminal and refuses without `--yes` outside one; `--yes`/`-y` skips the question. Prints `✓ Logged out of ghcr.io`. Images already on the server stay and running applications are not affected; the server pulls from that registry without the credential from then on. A registry without a stored credential: `no credential is stored for ghcr.io`, then `List them with: shipwick registry ls`. Needs the `admin` role.
 
 ## cert
 
@@ -2518,7 +2523,8 @@ None of these fail the command. See [Upgrade Shipwick](/docs/tasks/upgrade).
 | `EXPORT_IN_PROGRESS` | `The server is writing an export already.` See it with `shipwick export --list` |
 | `STANDBY_NOT_CONFIGURED` | `This server has no bucket to fetch exports from.` Set the `SHIPWICK_BACKUP_S3_*` variables and `SHIPWICK_BACKUP_PASSPHRASE` of the first server, and `SHIPWICK_STANDBY_SCHEDULE`, in `/opt/shipwick/.env` on this server; or import a file with `shipwick import <file> --stopped` |
 | `PROMOTION_IN_PROGRESS` | `This server is being promoted; nothing is imported into it meanwhile.` Follow the promotion with `shipwick standby promote`. `standby promote` itself answers this code by following the promotion that is under way. Since 0.6 |
-| `FOREIGN_BUCKET` | `Error: <the agent's message>`: the bucket holds the backups of another installation under the agent's prefix, and [`backups adopt`](#backups-adopt) records nothing from it. Since 0.6 |
+| `FOREIGN_BUCKET` | `Error: <the agent's message>`: the bucket holds the backups of another installation under the agent's prefix, and [`backups adopt`](#backups-adopt) records nothing from it. Since 1.0 a second paragraph says what to do: `Nothing was adopted. The handbook's "Restoring the agent's state" says how to carry on as that installation; the prefix is set in /opt/shipwick/.env, then: cd /opt/shipwick && docker compose up -d` |
+| `TOKEN_EXISTS` | `A token with that name exists already.` Then, since 1.0, `See the names in use with: shipwick token ls. To replace it, revoke it first: shipwick token revoke <name>` |
 | `ENDPOINT_NOT_FOUND` | `The agent does not know this operation — it is probably older than this shipwick.` Compare versions with `shipwick server status` |
 | `INVALID_CONFIG` | The field-by-field validation report. A hostname or a published port that another application holds is reported the same way, under the line that claims it: `aliases[1]`, `publish[0].host`; so is an `env` value whose `${NAME}` is neither set here nor stored on the server: `env.DATABASE_URL`, with `shipwick secret set NAME` as what is expected. Since 0.5 a hostname is taken per `path`: two applications may serve one hostname under different paths, and the same path twice is refused. Since 0.7 an `env` value or a basic-auth password that is `"********"`, the mask [`config`](#config) writes, is reported the same way. Since 0.8, when [`deploy`](#deploy) accepted the file and the agent refuses a key it does not know, the report is followed by what that means: the server is older than `deploy.yaml`, and the installer command that upgrades it |
 | Any other API error | `Error: <message>` |

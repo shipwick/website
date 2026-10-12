@@ -51,20 +51,21 @@ It is all the agent ever asks of Docker:
 | `POST /containers/create`, `/containers/<id>/start`, `/stop`, `/wait`; `DELETE /containers/<id>` | Replicas, jobs, the containers of backups |
 | `POST /containers/<id>/exec`, `/exec/<id>/start`; `GET /exec/<id>/json` | Health checks by command, `backups.before`, the checks on a static folder |
 | `POST /images/create`, `/images/load` | Pulling an image; an image built by the CLI, or brought by an import |
-| `GET /images/json`, `/images/<name>/json`, `/images/get` | Which images are here, and their layers; an image written into an export |
-| `DELETE /images/<name>` | Images no deployment can go back to |
+| `GET /images/json`, `/images/<name>/json`, `/images/get` | Which images are here, and their layers; an image written into an export; which image each tag names, before an archive is loaded |
+| `POST /images/<id>/tag` | A tag an upload the agent refused had moved, pointed back at the image it named. Since 1.0: take the `compose.socket-proxy.yml` of this version |
+| `DELETE /images/<name>` | Images no deployment can go back to; what a refused upload brought, by its ID |
 | `GET /networks/<name>`, `POST /networks/create` | The networks, made at the first start |
 | `POST /networks/<name>/connect`, `/disconnect` | A replica's names on the services network |
 | `GET /volumes`, `POST /volumes/create`, `DELETE /volumes/<name>` | The volumes of applications |
 | `POST /auth` | A registry login is tried before it is stored |
 
-It was found by reading the agent and confirmed by recording: the integration tests and every operation of the repository's cycle test — deploy, rollout, rollback, stop and start, a hook, a job, a one-off command, a backup with its verification, a restore, a static folder, a built image, an export and an import, deletion — run through the proxy with nothing refused.
+It was found by reading the agent and confirmed by recording: every operation of the repository's cycle test (`scripts/test-cycle.sh`) — deploy, rollout, rollback, stop and start, a hook, a job, a one-off command, a backup with its verification, a restore, a static folder, a built image, an export and an import, deletion — runs through the proxy with nothing refused.
 
 ### What it takes away
 
 Everything in the Engine API that is not on the list: Swarm, plugins, builds, `commit`, `kill`, `restart`, `rename`, `update`, `export`, `top`, events, the prune endpoints, pushing and tagging images, removing networks.
 
-And, by a check the proxy makes on the body of a request, every bind mount: a container created with a directory of the server mounted (`-v /:/host`, `--mount type=bind`), with another container's volumes (`--volumes-from`), or a volume made of a directory (`o=bind`) is refused. The agent mounts named volumes only, so the one directory the proxy is told to allow does not exist. Each of these was tried through the filtered socket and refused.
+And, by a check the proxy makes on the body of a request, every bind mount: a container created with a directory of the server mounted (`-v /:/host`, `--mount type=bind`), with another container's volumes (`--volumes-from`), or a volume made of a directory (`o=bind`) is refused. The agent mounts named volumes only, so the one directory the proxy is told to allow does not exist. Each of the bind mounts was tried through the filtered socket and refused, as were Swarm, plugins, `kill`, `update`, `commit`, `network rm` and `system prune` (`scripts/test-socket-proxy.sh`).
 
 ### What it does not take away
 
@@ -83,9 +84,9 @@ A filter on the body of that request — no `Privileged`, no added capabilities,
 Docker asks an [authorization plugin](https://docs.docker.com/engine/extend/plugins_authorization/), when one is configured, about every request to the daemon before it acts on it — the method, the path and the body — and does what the plugin answers. Since 0.9 [configs/docker-authz.rego](https://github.com/shipwick/shipwick/blob/main/configs/docker-authz.rego) is a policy for [opa-docker-authz](https://github.com/open-policy-agent/opa-docker-authz), the Open Policy Agent's plugin, maintained since 2016 (v0.11 is of 2026-10-06). The policy allows everything except what makes a container, or a command run in one, root on the server:
 
 - a privileged container;
-- a directory of the server mounted: `Binds`, a `Mounts` entry of type `bind`, another container's volumes (`--volumes-from`), and a volume made of a directory (`docker volume create -o o=bind`), with one path allowed, the daemon's own socket, which the agent's container is given and which leads back to the policy;
+- a directory of the server mounted: `Binds`, a `Mounts` entry of type `bind`, another container's volumes (`--volumes-from`), and a volume with any driver option (`docker volume create -o …`, which is how a directory of the server becomes a volume: `-o o=bind` — or, since 1.0, the same options on a container's `--mount type=volume,volume-opt=…`, which the daemon creates on the way), with one path allowed, the daemon's own socket under either of its names (`/var/run/docker.sock`, `/run/docker.sock`), which the agent's container is given and which leads back to the policy;
 - a namespace of the server: `--pid`, `--net`, `--ipc`, `--userns`, `--uts` or `--cgroupns` set to `host`;
-- a capability beyond Docker's default set (`--cap-add SYS_ADMIN`, `ALL`), a device, and `seccomp`, `apparmor` or `systempaths` set to `unconfined` or `label=disable`;
+- a capability beyond Docker's default set (`--cap-add SYS_ADMIN`, `ALL`), a device, `seccomp` or `apparmor` set to `unconfined`, `label=disable`, and `systempaths=unconfined` in the form it travels in: a `MaskedPaths` or `ReadonlyPaths` list of any length, which replaces the daemon's default set (null or absent keeps it). Before 1.0 the policy looked for `systempaths=unconfined` as a `SecurityOpt` string, which no client sends;
 - a privileged command in a container (`docker exec --privileged`);
 - Swarm, and plugins.
 
@@ -106,13 +107,13 @@ The plugin has `/etc/docker` of the server at `/opa`, read-only, and reads the p
 
 ### What it adds to the socket proxy
 
-The body of the request. Each of these was tried through the daemon's socket and refused with `authorization denied by plugin …: request rejected by administrative policy`: `docker run --privileged`, `-v /:/host`, `--mount type=bind`, `--volumes-from`, `--pid=host`, `--net=host`, `--ipc=host`, `--cap-add SYS_ADMIN`, `--cap-add ALL`, `--device`, `--security-opt seccomp=unconfined`, `docker exec --privileged`, `docker volume create -o type=none -o o=bind -o device=/`, `docker swarm init`, `docker plugin ls`. `scripts/test-docker-authz.sh` installs the plugin in a daemon of its own, runs everything an installation does through it — the agent never asks for any of the above, so everything passes — and then tries each refusal. On Docker 29.9 with the plugin's v0.11.
+The body of the request. Each of these was tried through the daemon's socket and refused with `authorization denied by plugin …: request rejected by administrative policy`: `docker run --privileged`, `-v /:/host`, `--mount type=bind`, `--volumes-from`, `--pid=host`, `--net=host`, `--ipc=host`, `--cap-add SYS_ADMIN`, `--cap-add ALL`, `--device`, `--security-opt seccomp=unconfined`, `--security-opt systempaths=unconfined`, `docker exec --privileged`, `docker volume create -o type=none -o o=bind -o device=/`, `--mount type=volume,volume-opt=type=none,volume-opt=o=bind,volume-opt=device=/`, `docker swarm init`, `docker plugin ls`. `scripts/test-docker-authz.sh` installs the plugin in a daemon of its own, runs everything an installation does through it — the agent never asks for any of the above, so everything passes — and then tries each refusal. On Docker 29.9 with the plugin's v0.11.
 
 One thing the plugin itself does not do: it decodes a request's body only when the request says `Content-Type: application/json` and nothing more, while the daemon also takes `application/json; charset=utf-8`. Sent with that header, a request for a privileged container reached the daemon with no body for the policy to see, and was accepted — tried here. The policy therefore refuses a `containers/create`, an `exec` or a `volumes/create` whose body it was not given; no Docker client sends JSON with a charset, so nothing legitimate is refused by that.
 
 ### What it costs
 
-The policy judges every client of the daemon, not the agent alone: your own `docker run --privileged` on the server is refused, and so is a bind mount of your own — a CA file or a `config.json` in `compose.override.yml` — until its path is added to `allowed_binds` in the policy. `docker plugin` commands are refused too, so to change or remove the plugin, take it out of `daemon.json` and send the daemon `HUP` first. A policy file that is missing or unreadable makes the plugin allow every request; it refuses nothing by accident, and protects nothing by accident either. With the socket proxy or with rootless Docker in the same installation it was not run.
+The policy judges every client of the daemon, not the agent alone: your own `docker run --privileged` on the server is refused, and so is a bind mount of your own — a CA file or a `config.json` in `compose.override.yml` — until its path is added to `allowed_binds` in the policy, and so is a volume of your own created with `-o`. `docker plugin` commands are refused too, so to change or remove the plugin, take it out of `daemon.json` and send the daemon `HUP` first. A policy file that is missing or unreadable makes the plugin allow every request; it refuses nothing by accident, and protects nothing by accident either. With the socket proxy or with rootless Docker in the same installation it was not run.
 
 ## Rootless Docker
 

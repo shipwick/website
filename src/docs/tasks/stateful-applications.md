@@ -308,6 +308,8 @@ The full picture, including which ports are refused, is in [Expose a service tha
 
 - [Back up and restore volumes](/docs/tasks/backups).
 - [Expose a service that is not HTTP](/docs/tasks/non-http-services).
+- [From Docker Compose](/docs/tasks/from-docker-compose): what a Compose service's `volumes` and `depends_on` become.
+- [Where your data is](/docs/tasks/where-your-data-is): the volumes among everything else the server holds.
 - [Recreate](/docs/concepts/deployments#recreate) and [Rolling back a recreate deployment](/docs/concepts/rollback#rolling-back-a-recreate-deployment).
 - [Move to a new server](/docs/tasks/move-to-a-new-server), with the data.
 - The [`volumes`](/docs/reference/deploy-yaml#volumes), [`backups`](/docs/reference/deploy-yaml#backups) and [`deploy`](/docs/reference/deploy-yaml#deploy) fields in the deploy.yaml reference.

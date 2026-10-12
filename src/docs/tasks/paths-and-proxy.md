@@ -153,7 +153,8 @@ shipwick deploy --env-file .env.production
 ```
 
 - **It is never shown.** The password is encrypted in the database, reads `********` wherever the configuration is shown, and is never returned by the API. The proxy is given a bcrypt hash of it, never the password.
-- **At least 8 characters, at most 72 bytes**, which is where bcrypt stops reading. A username has no colon and at most 255 characters.
+- **At least 8 characters, at most 72 bytes**, which is where bcrypt stops reading. A username has no colon, at most 255 characters and, since 1.0, no braces: the proxy would read `{env.HOME}` as a placeholder, so `deploy.yaml` refuses it and says why, and the username reaches the proxy escaped like a header value.
+- **The gate matches the path as the proxy reads it** — case-insensitively, with `..`, `//` and percent-encoding resolved — and nothing else: `/admin;x`, `/admin.` or `/admin%20` are not `/admin` to the proxy and reach the application, which may well read them as `/admin` (Tomcat drops `;…`, IIS a trailing dot). An application with routes of its own under the gated path is gated without `path`, or does its own authentication.
 - **Several users.** Several entries with the same `path` are several users of it. Up to 20 entries.
 - **The longer path decides.** Where the paths of two entries overlap, the accounts of the longest decide: with one account for everything and another for `/admin`, `/admin` accepts only the second.
 - **Paths are the visitor's.** Under `path: /api`, the admin area is `/api/admin`, with or without `strip_prefix`.

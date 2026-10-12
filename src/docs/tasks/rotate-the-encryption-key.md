@@ -21,7 +21,7 @@ Rotation protects what is written from now on. A copy of the old database togeth
 
 ## What a rotation does
 
-The running agent generates a new key and re-encrypts every stored value under it, in one transaction: the `env` values and basic-auth passwords of every deployment record, the secrets stored with `shipwick secret set`, the registry passwords stored with `shipwick registry login` and the keys of supplied certificates. It then carries on with the new key.
+The running agent generates a new key and re-encrypts every stored value under it, in one transaction: the `env` values, basic-auth passwords and, since 1.0, the Splunk token of every deployment record, the secret values a deployment referred to with `${NAME}`, the secrets stored with `shipwick secret set`, the registry passwords stored with `shipwick registry login` and the keys of supplied certificates. It then carries on with the new key.
 
 - **Nothing is deployed and nothing restarts.** No application is touched, and the agent keeps serving.
 - **A crash at any point leaves a database and a key that fit.** The new key is written next to the key file, as `encryption.key.new`, before the database is touched, and moved into place afterwards. If the agent stops in between, its next start tries which of the two keys opens the data and finishes or discards what was interrupted.
@@ -98,6 +98,7 @@ The dashboard shows the new key the same way, once, with the line to put into `/
 ## What's next
 
 - [Security](/docs/security#key-rotation): what the key protects, and what it does not.
+- [Keep the encryption key off the server's disk](/docs/tasks/key-off-the-disk): the key from a secret manager at start-up, and the rotation that follows from it.
 - [`shipwick server rotate-key`](/docs/reference/cli#server-rotate-key) in the CLI reference, and [`POST /server/rotate-key`](/docs/reference/api) in the API reference.
 - [Back up and restore volumes](/docs/tasks/backups), including the agent's own state.
 - [Create tokens for CI and teammates](/docs/tasks/tokens): the root token is a different credential, and is changed by setting a new `SHIPWICK_AGENT_TOKEN`.

@@ -110,7 +110,10 @@ export default defineConfig({
           text: 'Deploy and run',
           collapsed: false,
           items: [
+            { text: 'From Docker Compose', link: '/docs/tasks/from-docker-compose' },
             { text: 'Deploy from CI', link: '/docs/tasks/deploy-from-ci' },
+            { text: 'Staging and production', link: '/docs/tasks/staging-and-production' },
+            { text: 'Scan an image before it is deployed', link: '/docs/tasks/scan-images' },
             { text: 'Roll back and redeploy', link: '/docs/tasks/roll-back' },
             { text: 'Get deploy.yaml back from the server', link: '/docs/tasks/get-the-configuration-back' },
             { text: 'See what is running', link: '/docs/tasks/inspect-and-logs' },
@@ -143,6 +146,7 @@ export default defineConfig({
             { text: 'Bring a lost server back', link: '/docs/tasks/restore-the-agent-state' },
             { text: 'Move to a new server', link: '/docs/tasks/move-to-a-new-server' },
             { text: 'Keep a second server ready', link: '/docs/tasks/standby' },
+            { text: 'Where your data is', link: '/docs/tasks/where-your-data-is' },
           ],
         },
         {
@@ -153,6 +157,7 @@ export default defineConfig({
             { text: "Sign in with your company's accounts", link: '/docs/tasks/sign-in' },
             { text: 'See who changed what', link: '/docs/tasks/audit' },
             { text: 'Rotate the encryption key', link: '/docs/tasks/rotate-the-encryption-key' },
+            { text: "Keep the encryption key off the server's disk", link: '/docs/tasks/key-off-the-disk' },
           ],
         },
         {

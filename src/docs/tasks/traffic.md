@@ -69,7 +69,7 @@ A duration is measured by the proxy, from the first byte of the request to the l
 ```bash
 shipwick traffic my-api --requests          # the last 50
 shipwick traffic my-api --requests -n 200   # all the agent keeps
-shipwick traffic my-api --requests -f       # and every new one as it arrives
+shipwick traffic my-api --requests --follow # and every new one as it arrives
 ```
 
 ```text
@@ -84,7 +84,7 @@ One request per line, oldest first: the time in your time zone, the status, the 
 | `--since` | `1h` | How far back the totals look: `1h`, `24h` or `7d` |
 | `--requests` | | List the most recent requests instead of the totals. Needs an application |
 | `-n`, `--tail` | `50` | With `--requests`: how many to show, 1 to 200 |
-| `-f`, `--follow` | | With `--requests`: keep printing new requests until Ctrl-C |
+| `--follow` | | With `--requests`: keep printing new requests until Ctrl-C. Long form only since 1.0: `-f` is `--file` here, as in every command but `logs` |
 
 Following asks the agent again every other second. When more requests arrive between two looks than the agent keeps, the command says that some are not shown.
 

@@ -20,15 +20,15 @@ The agent is configured through environment variables only: its own `SHIPWICK_*`
 | `SHIPWICK_AGENT_DOMAIN` | none | Serve the agent's API over HTTPS at this hostname, through Caddy. Requires `SHIPWICK_CADDY_ADMIN`. |
 | `SHIPWICK_DASHBOARD_DOMAIN` | none | Serve the dashboard over HTTPS at this hostname, through Caddy. Requires `SHIPWICK_CADDY_ADMIN`. Must differ from `SHIPWICK_AGENT_DOMAIN`. |
 | `SHIPWICK_DASHBOARD_UPSTREAM` | `dashboard:3000` | Where Caddy reaches the dashboard, as `host:port`. The host is a hostname or an IP address; the port is 1 to 65535. Validated only when `SHIPWICK_DASHBOARD_DOMAIN` is set. |
-| [`SHIPWICK_WEBHOOK_URL`](#shipwick-webhook-url) | none | Where notifications are posted: a Slack or Discord webhook, or any HTTPS endpoint. Unset: no notifications. |
+| [`SHIPWICK_WEBHOOK_URL`](#shipwick-webhook-url) | none | Where notifications are posted: a Slack or Discord webhook, or any HTTPS endpoint (`http` only for `localhost` and private addresses). Unset: no notifications. |
 | [`SHIPWICK_WEBHOOK_SECRET`](#shipwick-webhook-secret) | none | Signs every notification, so that the endpoint can tell it came from the agent. Requires `SHIPWICK_WEBHOOK_URL`. |
 | [`SHIPWICK_CLOUDFLARE_API_TOKEN`](#shipwick-cloudflare-api-token) | none | A Cloudflare API token. Certificates are then obtained through a DNS record, so hostnames can stay behind Cloudflare's proxy and can be wildcards. Requires `SHIPWICK_CADDY_ADMIN`. Since 0.5. |
 | [`SHIPWICK_PROXY_TLS_ADDR`](#shipwick-proxy-tls-addr) | `caddy:443` | Where the agent reaches the proxy's TLS port, as `host:port`, to report each hostname's certificate. Since 0.5. |
 | [`SHIPWICK_ALERT_MEMORY_PERCENT`](#shipwick-alert-memory-percent-and-shipwick-alert-disk-percent) | `90` | A replica at or above this share of its `resources.memory` raises an alert. A whole number from 50 to 100. Since 0.5. |
 | [`SHIPWICK_ALERT_DISK_PERCENT`](#shipwick-alert-memory-percent-and-shipwick-alert-disk-percent) | `85` | The disk that holds the data directory raises an alert when it is this full. A whole number from 50 to 94. Since 0.5. |
 | [`SHIPWICK_LOG_RETENTION_DAYS`](#shipwick-log-retention-days-and-shipwick-log-retention-size) | `14` | How long the last output of an ended container stays in the log archive, in days after it ended. A number from 1 to 365. Since 0.7. |
-| [`SHIPWICK_LOG_RETENTION_SIZE`](#shipwick-log-retention-days-and-shipwick-log-retention-size) | `1gb` | What the log archive may take on the disk, as `500mb` or `2gb`. `0` keeps nothing. Since 0.7. |
-| [`SHIPWICK_BACKUP_DIR`](#backups) | `<data dir>/backups` | Where the backups the agent takes are kept on the server. Since 0.5. |
+| [`SHIPWICK_LOG_RETENTION_SIZE`](#shipwick-log-retention-days-and-shipwick-log-retention-size) | `1gb` | What the log archive may take on the disk, as `500mb` or `2gb`, at least `6mb`. `0` keeps nothing. Since 0.7. |
+| [`SHIPWICK_BACKUP_DIR`](#backups) | `<data dir>/backups` | Where the backups the agent takes are kept on the server, a path inside the agent's container. Since 0.5; carried into `.env` by the installer and accepted by `shipwick server configure` since 1.0. |
 | [`SHIPWICK_BACKUP_PASSPHRASE`](#backups) | none | Encrypts every backup, and is what allows the agent's own database and encryption key to be backed up at all. At least 12 characters. Since 0.5. |
 | [`SHIPWICK_BACKUP_S3_ENDPOINT`](#backups) | none | An S3-compatible service the backups are also sent to, as a URL. Needs the next three as well. Since 0.5. |
 | [`SHIPWICK_BACKUP_S3_BUCKET`](#backups) | none | The bucket. It must exist. |
@@ -39,7 +39,7 @@ The agent is configured through environment variables only: its own `SHIPWICK_*`
 | [`SHIPWICK_EXPORT_KEEP`](#shipwick-export-schedule-and-shipwick-export-keep) | `3` | How many of those exports are kept. A number from 1 to 100. |
 | [`SHIPWICK_STANDBY_SCHEDULE`](#shipwick-standby-schedule) | none | A five-field cron expression, UTC. Makes the server a standby: when it imports the newest export from the bucket, with every application stopped. Since 0.5. |
 | [`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`](#https-proxy-http-proxy-and-no-proxy) | none | The proxy the agent's own requests go through, to the webhook and the bucket, and Caddy's. Not the Docker daemon's, which pulls the images. Since 0.6. |
-| [`SHIPWICK_CA_FILE`](#shipwick-ca-file) | none | A PEM file of certificate authorities trusted in addition to the system's, as the agent sees the path. The agent does not start with a file it cannot use. Since 0.6. |
+| [`SHIPWICK_CA_FILE`](#shipwick-ca-file) | none | A PEM file of certificate authorities trusted in addition to the system's, as the agent sees the path, absolute. The agent does not start with a file it cannot use. Since 0.6. |
 | [`SHIPWICK_DNS_RESOLVERS`](#shipwick-dns-resolvers) | public resolvers | Who is asked whether a hostname points at the server: `system`, the server's own resolver, or name servers by address. Since 0.6. |
 | [`SHIPWICK_ACME_DIRECTORY`](#shipwick-acme-directory) | Let's Encrypt | The directory URL of an ACME server of your own: Caddy obtains every certificate there. Requires `SHIPWICK_CADDY_ADMIN`. Since 0.6. |
 | [`SHIPWICK_OIDC_ISSUER`](#sign-in) | none | The issuer URL of an OpenID Connect provider: people then sign in to the dashboard with its accounts. Needs the next two and `SHIPWICK_DASHBOARD_DOMAIN`. Since 0.6. |
@@ -51,7 +51,9 @@ The agent is configured through environment variables only: its own `SHIPWICK_*`
 | [`SHIPWICK_OIDC_REDIRECT_URL`](#sign-in) | `https://<SHIPWICK_DASHBOARD_DOMAIN>/auth/callback` | Development only: where the provider sends the browser back to when the dashboard runs on the developer's machine. Anything but a localhost URL is refused. |
 | [`SHIPWICK_UPDATE_CHECK`](#shipwick-update-check) | `on` | `off` stops the agent's daily question to GitHub about a newer release; `GET /server` then says so, and the dashboard shows no notice. Since 0.7. |
 | `SHIPWICK_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
-| `SHIPWICK_LOG_FORMAT` | `text` | `text` or `json`. Logs go to standard error. |
+| `SHIPWICK_LOG_FORMAT` | `text` | `text` or `json`. Logs go to standard error. The installer's compose file sets `json`. |
+| `SHIPWICK_HTTP_PORT`, `SHIPWICK_HTTPS_PORT` | `80`, `443` | Read by Compose, not the agent: the server ports Caddy is published on (443 over UDP as well). Only when something else owns 80 and 443; certificates need the real ones reachable from the internet. |
+| `SHIPWICK_AGENT_IMAGE`, `SHIPWICK_DASHBOARD_IMAGE`, `SHIPWICK_CADDY_IMAGE` | the release's | Read by Compose: images of your own in place of the release's. The installer keeps them across upgrades; with a bundle, `docker load` them first. See [The production compose file](#the-production-compose-file). |
 | `DOCKER_HOST`, `DOCKER_CONFIG` | Docker defaults | The standard Docker variables are honored. `DOCKER_CONFIG` is the directory that holds `config.json`, which the agent reads for the credentials of a registry it holds no stored credential for. |
 
 The agent refuses to start with an invalid value: an unknown log level or format, a token shorter than 16 characters, a domain that is not a valid hostname, a domain without `SHIPWICK_CADDY_ADMIN`, identical agent and dashboard hostnames, a malformed dashboard upstream or proxy TLS address, an encryption key that is not 64 hexadecimal characters, a webhook URL that is not an absolute `https` URL (or `http` towards the server itself or a private address), a webhook secret without a webhook URL, a Cloudflare token of another form or without `SHIPWICK_CADDY_ADMIN`, an alert threshold out of its range, a backup passphrase shorter than 12 characters, a bucket with some of its four variables missing, a schedule that is not a cron expression, a combination of schedules that the sections below rule out, a proxy variable that is not a proxy address, a certificate authority file it cannot use, a name server that is not an IP address, an ACME directory that is not a plain `https` URL or is set without `SHIPWICK_CADDY_ADMIN`, a sign-in provider that is configured in part, a log retention out of its range, or an update check that is neither `on` nor `off`. Where the value is a credential, the error names the variable and the rule, never the value: a token, a key, a passphrase, a webhook URL, a proxy's URL and a client secret are credentials.
@@ -101,13 +103,13 @@ An application that claims either hostname, as its `domain`, an alias or a redir
 
 ### SHIPWICK_ENCRYPTION_KEY
 
-The key the agent encrypts secret values with before it writes them to the database. Every `env` value and every basic-auth password of every deployment, every secret stored with `shipwick secret set`, every registry password stored with `shipwick registry login` and the key of every certificate supplied with `shipwick cert set` is stored as AES-256-GCM ciphertext; the variable names, and everything else in the record, stay readable. A copy of `shipwick.db` without the key reveals no secrets.
+The key the agent encrypts secret values with before it writes them to the database. Every `env` value and every basic-auth password of every deployment, since 1.0 its `logging.options.splunk-token`, every secret stored with `shipwick secret set`, every registry password stored with `shipwick registry login`, the key of every certificate supplied with `shipwick cert set` and the secret values a deployment's document referred to with `${NAME}` is stored as AES-256-GCM ciphertext; the variable names, and everything else in the record, stay readable. A copy of `shipwick.db` without the key reveals no secrets.
 
 | | |
 |---|---|
 | Format | 64 hexadecimal characters: 32 random bytes. Generate one with `openssl rand -hex 32`. |
 | Normalization | Leading and trailing whitespace is trimmed. |
-| Invalid | The agent refuses to start: `SHIPWICK_ENCRYPTION_KEY: expected 64 hexadecimal characters (32 random bytes; generate one with: openssl rand -hex 32)`. The value itself is never repeated. |
+| Invalid | The agent refuses to start: `SHIPWICK_ENCRYPTION_KEY: expected 64 hexadecimal characters`. The value itself is never repeated. |
 
 The key is determined at startup, in this order:
 
@@ -115,7 +117,7 @@ The key is determined at startup, in this order:
 2. Otherwise, **the key file** in the data directory, `encryption.key`, written by a previous run.
 3. Otherwise, **a key is generated** and written to `encryption.key`, mode `0600`, as 64 hexadecimal characters and a newline. The agent logs `created the key that encrypts env values in the database; back it up together with shipwick.db` with the file's path.
 
-With the installer's setup the variable is unset and the key is the file in the `agent-data` volume. Setting it, in `/opt/shipwick/.env` or from wherever the agent's environment comes from, is for keeping the key somewhere other than next to the database, in a secrets manager for instance.
+With the installer's setup the variable is unset and the key is the file in the `agent-data` volume. Setting it, in `/opt/shipwick/.env` or from wherever the agent's environment comes from, is for keeping the key somewhere other than next to the database, in a secrets manager for instance; see [Keep the encryption key off the server's disk](/docs/tasks/key-off-the-disk).
 
 ::: warning Back up the key together with the database
 Without the key the database cannot be read. The agent proves the key against the stored values on every start and refuses to start with a key that does not match: `the encryption key does not match the database (deployment 12, variable DATABASE_URL): restore /var/lib/shipwick/encryption.key from your backup or set SHIPWICK_ENCRYPTION_KEY`. A key file that is not 64 hexadecimal characters is reported as corrupt, with the same two ways out. With `SHIPWICK_BACKUP_PASSPHRASE` set, the agent takes that backup itself, once a day and encrypted; see [Backups](#backups).
@@ -250,7 +252,7 @@ Since 0.7 the agent keeps the last output of every container whose run ends — 
 | Variable | Default | Range | |
 |---|---|---|---|
 | `SHIPWICK_LOG_RETENTION_DAYS` | `14` | 1 to 365 | How long an entry is kept, in days after its container ended. |
-| `SHIPWICK_LOG_RETENTION_SIZE` | `1gb` | a size, or `0` | What the archive may take on the disk, written like [`resources.memory`](/docs/reference/deploy-yaml#sizes): `500mb`, `2gb`. Over it, the application that holds the most loses its oldest entries first. `0` keeps nothing. |
+| `SHIPWICK_LOG_RETENTION_SIZE` | `1gb` | a size of at least `6mb`, or `0` | What the archive may take on the disk, written like [`resources.memory`](/docs/reference/deploy-yaml#sizes): `500mb`, `2gb`. Over it, the application that holds the most loses its oldest entries first. `0` keeps nothing. |
 
 - The lines are stored compressed, about a fifth of their size; the limit is on what they take on the disk.
 - While the disk is as full as its alert's threshold, [`SHIPWICK_ALERT_DISK_PERCENT`](#shipwick-alert-memory-percent-and-shipwick-alert-disk-percent), the archive does not grow: a new entry makes room for itself by removing at least as much.
@@ -267,7 +269,7 @@ Since 0.5 the agent takes backups itself: of an application's volumes, on the sc
 
 | Variable | Default | |
 |---|---|---|
-| `SHIPWICK_BACKUP_DIR` | `<data dir>/backups` | The directory on the server. Every backup is written there, as `<application>/<id>/<volume>.tar`. Whitespace is trimmed. |
+| `SHIPWICK_BACKUP_DIR` | `<data dir>/backups` | The directory on the server, a path inside the agent's container. Every backup is written there, as `<application>/<id>/<volume>.tar`. Whitespace is trimmed. Since 1.0 the installer carries it into `.env` when it is set, `install.sh --help` lists it, and `shipwick server configure` accepts it; before, it had to be set in `.env` by hand. |
 | `SHIPWICK_BACKUP_PASSPHRASE` | none | Encrypts every backup before it is written, in the directory and in the bucket; the files are then named `<volume>.tar.enc`. At least 12 characters; the variable is not trimmed. |
 | `SHIPWICK_BACKUP_S3_ENDPOINT` | none | The URL of an S3-compatible service, such as `https://s3.eu-central-1.amazonaws.com` or `https://<account>.r2.cloudflarestorage.com`. A plain URL, without credentials or a query. |
 | `SHIPWICK_BACKUP_S3_BUCKET` | none | The bucket's name. It must exist; the agent does not create it. |
@@ -558,6 +560,8 @@ On `SIGINT` or `SIGTERM` the agent shuts down gracefully within 30 seconds; a de
 | [`SHIPWICK_CADDY_IMAGE`](#shipwick-caddy-image) | `ghcr.io/shipwick/caddy:latest` | Proxy image. Since 0.5. |
 
 The image defaults above are those of the file in the repository. In the copy that belongs to a release, which is what the installer fetches, the three images are pinned to that release's version.
+
+Every row of the [agent's table](#environment-variables) is read by the agent from its environment, but on a server the installer set up only the rows this file reads reach it from `.env`: the ones `install.sh --help` lists, and the two hostnames. The rest the file decides itself — the listen address, the data directory, `SHIPWICK_CADDY_ADMIN`, `SHIPWICK_LOG_FORMAT=json` — so `SHIPWICK_LOG_LEVEL=debug` in `.env` changes nothing; a change to one of those is a `compose.override.yml`. The package reads every row from `/etc/shipwick/agent.env`.
 
 The installer writes `.env` once, on the first install, with the token and the two hostnames. A port, an image, a webhook variable, the Cloudflare token, the backup passphrase, an `S3` variable or one of the three schedule variables that is set in the environment of that first run is written too, and so are the two alert thresholds. Since 0.6 the same holds for the three proxy variables, which the installer also uses for its own downloads, for `SHIPWICK_CA_FILE`, `SHIPWICK_DNS_RESOLVERS`, `SHIPWICK_ACME_DIRECTORY`, the five `SHIPWICK_OIDC_*` variables the file passes, and `SHIPWICK_AGENTS`; and since 0.7 for `SHIPWICK_OIDC_NAME_CLAIM`, `SHIPWICK_OIDC_TENANTS`, the two log retention variables and `SHIPWICK_UPDATE_CHECK`. An existing `.env` is never rewritten, so to add or change any of them later, edit `/opt/shipwick/.env` and run `cd /opt/shipwick && docker compose up -d`. `SHIPWICK_PROXY_TLS_ADDR` is not among the file's variables: the agent finds the proxy at `caddy:443`. To set it, give it to the agent under `environment` in `compose.override.yml`.
 

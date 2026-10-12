@@ -63,7 +63,7 @@ REGISTRY   USERNAME   UPDATED
 ghcr.io    octocat    2h ago
 ```
 
-Logging in again replaces the credential. To remove it:
+Logging in again replaces the credential. To remove it (since 1.0 the command asks first in a terminal; `--yes` skips the question, and outside a terminal it is required):
 
 ```bash
 shipwick registry logout ghcr.io

@@ -57,7 +57,7 @@ shipwick audit --actor-kind person --since 30d
 | `--action` | Only this action, as the `ACTION` column shows it, or the start of a family with its dot: `token.` is every action on tokens, `backup.` every one on backups. Repeat it, or give a list separated by commas, at most 20; an entry matches when one of them does. Since 0.7. |
 | `--outcome` | Only what ended this way: `ok`, `refused` or `failed`; several the same way. Since 0.7. |
 | `--since` | How far back: days or hours (`7d`, `24h`) or a date (`2026-09-01`). |
-| `-n`, `--lines` | How many entries, newest first. 50 unless you say otherwise, at most 500. |
+| `-n`, `--tail` | How many entries, newest first. 50 unless you say otherwise, at most 500. The long form is `--tail` since 1.0, as in `logs` and `traffic`; it was `--lines`. |
 | `--before <id>` | Continue with the entries older than the one with this id. |
 
 Filters of different kinds narrow each other. What was done to tokens, for instance:

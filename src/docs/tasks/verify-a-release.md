@@ -50,7 +50,7 @@ cosign verify ghcr.io/shipwick/agent:0.9.1 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-The same goes for `ghcr.io/shipwick/dashboard` and `ghcr.io/shipwick/caddy`. The digest it prints is the `index` line of that image in the release's `image-digests.txt`, and what this shows on a server that pulled the tag:
+The same goes for `ghcr.io/shipwick/dashboard` and `ghcr.io/shipwick/caddy`. The digest it prints is the `index` line of that image in the release's `image-digests.txt`, and what this shows on a server that pulled the tag — since 1.0 the installer compares the two after every pull: an image the registry serves under the release's tag that is not the one the release published is removed again, and the installation is left as it was; images of your own, named in `.env`, are not compared:
 
 ```bash
 docker image inspect --format '{{.RepoDigests}}' ghcr.io/shipwick/agent:0.9.1

@@ -106,7 +106,10 @@ How to do one specific thing.
 
 **Deploy and run**
 
+- [From Docker Compose](/docs/tasks/from-docker-compose)
 - [Deploy from CI](/docs/tasks/deploy-from-ci)
+- [Staging and production](/docs/tasks/staging-and-production)
+- [Scan an image before it is deployed](/docs/tasks/scan-images)
 - [Roll back and redeploy](/docs/tasks/roll-back)
 - [Get deploy.yaml back from the server](/docs/tasks/get-the-configuration-back)
 - [See what is running: applications, status and logs](/docs/tasks/inspect-and-logs)
@@ -131,6 +134,7 @@ How to do one specific thing.
 - [Bring a lost server back](/docs/tasks/restore-the-agent-state)
 - [Move to a new server](/docs/tasks/move-to-a-new-server)
 - [Keep a second server ready](/docs/tasks/standby)
+- [Where your data is](/docs/tasks/where-your-data-is)
 
 **Access**
 
@@ -138,6 +142,7 @@ How to do one specific thing.
 - [Sign in with your company's accounts](/docs/tasks/sign-in)
 - [See who changed what](/docs/tasks/audit)
 - [Rotate the encryption key](/docs/tasks/rotate-the-encryption-key)
+- [Keep the encryption key off the server's disk](/docs/tasks/key-off-the-disk)
 
 **Watch**
 
@@ -166,7 +171,7 @@ Every field, command, variable and endpoint.
 
 ### Security
 
-An admin token is equivalent to root SSH access to the server. Read [Security](/docs/security) before you put Shipwick on a machine that matters.
+An admin token is equivalent to root SSH access to the server. Read [Security](/docs/security) before you put Shipwick on a machine that matters. [Where your data is](/docs/tasks/where-your-data-is) collects what a server stores, encrypts, logs and sends, for whoever has to answer a questionnaire about it.
 
 ## Source and license
 

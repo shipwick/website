@@ -165,7 +165,8 @@ Build the image on your machine instead of naming one. `shipwick deploy` runs `d
 | Required | no. Replaces `image`; cannot be combined with `static`. |
 | `build.context` | Default `.`. The directory handed to `docker build`, relative to `deploy.yaml`: `.` for its own directory, or a folder in it such as `api`. |
 | `build.dockerfile` | Default `Dockerfile`. Relative to the context. |
-| Rule | Both paths are relative, contain no control characters, and stay inside the directory of `deploy.yaml`: `must be relative to deploy.yaml`, `must stay inside the directory of deploy.yaml`. Backslashes are read as slashes; paths are cleaned. |
+| Rule | Both paths are relative and contain no control characters. The context stays inside the directory of `deploy.yaml`: `must be relative to deploy.yaml`, `must stay inside the directory of deploy.yaml`; the Dockerfile stays inside the context: `must be relative to the context`, `must stay inside the context` (since 1.0 the messages say so; before, both said `deploy.yaml`, though the Dockerfile was relative to the context all along). Backslashes are read as slashes; paths are cleaned. |
+| Unknown keys | Since 1.0 a key the block does not know is an error with its line, `line 5:` / `unknown field "dockerfil"`, as in every other block; before, it was dropped without a word and the default Dockerfile built. |
 
 ```yaml
 build: .
@@ -391,7 +392,7 @@ What the proxy does for the application's requests besides passing them on: resp
 | `proxy.strip_prefix` | boolean | `false` | Requires `path`. Removes it from a request before the application sees it: `/api/users` arrives as `/users`. |
 | `proxy.headers` | map of string to string | none | At most 50 headers. A name is an HTTP token, letters, digits and dashes in practice, and is listed once whatever its case. A value is not empty, at most 4096 characters, and contains no control characters or newlines. Headers that belong to the connection are refused: `Connection`, `Content-Encoding`, `Content-Length`, `Keep-Alive`, `Proxy-Authenticate`, `Proxy-Authorization`, `Proxy-Connection`, `TE`, `Trailer`, `Transfer-Encoding`, `Upgrade`. |
 | `proxy.basic_auth[].path` | string | the whole application | A path by the same rule as [`path`](#path), inside the application's own `path` when it has one. `/` means the whole application. |
-| `proxy.basic_auth[].username` | string | required | At most 255 characters; no colon and no control characters. Listed once for each path. |
+| `proxy.basic_auth[].username` | string | required | At most 255 characters; no colon, no control characters and, since 1.0, no braces, which the proxy would read as a placeholder. Listed once for each path. |
 | `proxy.basic_auth[].password` | string | required | At least 8 characters and at most 72 bytes; no control characters. A secret: write it as a [placeholder](#placeholders). |
 | `proxy.redirects[].from` | string | required | One path, matched exactly, by the same rule as `path` and inside the application's own `path`. Not `/`. Listed once. |
 | `proxy.redirects[].to` | string | required | A path on the same host, starting with one `/`, with or without a query; or an absolute `https://` URL. At most 2048 characters; no whitespace, control characters, braces or backslashes. |
@@ -695,6 +696,7 @@ The options are the driver's own and reach Docker as written; a number such as `
 
 - **Collector addresses** must be `scheme://host:port` and nothing else: no user, path, query or fragment, and a port from 1 to 65535. The schemes are the driver's: `syslog-address` takes `udp`, `tcp` or `tcp+tls`; `gelf-address` takes `udp` or `tcp`; `fluentd-address` takes `tcp` or `tls`. `unix://` and `unixgram://` are refused: a socket is a path on the server.
 - **Options that name a file on the server** are refused: `syslog-tls-ca-cert`, `syslog-tls-cert`, `syslog-tls-key`, `splunk-cafile`, `splunk-capath`. Give the collector a certificate the server already trusts instead.
+- **One option is a credential**, since 1.0: `splunk-token`, the HEC token of the `splunk` driver. It is treated like an `env` value — encrypted on the server, shown as `********` in every answer of the API and never handed out again, and the mask is refused as its value — and it may be written as `${SPLUNK_TOKEN}`, filled in from a secret stored with `shipwick secret set` like an `env` value is. An agent before 1.0 stored and returned it in clear; a deployment recorded by one keeps it so until the application is deployed again.
 
 With `json-file` or `local`, the 3 × 10 MB caps stay unless you set `max-size` and `max-file` yourself. With a remote driver, `shipwick logs` keeps working through the local copy Docker keeps for `docker logs` (its dual logging, on by default since Docker 20.10); if that was turned off daemon-wide, `shipwick logs` shows nothing for the application. Job and `shipwick run` output always goes through Docker's default driver, whatever `logging` says.
 
@@ -919,7 +921,8 @@ Other forms the report takes:
 |---|---|
 | A required field is missing | `name:` / `is required` |
 | An `image` next to `build` | `image:` / `is built here; remove image or build`, expected `build: . alone, or image: alone` |
-| A build path that is absolute or leaves the project | `build.context:` / `invalid value "/srv/app": must be relative to deploy.yaml`; `build.dockerfile:` / `invalid value "../Dockerfile": must stay inside the directory of deploy.yaml` |
+| A build path that is absolute or leaves the project | `build.context:` / `invalid value "/srv/app": must be relative to deploy.yaml`; `invalid value "../app": must stay inside the directory of deploy.yaml`; `build.dockerfile:` / `invalid value "/Dockerfile": must be relative to the context`; `invalid value "../Dockerfile": must stay inside the context`, expected `Dockerfile, or a file in the context such as docker/Dockerfile.prod` |
+| An unknown key under `build` | `line 5:` / `unknown field "dockerfil"`. Since 1.0 |
 | `build` and `static` together | `build:` / `cannot be combined with static: a static application has no image to build` |
 | A static application without a domain | `domain:` / `is required for a static application: the proxy serves the files at it` |
 | A container field next to `static` | `port:` / `does not apply to a static application: the proxy serves the files, there is no container`; the same on `backups`, `deploy.stop_timeout`, `init` and `security` |
@@ -931,6 +934,7 @@ Other forms the report takes:
 | A reserved application name | `name:` / `"caddy" is reserved for Shipwick's own services` |
 | `port` missing while `domain` is set | `port:` / `is required when domain is set` |
 | `port` missing while `health.path` is set | `port:` / `is required when health is set` |
+| Another application's built image | `image:` / `shipwick.local/other:20260927-153000-a1b2 was built for other and runs for other alone; run shipwick deploy from that project to deploy it, or name an image of my-api`, expected `shipwick.local/my-api:…`. Since 1.0: an image under `shipwick.local` must be the application's own, with or without `build`, and the agent checks it again on a redeploy |
 | An unknown field | `line 7:` / `unknown field "replica"` |
 | A value of the wrong YAML type | `line 3:` / `cannot unmarshal … into a number` |
 | `entrypoint` or `command` that is neither a string nor a list | `line 3:` / `expected a string or a list of strings, not a map` |
@@ -958,7 +962,7 @@ Other forms the report takes:
 | An empty, oversized or multi-line header value | `proxy.headers.X-Frame-Options:` / `value must not be empty`; `value is too long (4097 characters)`, expected `at most 4096`; `value must not contain control characters or newlines` |
 | More than 20 accounts | `proxy.basic_auth:` / `too many (21)`, expected `at most 20` |
 | An account's path outside the application's | `proxy.basic_auth[0].path:` / `"/admin" is outside path /api, which is all this application serves`, expected `/api/admin` |
-| An account without a username, or with an invalid one | `proxy.basic_auth[0].username:` / `is required`, expected `admin`; `is too long (256 characters)`, expected `at most 255`; `invalid value "a:b": must not contain a colon or control characters` |
+| An account without a username, or with an invalid one | `proxy.basic_auth[0].username:` / `is required`, expected `admin`; `is too long (256 characters)`, expected `at most 255`; `invalid value "a:b": must not contain a colon or control characters`; since 1.0 `invalid value "{env.HOME}": must not contain braces, which the proxy would read as a placeholder` |
 | A username listed twice for one path | `proxy.basic_auth[1].username:` / `"admin" is listed twice for the same path`, expected `one entry for each user of a path` |
 | A missing or unusable password | `proxy.basic_auth[0].password:` / `is required`; `is too short: at least 8 characters`; `is too long: at most 72 bytes`; `must not contain control characters`, expected `${ADMIN_PASSWORD}, with the value in the environment, in --env-file or stored with shipwick secret set`. The password is never repeated. |
 | More than 100 path redirects | `proxy.redirects:` / `too many (101)`, expected `at most 100` |
@@ -1096,7 +1100,8 @@ image: ghcr.io/company/my-api:1.4.2
 
 # No registry? Build the image on your machine instead: `shipwick deploy` runs
 # docker build here, for the server's architecture, and sends the image to the
-# server. Paths are relative to this file. Replaces `image`.
+# server. The context is relative to this file, the Dockerfile to the
+# context. Replaces `image`.
 # build: .
 # build:
 #   context: .               # default: the directory of this file

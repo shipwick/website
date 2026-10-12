@@ -276,8 +276,9 @@ An admin token is equivalent to root SSH access to the server, and `shipwick` tr
 
 - The token is never accepted as a command-line flag. Arguments are visible to other users through `ps` and are kept in shell history.
 - `login` reads the token without echo, or from standard input with `--token-stdin`.
-- The config file is written with mode `0600`, in a directory created with mode `0700`.
+- The config file is written with mode `0600`, in a directory created with mode `0700`. On Windows it lives in the profile's `AppData` with the profile's own permissions (the user, SYSTEM and Administrators).
 - A saved token is only sent to the agent it was saved for.
+- A redirect from the agent's URL is not followed (since 1.0): the agent never answers with one, so it is something in front of the agent, and the token is not sent where it points. The error names the target and says so.
 - `shipwick` warns on standard error whenever the token is about to travel over plain HTTP to anything other than the local machine. Use HTTPS or an SSH tunnel.
 - A token asked to do more than its role allows is refused by the agent, and `shipwick` says which role it has and which one the command needs.
 

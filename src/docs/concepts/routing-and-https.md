@@ -168,7 +168,7 @@ The agent offers the proxy its own way again once a minute, so replacing the ima
 
 Loading a Caddy configuration is not free. Caddy replaces its servers, and a connection that is being established at that instant, a TLS handshake in progress or a first request not yet read, is reset. The client sees a connection error, never an error status. This reproduces with Caddy alone, in every version from 2.7 to 2.11, and its `grace_period` and `shutdown_delay` settings do not change it. Measured with a new connection per request from 100 ms away, one reload per replica replaced cost 5 of 233 requests through two minutes of redeploys.
 
-So replicas must come and go without Caddy hearing of it. What Caddy is told, which name stands behind which domain, changes only when a domain or a port does. A rollout, a crash or a restart changes who carries a name, and that is Docker's DNS, not Caddy's configuration.
+So replicas must come and go without Caddy hearing of it. What Caddy is told, which name stands behind which domain, changes only when a domain, a path or a port does, and when an application's last ready replica comes or goes, which swaps its route between the name and a `503`. A rollout, a crash or a restart changes who carries a name, and that is Docker's DNS, not Caddy's configuration.
 
 ## The agent owns the configuration
 

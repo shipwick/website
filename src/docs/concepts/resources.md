@@ -170,7 +170,7 @@ The agent records the CPU and memory of every running replica every 30 seconds a
 ```json
 {
   "data": {
-    "application": "my-api", "since": "2026-03-01T09:00:00Z", "step": "30s",
+    "application": "my-api", "since": "2026-03-01T09:00:00Z", "step_seconds": 30,
     "series": [
       { "replica": 1, "points": [
           { "at": "2026-03-01T09:00:00Z", "cpu_percent": 12.5, "memory_bytes": 216006656 },
@@ -191,11 +191,13 @@ A second loop in the agent, started with the supervisor, takes one cheap reading
 
 The rows are raw and aggregation happens on read, in SQL. A week of 30-second samples of three replicas is 60,000 rows, a few megabytes, and storing them raw buys a step chosen per query instead of a resolution decided at write time:
 
-| `since` | Window | `step` | Points per series |
+| `since` | Window | `step_seconds` | Points per series |
 |---|---|---|---|
-| `1h` (default) | The last hour | `30s` | Up to 120 |
-| `24h` | The last day | `5m` | Up to 288 |
-| `7d` | The last week | `1h` | Up to 168 |
+| `1h` (default) | The last hour | `30` | Up to 120 |
+| `24h` | The last day | `300` | Up to 288 |
+| `7d` | The last week | `3600` | Up to 168 |
+
+The field is `step_seconds`, an integer, since 1.0, as in the traffic history; an agent before 1.0 sends `step` as `"30s"`, `"5m"` or `"1h"`.
 
 Each point aggregates the samples of one step: `cpu_percent` is their average, `memory_bytes` their peak, `at` is the start of the step. A step in which a replica has no sample, because it was not running or the agent was down, has no point: the series are sparse, never zero-filled or interpolated, so a gap in the chart is a gap in the record. Any other value of `since` is `400 INVALID_REQUEST`; an application with no active deployment answers `409 NOT_DEPLOYED`.
 

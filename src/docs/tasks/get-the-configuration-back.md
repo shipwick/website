@@ -82,7 +82,7 @@ restart:
 
 The comment at the top is there only when a value is masked.
 
-Nobody but the sender of a file can say that a value in it is plain, so a value nobody spoke for is masked: every value of an application that was last deployed by a `shipwick` or an agent older than 0.8, and a value typed into the dashboard's editor. The dashboard keeps the plain values it was shown and that were left as they were.
+Nobody but the sender of a file can say that a value in it is plain, so a value nobody spoke for is masked: every value of an application that was last deployed by a `shipwick` or an agent older than 0.8, and a value typed into the dashboard's editor. The dashboard keeps the plain values it was shown and that were left as they were. A basic-auth password is never plain, and since 1.0 neither is `logging.options.splunk-token`: both come back as the mask or as the `${NAME}` they were written as.
 
 ::: info An application deployed before 0.7
 The references were not kept before 0.7. An application that was last deployed by an older agent has all its secret values masked, also the ones that referred to a stored secret, until it is deployed again from its file. After a deployment by 0.7 the password line above reads `password: ${ADMIN_PASSWORD}`.

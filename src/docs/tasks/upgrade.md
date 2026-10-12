@@ -198,6 +198,25 @@ A job that was running when the old agent stopped is marked `interrupted` and it
 
 After a server reboot, the agent brings every application back up according to its restart policy. What an agent that is killed in the middle of each kind of deployment does is in [When things break](/docs/tasks/when-things-break#the-agent-is-killed).
 
+### Upgrading from 0.9 to 1.0
+
+1.0 changes names and closes gaps; applications run as before, and nothing changes for a `deploy.yaml` that worked before, with two exceptions named below. All three containers are recreated, because their images changed, and requests go unanswered while the proxy's container is replaced, as on every upgrade. The agent applies no schema migration: the database of 0.9 is the database of 1.0.
+
+Several things behave differently without being asked:
+
+- **Five fields of the API are renamed**, so that the same thing has the same name everywhere: `step` → `step_seconds` of the metrics history, a traffic point's `t` → `at`, `pull.last_export` → `pull.last_export_id` of `GET /standby`, and `deployment` → `sequence` on a log archive entry and a searched line. A client of your own that read the old name reads nothing; a 0.9 `shipwick` does not fail, it shows what it shows for nothing: `shipwick standby` prints `export #0 imported …`, `shipwick logs --list` names an entry `replica 2` instead of `#3 replica 2`. **A list in an answer is `[]` when there is nothing in it, never absent**: `aliases`, `redirects`, `unlimited_memory`, `proxy.networks_missing`, `unenforced_limits`. See the [API reference](/docs/reference/api).
+- **A body over its limit is `413`** everywhere — a redeploy or rollback body over 4 KB, a secret, registry, certificate or sign-in body over its own — where it was `400`; the message names the limit.
+- **`logging.options.splunk-token` is a secret**: masked as `********` wherever a configuration is handed out, encrypted at rest, writable as `${NAME}`. A deployment recorded by 0.9 still holds the token in clear until the application is deployed again: run `shipwick deploy` or `shipwick redeploy` once for each application that ships logs to Splunk, and rotate the token if it may have been read.
+- **An image under `shipwick.local` must be the application's own**, in `deploy.yaml` and in a redeploy: a `deploy` token limited to one application could run another application's built image with this application's environment. The refusal names the application the image belongs to.
+- **A basic-auth username with braces is refused**, since the proxy read it as a placeholder, and every username reaches the proxy escaped like a header value. The `build` block refuses a key it does not know, as every other block does; `dockerfil: x` used to be dropped without a word.
+- **The API's and the dashboard's hostnames send `Strict-Transport-Security`**, and the CLI follows no redirect from the agent's URL. See [Security](/docs/security).
+- **The installer compares the images it pulled with the release's signed digests** and resolves `latest` once; see [Install on a server](/docs/getting-started/install#what-the-installer-does). Behind the socket proxy the agent makes one more call, `POST /images/<id>/tag`: take the `compose.socket-proxy.yml` of this version, or an upload the agent refuses leaves that call blocked. The authorization policy refuses a volume with driver options inline on a container's mount, and `MaskedPaths`/`ReadonlyPaths` lists; take the `docker-authz.rego` of this version too. See [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket).
+- **The agent spends half the processor time it did on watching applications**; the figures are in [Health checks and supervision](/docs/concepts/health-and-supervision#the-supervisor).
+
+Three flags are renamed in the CLI: `shipwick traffic --requests` follows with `--follow` only (`-f` was `--follow` here and `--file` everywhere else but `logs`), `shipwick audit --lines` is `--tail` (`-n` is unchanged), and `shipwick server install --context` is `--name`, since the global `--context` was shadowed by it. `shipwick backups rm`, `shipwick registry logout` and `shipwick access revoke` ask before they act; `--yes` skips the question, and a script needs it. `shipwick server status` says when the CLI and the agent are of different minor versions, and which to upgrade. `shipwick server configure` and the installer accept `SHIPWICK_BACKUP_DIR`.
+
+On laptops and in CI, upgrade the CLI as described below. A 0.9 `shipwick` keeps working against a 1.0 agent for everything it knows, with the three places above where it reads a renamed field as nothing.
+
 ### Upgrading from 0.8 to 0.9
 
 0.9 adds to what the agent stores and to what it says; applications run as before, and nothing changes for a `deploy.yaml` that worked before. All three containers are recreated, because their images changed. Requests go unanswered while the proxy's container is replaced, as on every upgrade; certificates and configuration are on volumes and stay, and the applications' containers are not touched.
