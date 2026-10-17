@@ -67,7 +67,7 @@ Next: in your project, run: shipwick init
 | `--agent-domain <host>` | Hostname for the API. Without it the API is not exposed, and the context points at `http://127.0.0.1:9000` for the [SSH tunnel](/docs/tasks/access-without-a-hostname) |
 | `--dashboard-domain <host>` | Hostname for the dashboard |
 | `--name <name>` | Name to save the server under; default: its hostname. Since 0.10; it was `--context`, which shadowed the global flag |
-| `--version <tag>` | Release to install, such as `v0.10.0`; default: the latest |
+| `--version <tag>` | Release to install, such as `v1.0.0`; default: the latest |
 
 The remote commands are fixed; the hostnames and the version are validated first and reach the installer as environment assignments. Running the command again upgrades the server: the token is then unchanged and not printed again, and the context keeps the one it has.
 
@@ -258,10 +258,10 @@ If you skipped the API hostname, the API is not exposed at all. See [Reach the A
 Everything the installer fetches comes from one [release](https://github.com/shipwick/shipwick/releases) — never from a branch — and each file is verified against that release's checksums; since 0.10 `latest` is resolved to a release's tag before the first download, so two files cannot come from two releases, and the images the pull brought are compared with the digests the release published. By default that is the latest release. To choose one:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.10.0 sh
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.0.0 sh
 ```
 
-Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade), and how you [go back](/docs/tasks/upgrade#go-back-to-the-release-before). From your laptop, `shipwick server install user@host --version v0.10.0` does the same over SSH.
+Because the images are pinned in the compose file, a server runs the version it installed until you run the installer again. That is also how you [upgrade](/docs/tasks/upgrade), and how you [go back](/docs/tasks/upgrade#go-back-to-the-release-before). From your laptop, `shipwick server install user@host --version v1.0.0` does the same over SSH.
 
 ### The signature
 

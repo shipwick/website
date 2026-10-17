@@ -72,8 +72,8 @@ Shipwick is for one server, by design. It schedules nothing across machines, run
 
 When one server is no longer enough, you have outgrown Shipwick. Until then, it is the whole platform.
 
-::: info Status: 0.x
-The current version is 0.10.0. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) says so when it happens, and how to upgrade.
+::: info Status: 1.0
+The current version is 1.0.0. From 1.0 on, `deploy.yaml`, the API and the files on the server change only with a migration and a documented upgrade, a minor release removes and renames nothing, and a 1.x CLI works against any 1.x agent: [Versions and compatibility](/docs/versions) says what that means in full, and the [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) names every change.
 :::
 
 ## How the documentation is organized
@@ -99,6 +99,7 @@ How Shipwick works and why it behaves the way it does.
 - [Routing and HTTPS](/docs/concepts/routing-and-https)
 - [Resource limits and metrics](/docs/concepts/resources)
 - [Security](/docs/security)
+- [Versions and compatibility](/docs/versions)
 
 ### Tasks
 

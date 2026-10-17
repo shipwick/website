@@ -194,7 +194,7 @@ build:
   image: alpine:3.21
   before_script:
     - apk add --no-cache curl
-    - curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v0.10.0 sh -s -- --cli
+    - curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.0.0 sh -s -- --cli
   script:
     - shipwick deploy --image "$IMAGE" --env-file "$ENV_FILE"
 

@@ -95,7 +95,7 @@ Since 0.6 an application's configuration is checked on the new server by every r
 An export written by 0.9 or later names the keys of `deploy.yaml` its applications use, and an agent that does not know one of them refuses the import before anything is taken in, naming the key and the version that wrote the export: it would otherwise read the application without that key and deploy it without what the key asked for.
 
 ```text
-Error: the export was written by Shipwick v0.11.0 and uses the key spec.hoverboard, which this agent (Shipwick v0.10.0) does not know and would drop. Import it with an agent of that version or newer, or export without the applications that use it
+Error: the export was written by Shipwick v1.1.0 and uses the key spec.hoverboard, which this agent (Shipwick v1.0.0) does not know and would drop. Import it with an agent of that version or newer, or export without the applications that use it
 ```
 
 Agents older than 0.9 have no such check and cannot be given one: an agent older than 0.8 that imports a newer export drops the [`security`](/docs/reference/deploy-yaml#security) block of every application without a word, and an agent of 0.8 drops whatever a later version adds. Importing into an older agent, compare `shipwick status` with the `deploy.yaml` you expect — or import into an agent that is at least as new as the one that wrote the export. Every export written before 0.9 is still read.

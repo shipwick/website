@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 const site = 'https://shipwick.com'
 const repo = 'https://github.com/shipwick/shipwick'
-const version = '0.10.0'
+const version = '1.0.0'
 
 export default defineConfig({
   lang: 'en-US',
@@ -104,6 +104,7 @@ export default defineConfig({
             { text: 'Routing and HTTPS', link: '/docs/concepts/routing-and-https' },
             { text: 'Resource limits and metrics', link: '/docs/concepts/resources' },
             { text: 'Security', link: '/docs/security' },
+            { text: 'Versions and compatibility', link: '/docs/versions' },
           ],
         },
         {

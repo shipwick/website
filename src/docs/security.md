@@ -407,7 +407,7 @@ What to expect:
 - an assessment, whether the report can be reproduced and how severe it is judged to be, within 10 days;
 - a fix released before the details are published, and credit in the release notes unless you prefer otherwise. The disclosure date is agreed with the reporter.
 
-There is no bug bounty. Until 1.0, only the latest release receives security fixes.
+There is no bug bounty. Only the latest release receives security fixes, released as the next patch of the latest minor; upgrading to it is one step from any 1.x. See [Versions and compatibility](/docs/versions#support).
 
 ### What counts
 

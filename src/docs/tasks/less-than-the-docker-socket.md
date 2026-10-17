@@ -86,7 +86,7 @@ Docker asks an [authorization plugin](https://docs.docker.com/engine/extend/plug
 - a privileged container;
 - a directory of the server mounted: `Binds`, a `Mounts` entry of type `bind`, another container's volumes (`--volumes-from`), and a volume with any driver option (`docker volume create -o …`, which is how a directory of the server becomes a volume: `-o o=bind` — or, since 0.10, the same options on a container's `--mount type=volume,volume-opt=…`, which the daemon creates on the way), with one path allowed, the daemon's own socket under either of its names (`/var/run/docker.sock`, `/run/docker.sock`), which the agent's container is given and which leads back to the policy;
 - a namespace of the server: `--pid`, `--net`, `--ipc`, `--userns`, `--uts` or `--cgroupns` set to `host`;
-- a capability beyond Docker's default set (`--cap-add SYS_ADMIN`, `ALL`), a device, `seccomp` or `apparmor` set to `unconfined`, `label=disable`, and `systempaths=unconfined` in the form it travels in: a `MaskedPaths` or `ReadonlyPaths` list of any length, which replaces the daemon's default set (null or absent keeps it). Before 1.0 the policy looked for `systempaths=unconfined` as a `SecurityOpt` string, which no client sends;
+- a capability beyond Docker's default set (`--cap-add SYS_ADMIN`, `ALL`), a device, `seccomp` or `apparmor` set to `unconfined`, `label=disable`, and `systempaths=unconfined` in the form it travels in: a `MaskedPaths` or `ReadonlyPaths` list of any length, which replaces the daemon's default set (null or absent keeps it). Before 0.10 the policy looked for `systempaths=unconfined` as a `SecurityOpt` string, which no client sends;
 - a privileged command in a container (`docker exec --privileged`);
 - Swarm, and plugins.
 

@@ -5,18 +5,18 @@ description: Upgrade the agent, Caddy setup and dashboard by running the install
 
 # Upgrade Shipwick
 
-You upgrade a Shipwick server by running the installer again, on the server or from your laptop over SSH, and a CLI elsewhere with `shipwick upgrade`. This page covers what the installer changes, what it leaves alone, what an upgrade does from each release and what it costs, how to choose a version and how to go back, what happens to your applications and to a running deployment while the agent restarts, how the server says that a newer release exists, what the upgrades to 0.9, 0.8, 0.7, 0.6, 0.5, 0.4 and 0.3 do on first start and what you may want to turn on afterwards, and how to upgrade the CLI on laptops and in CI.
+You upgrade a Shipwick server by running the installer again, on the server or from your laptop over SSH, and a CLI elsewhere with `shipwick upgrade`. This page covers what the installer changes, what it leaves alone, what an upgrade does from each release and what it costs, how to choose a version and how to go back, what happens to your applications and to a running deployment while the agent restarts, how the server says that a newer release exists, what the upgrades to 1.0, 0.10, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4 and 0.3 do on first start and what you may want to turn on afterwards, and how to upgrade the CLI on laptops and in CI.
 
 ## Read the changelog first
 
-Shipwick is at 0.x. Before 1.0, a minor version may change the API, `deploy.yaml` or the on-disk format. When it does, the [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) entry says so under **Changed** and explains how to upgrade. Read it before every upgrade.
+From 1.0 on, a minor release adds and takes nothing away: a `deploy.yaml` that worked keeps working, the API keeps every path and field it had, and the database changes only by a migration the agent applies when it starts, which the [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) names under **Changed**. Read the entry before an upgrade all the same: it says what is new, whether a migration stands in the way of going back, and what you may want to turn on afterwards. What a version number promises, in full, is in [Versions and compatibility](/docs/versions).
 
 ## A notice when a newer release exists
 
 Since 0.7 the agent asks GitHub once a day which release is the latest, and `GET /server` carries the answer. The dashboard and `shipwick server status` say when the server is behind, without a connection of their own:
 
 ```text
-Agent           v0.8.1  v0.10.0 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+Agent           v0.8.1  v1.0.0 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
 ```
 
 In the dashboard the notice is on the server's Status tab, with the command that upgrades; see [Use the dashboard](/docs/tasks/dashboard#the-server).
@@ -198,9 +198,19 @@ A job that was running when the old agent stopped is marked `interrupted` and it
 
 After a server reboot, the agent brings every application back up according to its restart policy. What an agent that is killed in the middle of each kind of deployment does is in [When things break](/docs/tasks/when-things-break#the-agent-is-killed).
 
+### Upgrading from 0.10 to 1.0
+
+1.0 changes nothing you have to relearn: no migration, nothing renamed, no key of `deploy.yaml`, field of the API or command of the CLI added or taken away. All three containers are recreated, because their images changed, and requests go unanswered while the proxy's container is replaced, as on every upgrade. The agent applies no schema migration: the database of 0.10 is the database of 1.0, and going back is the installer with `SHIPWICK_VERSION=v0.10.0`, with nothing to copy first.
+
+One thing behaves differently without being asked: **the look through the proxy after a deployment accepts the proxy's answer only under a certificate that names the hostname asked for.** The chain behind it is still not verified, since on a development machine the issuer is Caddy's own authority and nothing is sent over the connection. See [A redirect loop is caught](/docs/tasks/several-hostnames#a-redirect-loop-is-caught).
+
+What 1.0 adds is a promise. From here on `deploy.yaml`, the API and the files on the server change only with a migration and a documented upgrade; a minor release removes and renames nothing, and what is to go is marked deprecated for a minor first; a 1.x CLI works against any 1.x agent. The whole of it is in [Versions and compatibility](/docs/versions).
+
+On laptops and in CI, upgrade the CLI as described below. A 0.10 `shipwick` keeps working against a 1.0 agent; `shipwick server status` says that the two differ, and which to upgrade.
+
 ### Upgrading from 0.9 to 0.10
 
-0.10 changes names and closes gaps; applications run as before, and nothing changes for a `deploy.yaml` that worked before, with two exceptions named below. All three containers are recreated, because their images changed, and requests go unanswered while the proxy's container is replaced, as on every upgrade. The agent applies no schema migration: the database of 0.9 is the database of 1.0.
+0.10 changes names and closes gaps; applications run as before, and nothing changes for a `deploy.yaml` that worked before, with two exceptions named below. All three containers are recreated, because their images changed, and requests go unanswered while the proxy's container is replaced, as on every upgrade. The agent applies no schema migration: the database of 0.9 is the database of 0.10.
 
 Several things behave differently without being asked:
 
@@ -242,7 +252,7 @@ What is new is opt-in. What an operator may want to turn on or use:
 | Give an application a secret of its own | `shipwick secret set NAME --app my-api`. See [Keep secrets on the server](/docs/tasks/secrets) |
 | Change a setting of the agent from your machine | `shipwick server configure root@203.0.113.10 KEY=value`. See [Change a setting later](/docs/getting-started/install#change-a-setting-later) |
 | Install the CLI on Windows with one line | `irm https://get.shipwick.com/windows \| iex`. See [Install the CLI](/docs/getting-started/install-cli#windows) |
-| Try a release candidate, and go back | `shipwick upgrade --version v0.10.0-rc.1`. See [Install the CLI](/docs/getting-started/install-cli#upgrade) |
+| Try a release candidate, and go back | `shipwick upgrade --version v1.1.0-rc.1`. See [Install the CLI](/docs/getting-started/install-cli#upgrade) |
 | Refuse privileged containers to every client of the Docker daemon | Docker's authorization plugin with `configs/docker-authz.rego`. See [Behind an authorization plugin](/docs/tasks/less-than-the-docker-socket#behind-an-authorization-plugin) |
 | Admit Cloudflare's addresses and nothing else | See [Admit Cloudflare only](/docs/tasks/cloudflare-only) |
 
@@ -430,15 +440,15 @@ shipwick upgrade
 ```
 
 ```text
-✓ Upgraded shipwick v0.3.1 → v0.10.0
+✓ Upgraded shipwick v0.3.1 → v1.0.0
   /usr/local/bin/shipwick
 
-The server runs v0.10.0, the latest release.
+The server runs v1.0.0, the latest release.
 ```
 
 The latest release is downloaded from GitHub and verified against its `checksums.txt` before the binary is swapped; nothing changes if the checksum does not match. Since 0.8, where cosign (2.5 or later) is installed, `checksums.txt` is verified against the release's signature first, and a release from 0.8.0 on that has no signature is refused; without cosign the command says that the signature was not checked. See [Verify a release](/docs/tasks/verify-a-release). The command then compares the server's version with the release. When the server is behind, it says so and prints the installer line to run there; a server it cannot reach is one dim line, not an error. `shipwick upgrade --check` reports and changes nothing.
 
-Since 0.9, `shipwick upgrade --version v0.10.0-rc.1` installs exactly that release, a pre-release included, in place of whatever runs now, verified the same way: the way to try a release candidate, and the way back from one. The server is then compared with that release, and the installer line names it (`SHIPWICK_VERSION=v0.10.0-rc.1`). A pre-release ahead of the latest release counts as current afterwards. A development build, `dev` or a build made past a tag, is neither upgraded nor told that a release is available; `upgrade` and `doctor` say that it is a development build.
+Since 0.9, `shipwick upgrade --version v1.1.0-rc.1` installs exactly that release, a pre-release included, in place of whatever runs now, verified the same way: the way to try a release candidate, and the way back from one. The server is then compared with that release, and the installer line names it (`SHIPWICK_VERSION=v1.1.0-rc.1`). A pre-release ahead of the latest release counts as current afterwards. A development build, `dev` or a build made past a tag, is neither upgraded nor told that a release is available; `upgrade` and `doctor` say that it is a development build.
 
 A `shipwick` from Homebrew is left to Homebrew — the command prints `Upgrade with: brew upgrade shipwick` — because the package manager would otherwise be confused by a file it did not put there. On Windows, `shipwick upgrade` replaces `shipwick.exe` the same way and leaves the old binary behind as `shipwick.old.exe` until the next run removes it; running the [Windows installer](/docs/getting-started/install-cli#windows) again upgrades as well.
 
@@ -465,11 +475,12 @@ If you built the images from source, rebuild them from the new checkout — sinc
 
 If the agent was installed from a package, install the newer package and run its compose command again — coming from 0.7 that command is not optional; see [Install from a package](/docs/getting-started/install-from-a-package#upgrade).
 
-If the agent runs as a plain binary, replace it with the new build and restart it. The first start of 0.3.0 creates `encryption.key` in `SHIPWICK_DATA_DIR`, or reads `SHIPWICK_ENCRYPTION_KEY` if you set it; the first starts of 0.4.0, 0.5, 0.6, 0.7 and 0.9 apply the migrations described above; 0.8 applies none.
+If the agent runs as a plain binary, replace it with the new build and restart it. The first start of 0.3.0 creates `encryption.key` in `SHIPWICK_DATA_DIR`, or reads `SHIPWICK_ENCRYPTION_KEY` if you set it; the first starts of 0.4.0, 0.5, 0.6, 0.7 and 0.9 apply the migrations described above; 0.8, 0.10 and 1.0 apply none.
 
 ## What's next
 
 - The [changelog](https://github.com/shipwick/shipwick/blob/main/CHANGELOG.md) and the [releases](https://github.com/shipwick/shipwick/releases).
+- [Versions and compatibility](/docs/versions): what a version number promises from 1.0 on.
 - [Install the CLI](/docs/getting-started/install-cli#upgrade) covers `shipwick upgrade` in full.
 - [Verify a release](/docs/tasks/verify-a-release): the signature, and what the installer does with and without cosign.
 - [When things break](/docs/tasks/when-things-break): an agent killed in the middle of a deployment, a reboot.

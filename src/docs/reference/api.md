@@ -294,7 +294,7 @@ Liveness, for load balancers and `shipwick server status`. It takes no token and
 | `200` | [`Health`](#health) |
 
 ```json
-{ "data": { "status": "ok", "version": "v0.10.0" } }
+{ "data": { "status": "ok", "version": "v1.0.0" } }
 ```
 
 It asks neither Docker nor the database, and answers `200` while the Docker daemon does not: the agent itself is up. From the container of an application it is `403 APPLICATION_CALLER` like every endpoint, see [Authentication](#authentication).
@@ -309,7 +309,7 @@ It asks neither Docker nor the database, and answers `200` while the Docker daem
 ```json
 {
   "data": {
-    "agent_version": "v0.10.0", "hostname": "vps-1",
+    "agent_version": "v1.0.0", "hostname": "vps-1",
     "os": "linux", "kernel": "6.8.0", "architecture": "amd64", "docker_version": "29.8.0",
     "cpus": 4, "memory_bytes": 8589934592, "applications": 3, "containers": 5,
     "swap_bytes": 2147483648, "unlimited_memory": ["worker"],
@@ -346,7 +346,7 @@ Since 0.7 there are two more objects:
 
 ```json
 "log_archive": { "enabled": true, "entries": 278, "bytes": 63974240, "max_bytes": 1073741824, "retention_days": 14 },
-"update": { "enabled": true, "latest_version": "v0.10.0", "checked_at": "2026-10-04T09:00:00Z", "available": false }
+"update": { "enabled": true, "latest_version": "v1.0.0", "checked_at": "2026-10-04T09:00:00Z", "available": false }
 ```
 
 `swap_bytes`, `unlimited_memory` and `docker` are since 0.8. So are two fields that are present only when `true`, and absent from the example for that reason: `proxy.plain_lookups` and `open_to_applications`.
@@ -2267,7 +2267,7 @@ Takes an export as the body, with `Content-Type: application/octet-stream`, and 
 |---|---|
 | `200` | [`Import`](#import), also when applications in it failed |
 | `400 INVALID_REQUEST` | The body is not sent as `application/octet-stream`; an invalid `stopped` or `overwrite`; no passphrase header, or one that is not base64 |
-| `400 INVALID_EXPORT` | The body is not an export, the passphrase does not match, or the file breaks off. What had been imported until then stays, and `GET /import` shows it. Also, since 0.9, when the export, written by a newer agent, names a key of the configuration this agent does not know (`requires` in its manifest): it is refused before anything is taken in, and the message names the key and the version that wrote the export — `the export was written by Shipwick v0.11.0 and uses the key spec.hoverboard, which this agent (Shipwick v0.10.0) does not know and would drop. Import it with an agent of that version or newer, or export without the applications that use it`. `GET /import` then shows the record as `failed` with that `error` and no applications. Exports written before 0.9 carry no list and import as before. |
+| `400 INVALID_EXPORT` | The body is not an export, the passphrase does not match, or the file breaks off. What had been imported until then stays, and `GET /import` shows it. Also, since 0.9, when the export, written by a newer agent, names a key of the configuration this agent does not know (`requires` in its manifest): it is refused before anything is taken in, and the message names the key and the version that wrote the export — `the export was written by Shipwick v1.1.0 and uses the key spec.hoverboard, which this agent (Shipwick v1.0.0) does not know and would drop. Import it with an agent of that version or newer, or export without the applications that use it`. `GET /import` then shows the record as `failed` with that `error` and no applications. Exports written before 0.9 carry no list and import as before. |
 | `409 IMPORT_IN_PROGRESS` | An import is running; a server takes one at a time |
 | `409 PROMOTION_IN_PROGRESS` | Nothing is imported into a server while it is being promoted |
 | `503 RUNTIME_UNAVAILABLE` | The agent is shutting down |
@@ -2522,7 +2522,7 @@ step   Deployment successful
 probe  https://api.example.com/ answers HTTP 200 through the proxy   (only with a routed domain; after completed_at)
 ```
 
-The `probe` event, since 0.9, is the agent asking the application its own hostname once through the proxy — `GET https://<domain><path>/`, following no redirect, five seconds at most — after the deployment is complete; `completed_at` never waits for it, and it is the one event that appears after it, at most one per deployment. An agent before 0.9 records none. At level `info` it says what the application answered: `https://example.com/ answers HTTP 200 through the proxy`, `https://example.com/ answers HTTP 302 through the proxy to https://example.com/login`. At level `warn` it is a redirect loop — the answer sends visitors to a hostname of `redirects`, which the proxy sends back — or a proxy that could not be asked (`https://example.com/ could not be asked through the proxy: <cause>`), and the message says what to do: `https://example.com/ sends its visitors to www.example.com, which `redirects` sends back: every request loops. Make www.example.com the `domain` and example.com a redirect, or stop the application redirecting`. While the proxy cannot answer — no certificate for a new hostname yet — the agent asks again every ten seconds for up to three minutes, so the event may follow `completed_at` by minutes; a client that stops polling at completion fetches the deployment once more, or follows [`GET /applications/:name`](#get-applications-name) for the active deployment's events. A folder, an application deployed stopped, a wildcard and a hostname still waiting for DNS get no `probe` event. See [A redirect loop is caught](/docs/tasks/several-hostnames#a-redirect-loop-is-caught).
+The `probe` event, since 0.9, is the agent asking the application its own hostname once through the proxy — `GET https://<domain><path>/`, following no redirect, five seconds at most — after the deployment is complete; `completed_at` never waits for it, and it is the one event that appears after it, at most one per deployment. An agent before 0.9 records none. Since 1.0 the answer counts only under a certificate that names the hostname; the chain behind it is not checked, since on a development machine the issuer is Caddy's own authority and nothing is sent over the connection. At level `info` it says what the application answered: `https://example.com/ answers HTTP 200 through the proxy`, `https://example.com/ answers HTTP 302 through the proxy to https://example.com/login`. At level `warn` it is a redirect loop — the answer sends visitors to a hostname of `redirects`, which the proxy sends back — or a proxy that could not be asked (`https://example.com/ could not be asked through the proxy: <cause>`), and the message says what to do: `https://example.com/ sends its visitors to www.example.com, which `redirects` sends back: every request loops. Make www.example.com the `domain` and example.com a redirect, or stop the application redirecting`. While the proxy cannot answer — no certificate for a new hostname yet — the agent asks again every ten seconds for up to three minutes, so the event may follow `completed_at` by minutes; a client that stops polling at completion fetches the deployment once more, or follows [`GET /applications/:name`](#get-applications-name) for the active deployment's events. A folder, an application deployed stopped, a wildcard and a hostname still waiting for DNS get no `probe` event. See [A redirect loop is caught](/docs/tasks/several-hostnames#a-redirect-loop-is-caught).
 
 A `step` event with `level: "warn"` is a warning, for example when the image could not be pulled and a local copy was used, when a domain is configured but no reverse proxy is, or when a hostname does not point at the server yet: the warning names the record to create, `add an A record: api.example.com → 203.0.113.10 (DNS only, not proxied)`. Since 0.8 a deployment that asks for a limit the server's Docker does not apply says so in one: `Docker on this server does not enforce resources.memory and resources.cpu: the replicas run without a limit. shipwick doctor says what the server lacks`. A static deployment's steps read `Received 42 files (3.1 MB)`, `Copied 42 files into the proxy`, `Found index.html` and `Routed https://example.com to the uploaded files` instead of the pull and the replicas.
 
@@ -2646,7 +2646,7 @@ What the agent knows about newer releases. Since 0.7.
 | Field | Type | |
 |---|---|---|
 | `enabled` | boolean | `false` when the agent was told not to ask (`SHIPWICK_UPDATE_CHECK=off`) |
-| `latest_version` | string | The latest release, `v0.10.0`; `""` until the agent has been able to ask |
+| `latest_version` | string | The latest release, `v1.0.0`; `""` until the agent has been able to ask |
 | `checked_at` | timestamp or null | When GitHub last answered; null until then |
 | `available` | boolean | `latest_version` is newer than the agent itself |
 
