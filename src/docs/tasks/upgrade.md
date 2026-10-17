@@ -204,6 +204,8 @@ After a server reboot, the agent brings every application back up according to i
 
 One thing behaves differently without being asked: **the look through the proxy after a deployment accepts the proxy's answer only under a certificate that names the hostname asked for.** The chain behind it is still not verified, since on a development machine the issuer is Caddy's own authority and nothing is sent over the connection. See [A redirect loop is caught](/docs/tasks/several-hostnames#a-redirect-loop-is-caught).
 
+Two things are fixed without a change in behavior. The proxy image is built with `golang.org/x/net` 0.60.0, which closes five HTTP/2 server vulnerabilities of 0.59.0 (GO-2026-6603, -6610, -6611, -6612 and -6617); Caddy 2.11.6 itself still names 0.59.0, and the module Shipwick adds to it is what raises the version. The dashboard's lockfile takes the updates its dependency ranges already allowed and drops `simple-git`, which closes the `npm audit` findings that did not need another Nuxt; `node-forge` under Nuxt's development server remains, since only a Nuxt downgrade would remove it.
+
 What 1.0 adds is a promise. From here on `deploy.yaml`, the API and the files on the server change only with a migration and a documented upgrade; a minor release removes and renames nothing, and what is to go is marked deprecated for a minor first; a 1.x CLI works against any 1.x agent. The whole of it is in [Versions and compatibility](/docs/versions).
 
 On laptops and in CI, upgrade the CLI as described below. A 0.10 `shipwick` keeps working against a 1.0 agent; `shipwick server status` says that the two differ, and which to upgrade.
