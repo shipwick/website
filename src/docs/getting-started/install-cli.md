@@ -34,7 +34,7 @@ On macOS and Linux:
 brew install shipwick/tap/shipwick
 ```
 
-Upgrade with `brew upgrade shipwick`; `shipwick upgrade` recognizes a Homebrew installation and prints that line instead of replacing the binary itself. Completions for bash, zsh and fish are installed along with it. The formula installs the same binaries as the installer below, verified against the same checksums; it lives in [shipwick/homebrew-tap](https://github.com/shipwick/homebrew-tap) and follows new releases within a day.
+Upgrade with `brew upgrade shipwick`; `shipwick upgrade` recognizes a Homebrew installation and prints that line instead of replacing the binary itself. Completions for bash, zsh and fish are installed along with it. The formula installs the same binaries as the installer below, verified against the same checksums; it lives in [shipwick/homebrew-tap](https://github.com/shipwick/homebrew-tap) and is updated with each release.
 
 ## The installer
 
