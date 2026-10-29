@@ -20,9 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # Before setup-node: its cache asks `yarn` where the cache is, and that
+      # must be the Yarn package.json pins, not the runner's Yarn 1.
+      - run: corepack enable
       - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
-          cache: npm
-      - run: npm ci
-      - run: npm run build
+          cache: yarn
+      - run: yarn install --immutable
+      - run: yarn build

@@ -4,10 +4,11 @@ The website and documentation of [Shipwick](https://github.com/shipwick/shipwick
 built with [VitePress](https://vitepress.dev) and served by Cloudflare Pages.
 
 ```bash
-npm ci
-npm run dev       # http://localhost:5173
-npm run build     # → src/.vitepress/dist; fails on dead links
-npm run preview
+corepack enable   # once: fetches the Yarn that package.json pins
+yarn install
+yarn dev          # http://localhost:5173
+yarn build        # → src/.vitepress/dist; fails on dead links
+yarn preview
 ```
 
 ## Layout
@@ -48,7 +49,7 @@ Cloudflare Pages, connected to this repository:
 | Setting | Value |
 |---|---|
 | Framework preset | VitePress |
-| Build command | `npm run build` |
+| Build command | `yarn build` |
 | Build output directory | `src/.vitepress/dist` |
 | Node.js | from `.node-version` |
 | Custom domains | `shipwick.com`, `get.shipwick.com` |
