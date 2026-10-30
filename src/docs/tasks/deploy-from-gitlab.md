@@ -37,7 +37,7 @@ deploy:
     - shipwick deploy --image "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
 ```
 
-The installer downloads the CLI for the runner's architecture from the latest [release](https://github.com/shipwick/shipwick/releases), checks it against the release's checksums and puts it in `/usr/local/bin`. `SHIPWICK_VERSION=v1.0.0 sh -s -- --cli` pins a release, so that the pipeline does not change under you; without it, each run takes the latest. The agent on your server is upgraded separately, and a CLI newer than the agent says so when it needs something the agent does not have.
+The installer downloads the CLI for the runner's architecture from the latest [release](https://github.com/shipwick/shipwick/releases), checks it against the release's checksums and puts it in `/usr/local/bin`. `SHIPWICK_VERSION=v1.1.0 sh -s -- --cli` pins a release, so that the pipeline does not change under you; without it, each run takes the latest. The agent on your server is upgraded separately, and a CLI newer than the agent says so when it needs something the agent does not have.
 
 `--image` replaces the image of `deploy.yaml` for this deployment, in memory; the file on disk is untouched. `$CI_REGISTRY_IMAGE` is the project's address in the GitLab container registry, `registry.gitlab.com/company/my-api` for one, and `$CI_COMMIT_SHORT_SHA` the first eight characters of the commit; the tag becomes the deployment's version, so every entry in the application's history names the commit it came from. `shipwick deploy` runs from the directory that holds `deploy.yaml`, which is the checkout's root unless the job changes directory.
 
@@ -56,7 +56,7 @@ OK: 12 MiB in 24 packages
 $ curl -fsSL https://get.shipwick.com | sh -s -- --cli
 Shipwick installer (shipwick/shipwick@latest)
 
-  The latest release is v1.0.0
+  The latest release is v1.1.0
   The release's signature was not checked: cosign is not installed. Every file is checked against the release's checksums.
 ✓ Installed the shipwick CLI to /usr/local/bin/shipwick
 
@@ -108,7 +108,7 @@ deploy:
   image: alpine:3.21
   before_script:
     - apk add --no-cache curl
-    - curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.0.0 sh -s -- --cli
+    - curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.1.0 sh -s -- --cli
   script:
     - shipwick deploy --image "$IMAGE"
 ```
@@ -170,7 +170,7 @@ deploy:
   image: alpine:3.21
   before_script:
     - apk add --no-cache curl
-    - curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.0.0 sh -s -- --cli
+    - curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.1.0 sh -s -- --cli
   script:
     - shipwick deploy --image "$IMAGE"
   environment:

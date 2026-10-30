@@ -248,8 +248,8 @@ shipwick doctor
 ```
 
 ```text
-✓ shipwick v1.0.0, the latest release
-✓ Agent https://agent.example.com runs v1.0.0, the latest release
+✓ shipwick v1.1.0, the latest release
+✓ Agent https://agent.example.com runs v1.1.0, the latest release
 ✓ Token laptop (admin)
 ✓ Docker 29.8.0 on the server
 ✓ Proxy serving 2 routes

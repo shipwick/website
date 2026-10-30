@@ -61,7 +61,7 @@ curl -fsSL https://get.shipwick.com | SHIPWICK_BIN_DIR="$HOME/.local/bin" sh -s 
 To install a specific version, set `SHIPWICK_VERSION`:
 
 ```bash
-curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.0.0 sh -s -- --cli
+curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.1.0 sh -s -- --cli
 ```
 
 ## Windows
@@ -79,8 +79,8 @@ Where [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) (2.
 A release of your choice: set `SHIPWICK_VERSION` before the command, or save the script — [`scripts/install.ps1`](https://github.com/shipwick/shipwick/blob/main/scripts/install.ps1), a file of every release from 0.10.0 on — and run it with `-Version`; `-Destination` names another directory:
 
 ```powershell
-$env:SHIPWICK_VERSION = 'v1.0.0'; irm https://get.shipwick.com/windows | iex
-.\install.ps1 -Version v1.0.0 -Destination C:\tools\shipwick
+$env:SHIPWICK_VERSION = 'v1.1.0'; irm https://get.shipwick.com/windows | iex
+.\install.ps1 -Version v1.1.0 -Destination C:\tools\shipwick
 ```
 
 Running it again upgrades, as does `shipwick upgrade`, below, which picks the build for the machine also when the `shipwick` that runs is the x64 one. Until 0.9 the way was to download the `.exe` from the [releases page](https://github.com/shipwick/shipwick/releases) and put it on your `PATH`; that still works.
@@ -108,10 +108,10 @@ shipwick upgrade
 ```
 
 ```text
-✓ Upgraded shipwick v0.3.1 → v1.0.0
+✓ Upgraded shipwick v0.3.1 → v1.1.0
   /usr/local/bin/shipwick
 
-The server runs v0.3.1; v1.0.0 is available. On the server run:
+The server runs v0.3.1; v1.1.0 is available. On the server run:
   curl -fsSL https://get.shipwick.com | sh
 ```
 
@@ -123,12 +123,12 @@ Without `--version` the latest release is installed, never a pre-release. Since 
 shipwick upgrade --version v1.1.0-rc.1
 ```
 
-The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there, or with `shipwick server install user@host` from your machine; `shipwick upgrade` tells you when the server is behind, and says `The server runs v1.0.0, the latest release.` when it is not — or `ahead of the latest release (v1.0.0)` for a server on a pre-release. A server that cannot be reached is one line, not an error.
+The command upgrades only the CLI. The server is upgraded by running the installer on the server, which needs Docker there, or with `shipwick server install user@host` from your machine; `shipwick upgrade` tells you when the server is behind, and says `The server runs v1.1.0, the latest release.` when it is not — or `ahead of the latest release (v1.1.0)` for a server on a pre-release. A server that cannot be reached is one line, not an error.
 
 A `shipwick` installed with Homebrew is left to Homebrew:
 
 ```text
-shipwick v0.3.1 was installed with Homebrew; v1.0.0 is available.
+shipwick v0.3.1 was installed with Homebrew; v1.1.0 is available.
 
 Upgrade with: brew upgrade shipwick
 ```
@@ -140,12 +140,12 @@ shipwick upgrade --check
 ```
 
 ```text
-shipwick v0.3.1 is installed; v1.0.0 is available.
+shipwick v0.3.1 is installed; v1.1.0 is available.
 
 Upgrade with: shipwick upgrade
 ```
 
-When there is nothing to do, the first line reads `shipwick v1.0.0 is up to date.`
+When there is nothing to do, the first line reads `shipwick v1.1.0 is up to date.`
 
 ## Log in
 
@@ -157,7 +157,7 @@ shipwick login --url https://agent.example.com
 
 ```text
 API token:
-✓ Logged in to https://agent.example.com (vps-1, agent v1.0.0)
+✓ Logged in to https://agent.example.com (vps-1, agent v1.1.0)
   saved as context default in /home/you/.config/shipwick/config.yaml
 ```
 

@@ -294,7 +294,7 @@ Liveness, for load balancers and `shipwick server status`. It takes no token and
 | `200` | [`Health`](#health) |
 
 ```json
-{ "data": { "status": "ok", "version": "v1.0.0" } }
+{ "data": { "status": "ok", "version": "v1.1.0" } }
 ```
 
 It asks neither Docker nor the database, and answers `200` while the Docker daemon does not: the agent itself is up. From the container of an application it is `403 APPLICATION_CALLER` like every endpoint, see [Authentication](#authentication).
@@ -309,7 +309,7 @@ It asks neither Docker nor the database, and answers `200` while the Docker daem
 ```json
 {
   "data": {
-    "agent_version": "v1.0.0", "hostname": "vps-1",
+    "agent_version": "v1.1.0", "hostname": "vps-1",
     "os": "linux", "kernel": "6.8.0", "architecture": "amd64", "docker_version": "29.8.0",
     "cpus": 4, "memory_bytes": 8589934592, "applications": 3, "containers": 5,
     "swap_bytes": 2147483648, "unlimited_memory": ["worker"],
@@ -346,7 +346,7 @@ Since 0.7 there are two more objects:
 
 ```json
 "log_archive": { "enabled": true, "entries": 278, "bytes": 63974240, "max_bytes": 1073741824, "retention_days": 14 },
-"update": { "enabled": true, "latest_version": "v1.0.0", "checked_at": "2026-10-04T09:00:00Z", "available": false }
+"update": { "enabled": true, "latest_version": "v1.1.0", "checked_at": "2026-10-04T09:00:00Z", "available": false }
 ```
 
 `swap_bytes`, `unlimited_memory` and `docker` are since 0.8. So are two fields that are present only when `true`, and absent from the example for that reason: `proxy.plain_lookups` and `open_to_applications`.
@@ -2267,7 +2267,7 @@ Takes an export as the body, with `Content-Type: application/octet-stream`, and 
 |---|---|
 | `200` | [`Import`](#import), also when applications in it failed |
 | `400 INVALID_REQUEST` | The body is not sent as `application/octet-stream`; an invalid `stopped` or `overwrite`; no passphrase header, or one that is not base64 |
-| `400 INVALID_EXPORT` | The body is not an export, the passphrase does not match, or the file breaks off. What had been imported until then stays, and `GET /import` shows it. Also, since 0.9, when the export, written by a newer agent, names a key of the configuration this agent does not know (`requires` in its manifest): it is refused before anything is taken in, and the message names the key and the version that wrote the export — `the export was written by Shipwick v1.1.0 and uses the key spec.hoverboard, which this agent (Shipwick v1.0.0) does not know and would drop. Import it with an agent of that version or newer, or export without the applications that use it`. `GET /import` then shows the record as `failed` with that `error` and no applications. Exports written before 0.9 carry no list and import as before. |
+| `400 INVALID_EXPORT` | The body is not an export, the passphrase does not match, or the file breaks off. What had been imported until then stays, and `GET /import` shows it. Also, since 0.9, when the export, written by a newer agent, names a key of the configuration this agent does not know (`requires` in its manifest): it is refused before anything is taken in, and the message names the key and the version that wrote the export — `the export was written by Shipwick v1.2.0 and uses the key spec.hoverboard, which this agent (Shipwick v1.1.0) does not know and would drop. Import it with an agent of that version or newer, or export without the applications that use it`. `GET /import` then shows the record as `failed` with that `error` and no applications. Exports written before 0.9 carry no list and import as before. |
 | `409 IMPORT_IN_PROGRESS` | An import is running; a server takes one at a time |
 | `409 PROMOTION_IN_PROGRESS` | Nothing is imported into a server while it is being promoted |
 | `503 RUNTIME_UNAVAILABLE` | The agent is shutting down |
@@ -2647,7 +2647,7 @@ What the agent knows about newer releases. Since 0.7.
 | Field | Type | |
 |---|---|---|
 | `enabled` | boolean | `false` when the agent was told not to ask (`SHIPWICK_UPDATE_CHECK=off`) |
-| `latest_version` | string | The latest release, `v1.0.0`; `""` until the agent has been able to ask |
+| `latest_version` | string | The latest release, `v1.1.0`; `""` until the agent has been able to ask |
 | `checked_at` | timestamp or null | When GitHub last answered; null until then |
 | `available` | boolean | `latest_version` is newer than the agent itself |
 

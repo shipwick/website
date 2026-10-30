@@ -48,7 +48,7 @@ variables:
 steps:
   - checkout: self
   - script: |
-      curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.0.0 sh -s -- --cli
+      curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.1.0 sh -s -- --cli
       shipwick deploy --image "$IMAGE"
     displayName: Deploy with Shipwick
     env:
@@ -64,8 +64,8 @@ The installer downloads the CLI for the agent's architecture from the [release](
 ## What the step's log shows
 
 ```text
-$ curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.0.0 sh -s -- --cli
-Shipwick installer (shipwick/shipwick@v1.0.0)
+$ curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.1.0 sh -s -- --cli
+Shipwick installer (shipwick/shipwick@v1.1.0)
 
   The release's signature was not checked: cosign is not installed. Every file is checked against the release's checksums.
 ✓ Installed the shipwick CLI to /usr/local/bin/shipwick
@@ -179,7 +179,7 @@ stages:
               steps:
                 - checkout: self
                 - script: |
-                    curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.0.0 sh -s -- --cli
+                    curl -fsSL https://get.shipwick.com | SHIPWICK_VERSION=v1.1.0 sh -s -- --cli
                     shipwick deploy --image "$(image)"
                   displayName: Deploy with Shipwick
                   env:

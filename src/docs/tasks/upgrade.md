@@ -16,7 +16,7 @@ From 1.0 on, a minor release adds and takes nothing away: a `deploy.yaml` that w
 Since 0.7 the agent asks GitHub once a day which release is the latest, and `GET /server` carries the answer. The dashboard and `shipwick server status` say when the server is behind, without a connection of their own:
 
 ```text
-Agent           v0.8.1  v1.0.0 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
+Agent           v0.8.1  v1.1.0 is available  (on the server, run the installer again: curl -fsSL https://get.shipwick.com | sh)
 ```
 
 In the dashboard the notice is on the server's Status tab, with the command that upgrades; see [Use the dashboard](/docs/tasks/dashboard#the-server).
@@ -472,10 +472,10 @@ shipwick upgrade
 ```
 
 ```text
-✓ Upgraded shipwick v0.3.1 → v1.0.0
+✓ Upgraded shipwick v0.3.1 → v1.1.0
   /usr/local/bin/shipwick
 
-The server runs v1.0.0, the latest release.
+The server runs v1.1.0, the latest release.
 ```
 
 The latest release is downloaded from GitHub and verified against its `checksums.txt` before the binary is swapped; nothing changes if the checksum does not match. Since 0.8, where cosign (2.5 or later) is installed, `checksums.txt` is verified against the release's signature first, and a release from 0.8.0 on that has no signature is refused; without cosign the command says that the signature was not checked. See [Verify a release](/docs/tasks/verify-a-release). The command then compares the server's version with the release. When the server is behind, it says so and prints the installer line to run there; a server it cannot reach is one dim line, not an error. `shipwick upgrade --check` reports and changes nothing.
