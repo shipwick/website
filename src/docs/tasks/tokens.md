@@ -35,7 +35,7 @@ Every endpoint of the API requires a role, and a role includes the ones below it
 Give CI a `deploy` token: a pipeline deploys and rolls back, and never needs to delete an application. Give people `admin` tokens, someone who only watches a `read` one, and a Prometheus scraper a `read` one of its own.
 
 ::: warning admin is root on the server
-The agent holds the Docker socket, and whoever can submit a `deploy.yaml` can run any image on the server. A `deploy` token is already that; an `admin` token can also delete applications and mint more tokens. Roles limit what a token may ask of the agent, not what the server can be made to do. See [Security](/docs/security).
+The agent drives Docker, and whoever can submit a `deploy.yaml` can run any image on the server. A `deploy` token is already that; an `admin` token can also delete applications and mint more tokens. Roles limit what a token may ask of the agent, not what the server can be made to do. See [Security](/docs/security).
 :::
 
 ## The root token

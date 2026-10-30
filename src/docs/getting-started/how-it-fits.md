@@ -16,18 +16,18 @@ One page for the questions before the first command: what the parts are, which o
 
 ```text
  Your laptop, or CI                          One Linux server (a VPS)
- ┌──────────────────────┐                    ┌────────────────────────────────────────────┐
- │  shipwick (the CLI)  │  HTTPS + token     │  Caddy ── ports 80 and 443 ── the internet  │
- │  deploy.yaml         │ ─────────────────► │    │                                       │
- │  Dockerfile          │                    │    ├─► agent  ── Docker ── your containers  │
- │  (docker, if build:) │                    │    │      └── SQLite (one file)             │
- └──────────────────────┘                    │    └─► dashboard (optional)                 │
-                                             └────────────────────────────────────────────┘
+ ┌──────────────────────┐                    ┌────────────────────────────────────────────────────────────┐
+ │  shipwick (the CLI)  │  HTTPS + token     │  Caddy ── ports 80 and 443 ── the internet                 │
+ │  deploy.yaml         │ ─────────────────► │    │                                                       │
+ │  Dockerfile          │                    │    ├─► agent ── socket proxy ── Docker ── your containers  │
+ │  (docker, if build:) │                    │    │      └── SQLite (one file)                            │
+ └──────────────────────┘                    │    └─► dashboard (optional)                                │
+                                             └────────────────────────────────────────────────────────────┘
         Your browser ──── HTTPS ────► dashboard.example.com ─► Caddy ─► dashboard ─► agent
         Your users   ──── HTTPS ────► api.example.com       ─► Caddy ─► your containers
 ```
 
-Everything on the server is started by one command, the installer, as three containers next to Docker. Everything on your side is one binary, `shipwick`.
+Everything on the server is started by one command, the installer, as four containers next to Docker: Caddy, the agent, the socket proxy the agent reaches Docker through (since 1.1; before, the agent held the Docker socket itself), and the dashboard. Everything on your side is one binary, `shipwick`.
 
 ## The parts, and which you need
 

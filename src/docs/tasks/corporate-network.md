@@ -164,7 +164,7 @@ checksums.txt of the release: sha256 646205a7…
 
 This is the output for a release from 0.8.0 on, on a machine with cosign. Without cosign the second line reads `The release's signature was not checked: cosign is not installed on this machine.`, and for a release before 0.8.0 `Release v0.7.0 has no signature: releases before 0.8.0 were not signed.`: see [The signature is checked where the bundle is made](#the-signature-is-checked-where-the-bundle-is-made). The bundle of 0.6.0 has no line about its images: see [The images are proven too](#the-images-are-proven-too).
 
-The bundle holds the release's compose file, installer, checksums and, since 0.8.0, their signature, the `shipwick` binary for the server, and the three images in one archive, pulled for the server's architecture.
+The bundle holds the release's compose file, installer, checksums and, since 0.8.0, their signature, the `shipwick` binary for the server, and the images the compose file names in one archive — Shipwick's three and, from 1.1, the socket proxy's — pulled for the server's architecture.
 
 | Flag | |
 |---|---|

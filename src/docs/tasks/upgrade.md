@@ -5,7 +5,7 @@ description: Upgrade the agent, Caddy setup and dashboard by running the install
 
 # Upgrade Shipwick
 
-You upgrade a Shipwick server by running the installer again, on the server or from your laptop over SSH, and a CLI elsewhere with `shipwick upgrade`. This page covers what the installer changes, what it leaves alone, what an upgrade does from each release and what it costs, how to choose a version and how to go back, what happens to your applications and to a running deployment while the agent restarts, how the server says that a newer release exists, what the upgrades to 1.0, 0.10, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4 and 0.3 do on first start and what you may want to turn on afterwards, and how to upgrade the CLI on laptops and in CI.
+You upgrade a Shipwick server by running the installer again, on the server or from your laptop over SSH, and a CLI elsewhere with `shipwick upgrade`. This page covers what the installer changes, what it leaves alone, what an upgrade does from each release and what it costs, how to choose a version and how to go back, what happens to your applications and to a running deployment while the agent restarts, how the server says that a newer release exists, what the upgrades to 1.1, 1.0, 0.10, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4 and 0.3 do on first start and what you may want to turn on afterwards, and how to upgrade the CLI on laptops and in CI.
 
 ## Read the changelog first
 
@@ -61,7 +61,7 @@ Shipwick is running.
   Upgrade later by running this installer again.
 ```
 
-A server does not upgrade by itself. The compose file of each release pins the Shipwick images — the agent, the dashboard and, since 0.5, the proxy — to that release's version, so a server runs the version it installed until you run the installer again.
+A server does not upgrade by itself. The compose file of each release pins the Shipwick images — the agent, the dashboard and, since 0.5, the proxy — to that release's version, and since 1.1 the socket proxy's image to a version of its own, so a server runs the version it installed until you run the installer again.
 
 From your laptop, the same over SSH:
 
@@ -89,7 +89,7 @@ The installer writes a fresh `/opt/shipwick/compose.yml` on every run. Keep your
 
 From every release since 0.1.0 the upgrade to this version is one step, the installer, and needs nothing before or after it. Each of those releases was installed the way it was released, given applications with its own CLI — a volume with data, secrets, tokens, jobs and backups as far as it had them — and upgraded. What happened on every one of them:
 
-- **Shipwick's three containers are replaced; the applications' are not.** The replicas after the upgrade are the containers the old release started, and they are served without a deployment.
+- **Shipwick's containers are replaced — three, and since 1.1 the socket proxy's as a fourth; the applications' are not.** The replicas after the upgrade are the containers the old release started, and they are served without a deployment.
 - **Requests go unanswered while the proxy's container is replaced.** Connections are refused for two to three seconds: with about ten requests a second to an application of two replicas, each on a connection of its own, between 9 and 21 requests failed per upgrade and none before or after (23 upgrades, at least one from each release, in a Docker daemon inside a container on a developer's machine). The agent is away a few seconds longer; nothing is supervised or deployed in that time, and nothing stops.
 - **The agent brings its database up to date when it starts.** The history, the tokens, the secrets, the scheduled jobs and the backups of the old release are there afterwards, and a rollback goes back to a deployment the old release made. Volumes are Docker's and are not touched.
 - **`.env` and `compose.override.yml` stay as they are**; `compose.yml` is replaced. Images named in `.env` (`SHIPWICK_AGENT_IMAGE` and the others) stay too: an upgrade does not replace an image of your own.
@@ -99,6 +99,8 @@ What differs by where the upgrade starts:
 
 | From | What the upgrade does besides | What you do |
 |---|---|---|
+| 1.0 | The agent gives up the Docker socket. A fourth container, the socket proxy, holds it and answers the agent the calls on its list; the agent reaches Docker through a socket the two share ([The Docker socket](/docs/tasks/less-than-the-docker-socket)). No migration | Nothing. A server that had `compose.socket-proxy.yml` as its `compose.override.yml` keeps running, and the installer says to take the service out of the override: its list would hold a newer agent to an older one. See [Upgrading from 1.0 to 1.1](#upgrading-from-1-0-to-1-1) |
+| 0.9, 0.10 | The same. 1.0 added no migration and renamed nothing; it is the release from which [Versions and compatibility](/docs/versions) holds | Nothing |
 | 0.8 | The agent's database gains the scope of secrets (migration 22); every existing secret becomes the server's | Nothing. To be able to go back to 0.8, copy the agent's data first; see [Go back to the release before](#go-back-to-the-release-before) |
 | 0.7 | And the proxy's image gains Shipwick's own way of finding replicas, and the agent loads a configuration that uses it | Nothing |
 | 0.5, 0.6 | The same | Nothing |
@@ -106,7 +108,7 @@ What differs by where the upgrade starts:
 | 0.2 | And the agent creates `encryption.key` next to `shipwick.db` and encrypts the env values of earlier deployments, once | From then on, back `encryption.key` up with `shipwick.db`: without it the database cannot be read |
 | 0.1 | And the proxy joins a second network, `shipwick-services`; the replicas that run are given their application's name on it, without a restart | The same. `agent`, `caddy`, `dashboard` and `localhost` are no longer names an application can be deployed under |
 
-The walk from every release was made for 0.8; the row for 0.8 is from the changelog of 0.9. Not walked this way: the packages, a bundle, and an installation with a compose file of its own. For those, see [If you installed without the installer](#if-you-installed-without-the-installer).
+The walk from every release was made for 0.8; the rows for the releases since are from their changelogs, and the server with the old proxy overlay was walked for 1.1. Not walked this way: the packages, a bundle, and an installation with a compose file of its own. For those, see [If you installed without the installer](#if-you-installed-without-the-installer).
 
 ## Choose a version
 
@@ -197,6 +199,34 @@ Supervision then resumes. The supervisor's state is held in memory, so every rep
 A job that was running when the old agent stopped is marked `interrupted` and its container removed; the job runs again at its next scheduled time. Firings that fell while the agent was down are not caught up.
 
 After a server reboot, the agent brings every application back up according to its restart policy. What an agent that is killed in the middle of each kind of deployment does is in [When things break](/docs/tasks/when-things-break#the-agent-is-killed).
+
+### Upgrading from 1.0 to 1.1
+
+1.1 changes how the agent reaches Docker, and nothing you have to relearn: no migration, nothing renamed, no key of `deploy.yaml`, field of the API or command of the CLI taken away. The agent applies no schema migration: the database of 1.0 is the database of 1.1.
+
+**The agent gives up the Docker socket.** The release's compose file runs a fourth container, `socket-proxy`, which holds `/var/run/docker.sock` and answers the agent the calls on its list — a method and a path each — with `403` for every other; the agent reaches Docker through a filtered socket the two share, and has no other way to it. The installer replaces `compose.yml`, as it always has, so the proxy arrives with the upgrade and there is nothing to do; its image, `wollomatic/socket-proxy`, is pulled from Docker Hub and held against the release's digests like Shipwick's own. The proxy narrows what a fault in the agent can reach; it does not stop whoever holds an admin token from creating a privileged container, so an admin token is still root on the server. What it takes away and what it leaves: [The Docker socket](/docs/tasks/less-than-the-docker-socket).
+
+**If you had put the proxy in by hand**, with the `compose.socket-proxy.yml` of 0.8 to 1.0 saved as `/opt/shipwick/compose.override.yml`, the server keeps running — Compose merges the two definitions — and the installer says so:
+
+```text
+! /opt/shipwick/compose.override.yml defines the socket-proxy service as well. The socket proxy is part of every installation now,
+  and the override's list of allowed calls replaces this release's. Remove the service and the docker-proxy volume
+  from the override, keep any mounts of your own, and run:   cd /opt/shipwick && docker compose up -d
+```
+
+Do that: the override's list of calls replaces the release's, and an agent that makes one call more is refused it by the older list, which shows as `Forbidden` in a failed operation and as a `blocked request` line in `docker logs shipwick-socket-proxy-1`. Mounts of your own — a Docker `config.json`, a CA file — stay in the agent's `volumes` in the override, as before. An override that holds `compose.direct-socket.yml` instead, the overlay that gives the agent the socket itself, is left alone, and the choice holds.
+
+The agent says how it reaches Docker: `docker.socket` in `GET /server` is `"proxy"` or `"direct"`, `shipwick server status` ends its Docker line with `behind the socket proxy` or `holding the Docker socket`, and `shipwick doctor` has a hint for the second. An agent installed from a package keeps the socket itself, as a process of the host, and says so; see [Install from a package](/docs/getting-started/install-from-a-package#the-agent-runs-as-root).
+
+What an operator may want to set:
+
+| | How |
+|---|---|
+| Another image of the socket proxy | `SHIPWICK_SOCKET_PROXY_IMAGE` in `.env`, which the installer keeps across upgrades and `shipwick server configure` writes. See [Agent configuration](/docs/reference/agent-configuration#the-production-compose-file) |
+| See every request the proxy lets through | `SHIPWICK_SOCKET_PROXY_LOG_LEVEL=DEBUG` in `.env` |
+| The agent on the socket itself | `compose.direct-socket.yml` as `compose.override.yml`. See [The socket itself](/docs/tasks/less-than-the-docker-socket#the-socket-itself) |
+
+On laptops and in CI, upgrade the CLI as described below. A 1.0 `shipwick` keeps working against a 1.1 agent; the Docker line of `server status` and the hint of `doctor` need 1.1, and `server bundle` carries the socket proxy's image only from 1.1 on.
 
 ### Upgrading from 0.10 to 1.0
 
@@ -297,7 +327,7 @@ What is new is opt-in. What an operator may want to turn on or use:
 | Deploy one application out of a `shipwick.yaml` | `shipwick deploy api --image …`. See [Deploy from CI](/docs/tasks/deploy-from-ci#deploy-several-applications) |
 | Verify the release before it is installed | Install cosign on the server, and set `SHIPWICK_REQUIRE_SIGNATURE=1` for the installer to make it a condition. See [Verify a release](/docs/tasks/verify-a-release) |
 | Give every application a memory limit, and the server swap | `resources.memory` in `deploy.yaml`, a swap file on the server. See [Prepare a server](/docs/tasks/prepare-a-server) |
-| Give the agent less than the Docker socket | A socket proxy, or rootless Docker. See [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket) |
+| Give the agent less than the Docker socket | A socket proxy, or rootless Docker. Since 1.1 the socket proxy is part of every installation; see [The Docker socket](/docs/tasks/less-than-the-docker-socket) |
 
 On laptops and in CI, upgrade the CLI as described below; the names for `deploy` and `validate`, the plain values of `config` and the new lines of `doctor` need it. A 0.7 `shipwick` keeps working against a 0.8 agent for everything it knows. A 0.8 `shipwick` against a 0.7 agent deploys as before, with one difference: a `deploy.yaml` with a `security` block is refused by the older agent, as every key it does not know, and `shipwick deploy` says that the server is older than the file and how to upgrade it.
 

@@ -163,7 +163,7 @@ How to do one specific thing.
 - [When things break](/docs/tasks/when-things-break)
 - [Reach the API without a hostname](/docs/tasks/access-without-a-hostname)
 - [Run behind a corporate proxy or without internet](/docs/tasks/corporate-network)
-- [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket)
+- [The Docker socket](/docs/tasks/less-than-the-docker-socket)
 
 ### Reference
 

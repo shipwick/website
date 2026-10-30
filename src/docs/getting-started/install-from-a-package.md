@@ -119,6 +119,8 @@ Every other setting goes into the same file, one line each, followed by a restar
 
 It drives Docker through Docker's socket, and whoever may do that can start a container that owns the host. A user of its own in the `docker` group would be root in everything but name, and the proxy's admin socket and root's `docker login` credentials would need opening up for it.
 
+**It holds the socket itself, by design.** The socket proxy that stands between the agent and Docker on a server the installer set up, since 1.1, is a container of that installation's compose file; the package has no container for the agent to depend on and keeps the arrangement a process of the host has always had. The agent says so: `docker.socket: "direct"` in `GET /server`, `holding the Docker socket` at the end of the Docker line of `shipwick server status`, and a hint in `shipwick doctor` that names the package as one of the two places this is expected. On a server installed from a package the hint is expected, and there is nothing to do about it. See [The Docker socket](/docs/tasks/less-than-the-docker-socket#the-socket-itself).
+
 The unit takes away what the agent does not need instead: it cannot gain privileges, `/usr`, `/boot` and `/etc` are read-only to it, home directories are read-only, and it has a `/tmp` of its own. A [`SHIPWICK_BACKUP_DIR`](/docs/reference/agent-configuration#backups) must therefore lie outside those, under `/var` or `/srv`.
 
 ## SELinux

@@ -54,7 +54,7 @@ The agent is configured through environment variables only: its own `SHIPWICK_*`
 | `SHIPWICK_LOG_FORMAT` | `text` | `text` or `json`. Logs go to standard error. The installer's compose file sets `json`. |
 | `SHIPWICK_HTTP_PORT`, `SHIPWICK_HTTPS_PORT` | `80`, `443` | Read by Compose, not the agent: the server ports Caddy is published on (443 over UDP as well). Only when something else owns 80 and 443; certificates need the real ones reachable from the internet. |
 | `SHIPWICK_AGENT_IMAGE`, `SHIPWICK_DASHBOARD_IMAGE`, `SHIPWICK_CADDY_IMAGE` | the release's | Read by Compose: images of your own in place of the release's. The installer keeps them across upgrades; with a bundle, `docker load` them first. See [The production compose file](#the-production-compose-file). |
-| `DOCKER_HOST`, `DOCKER_CONFIG` | Docker defaults | The standard Docker variables are honored. `DOCKER_CONFIG` is the directory that holds `config.json`, which the agent reads for the credentials of a registry it holds no stored credential for. |
+| `DOCKER_HOST`, `DOCKER_CONFIG` | Docker defaults | The standard Docker variables are honored. Since 1.1 the compose files set `DOCKER_HOST` to the socket proxy's socket, `unix:///run/docker-proxy/docker.sock`, and the agent reads how it reaches Docker off that address: `docker.socket` in `GET /server`, see [The Docker socket](/docs/tasks/less-than-the-docker-socket). `DOCKER_CONFIG` is the directory that holds `config.json`, which the agent reads for the credentials of a registry it holds no stored credential for. |
 
 The agent refuses to start with an invalid value: an unknown log level or format, a token shorter than 16 characters, a domain that is not a valid hostname, a domain without `SHIPWICK_CADDY_ADMIN`, identical agent and dashboard hostnames, a malformed dashboard upstream or proxy TLS address, an encryption key that is not 64 hexadecimal characters, a webhook URL that is not an absolute `https` URL (or `http` towards the server itself or a private address), a webhook secret without a webhook URL, a Cloudflare token of another form or without `SHIPWICK_CADDY_ADMIN`, an alert threshold out of its range, a backup passphrase shorter than 12 characters, a bucket with some of its four variables missing, a schedule that is not a cron expression, a combination of schedules that the sections below rule out, a proxy variable that is not a proxy address, a certificate authority file it cannot use, a name server that is not an IP address, an ACME directory that is not a plain `https` URL or is set without `SHIPWICK_CADDY_ADMIN`, a sign-in provider that is configured in part, a log retention out of its range, or an update check that is neither `on` nor `off`. Where the value is a credential, the error names the variable and the rule, never the value: a token, a key, a passphrase, a webhook URL, a proxy's URL and a client secret are credentials.
 
@@ -558,12 +558,15 @@ On `SIGINT` or `SIGTERM` the agent shuts down gracefully within 30 seconds; a de
 | `SHIPWICK_AGENT_IMAGE` | `ghcr.io/shipwick/agent:latest` | Agent image. |
 | `SHIPWICK_DASHBOARD_IMAGE` | `ghcr.io/shipwick/dashboard:latest` | Dashboard image. |
 | [`SHIPWICK_CADDY_IMAGE`](#shipwick-caddy-image) | `ghcr.io/shipwick/caddy:latest` | Proxy image. Since 0.5. |
+| `SHIPWICK_SOCKET_PROXY_IMAGE` | `wollomatic/socket-proxy:1.13.1` | The image of the [socket proxy](/docs/tasks/less-than-the-docker-socket#the-socket-proxy) the agent reaches Docker through, when another than the one the release pins. The installer keeps it across upgrades, and `shipwick server configure` writes it. Since 1.1. |
+| `SHIPWICK_DOCKER_SOCKET` | `/var/run/docker.sock` | The daemon's socket on the server, which the socket proxy mounts. A rootless daemon's is `/run/user/<uid>/docker.sock`, which `compose.rootless.yml` sets. Since 1.1. |
+| `SHIPWICK_SOCKET_PROXY_LOG_LEVEL` | `INFO` | `DEBUG` makes the socket proxy log every request it lets through, next to the ones it refuses. Since 1.1. |
 
-The image defaults above are those of the file in the repository. In the copy that belongs to a release, which is what the installer fetches, the three images are pinned to that release's version.
+The image defaults above are those of the file in the repository. In the copy that belongs to a release, which is what the installer fetches, the three Shipwick images are pinned to that release's version, and the socket proxy's to a version of its own.
 
 Every row of the [agent's table](#environment-variables) is read by the agent from its environment, but on a server the installer set up only the rows this file reads reach it from `.env`: the ones `install.sh --help` lists, and the two hostnames. The rest the file decides itself — the listen address, the data directory, `SHIPWICK_CADDY_ADMIN`, `SHIPWICK_LOG_FORMAT=json` — so `SHIPWICK_LOG_LEVEL=debug` in `.env` changes nothing; a change to one of those is a `compose.override.yml`. The package reads every row from `/etc/shipwick/agent.env`.
 
-The installer writes `.env` once, on the first install, with the token and the two hostnames. A port, an image, a webhook variable, the Cloudflare token, the backup passphrase, an `S3` variable or one of the three schedule variables that is set in the environment of that first run is written too, and so are the two alert thresholds. Since 0.6 the same holds for the three proxy variables, which the installer also uses for its own downloads, for `SHIPWICK_CA_FILE`, `SHIPWICK_DNS_RESOLVERS`, `SHIPWICK_ACME_DIRECTORY`, the five `SHIPWICK_OIDC_*` variables the file passes, and `SHIPWICK_AGENTS`; and since 0.7 for `SHIPWICK_OIDC_NAME_CLAIM`, `SHIPWICK_OIDC_TENANTS`, the two log retention variables and `SHIPWICK_UPDATE_CHECK`. An existing `.env` is never rewritten, so to add or change any of them later, edit `/opt/shipwick/.env` and run `cd /opt/shipwick && docker compose up -d`. `SHIPWICK_PROXY_TLS_ADDR` is not among the file's variables: the agent finds the proxy at `caddy:443`. To set it, give it to the agent under `environment` in `compose.override.yml`.
+The installer writes `.env` once, on the first install, with the token and the two hostnames. A port, an image, a webhook variable, the Cloudflare token, the backup passphrase, an `S3` variable or one of the three schedule variables that is set in the environment of that first run is written too, and so are the two alert thresholds. Since 0.6 the same holds for the three proxy variables, which the installer also uses for its own downloads, for `SHIPWICK_CA_FILE`, `SHIPWICK_DNS_RESOLVERS`, `SHIPWICK_ACME_DIRECTORY`, the five `SHIPWICK_OIDC_*` variables the file passes, and `SHIPWICK_AGENTS`; and since 0.7 for `SHIPWICK_OIDC_NAME_CLAIM`, `SHIPWICK_OIDC_TENANTS`, the two log retention variables and `SHIPWICK_UPDATE_CHECK`; and since 1.1 for `SHIPWICK_SOCKET_PROXY_IMAGE`, which `shipwick server configure` writes as well. An existing `.env` is never rewritten, so to add or change any of them later, edit `/opt/shipwick/.env` and run `cd /opt/shipwick && docker compose up -d`. `SHIPWICK_PROXY_TLS_ADDR` is not among the file's variables: the agent finds the proxy at `caddy:443`. To set it, give it to the agent under `environment` in `compose.override.yml`.
 
 Override the ports only if something else owns 80 and 443. Automatic HTTPS needs the real ones to be reachable from the internet.
 
@@ -585,8 +588,9 @@ The file fixes the rest of the agent's configuration:
 | Agent port | Not published. The only ways in are Caddy and the server itself. |
 | Caddy | [`ghcr.io/shipwick/caddy`](#shipwick-caddy-image), started with a bootstrap configuration that contains only the admin socket. The agent loads the real configuration, which also compresses responses with zstd or gzip when the client asks for it. |
 | Networks | Three. `shipwick`: application containers and Caddy; the agent joins it by itself, for health checks, and does not listen there. `shipwick-services`: Caddy and application containers, where Caddy finds an application's replicas by its name. `shipwick-control`, since 0.8: the agent, Caddy and the dashboard, and nothing else; the API is reached there. Before 0.8 all three services shared `shipwick` with the applications |
-| Logs | Each of the three containers keeps at most 3 files of 10 MB, like application replicas |
-| Restart policy | `unless-stopped` for all three services |
+| `DOCKER_HOST` | `unix:///run/docker-proxy/docker.sock`, since 1.1: the filtered socket the socket proxy makes, in the `docker-proxy` volume that only the two mount. The agent is given no other way to the daemon. |
+| Logs | Each of the four containers keeps at most 3 files of 10 MB, like application replicas |
+| Restart policy | `unless-stopped` for all four services |
 
 Volumes:
 
@@ -597,8 +601,9 @@ Volumes:
 | `caddy-config` | Caddy, at `/config` | The configuration the agent loaded last; Caddy is started with `--resume`. With `SHIPWICK_CLOUDFLARE_API_TOKEN` set it contains that token, and it contains the keys of supplied certificates. Mounted by Caddy alone. |
 | `caddy-static` | Caddy, at `/srv/shipwick` | The folders of static applications: the agent puts them there and Caddy serves them itself, with no container in between. Nothing here needs a backup. |
 | `caddy-admin` | agent and Caddy, at `/run/caddy` | The admin socket |
+| `docker-proxy` | agent and the socket proxy, at `/run/docker-proxy` | The filtered Docker socket the proxy makes and the agent uses. Since 1.1 |
 
-The agent also mounts `/var/run/docker.sock`, which is root-equivalent access to the server.
+Since 1.1 the agent mounts no Docker socket. The socket proxy mounts `/var/run/docker.sock` (`SHIPWICK_DOCKER_SOCKET`), which is root-equivalent access to the server, and the agent has only the socket in `docker-proxy`; before 1.1 the agent mounted the daemon's socket itself. See [The Docker socket](/docs/tasks/less-than-the-docker-socket).
 
 The installer replaces `/opt/shipwick/compose.yml` on every upgrade, and removes the agent, dashboard and proxy images of earlier releases once the upgraded agent is healthy. Your own changes belong in `/opt/shipwick/compose.override.yml`, which Compose merges with it and the installer never touches. The most common ones:
 
@@ -621,16 +626,16 @@ services:
       - /etc/shipwick/ca.pem:/etc/ssl/certs/shipwick-ca.pem:ro
 ```
 
-### Overlays: a socket proxy and rootless Docker
+### Overlays: the socket itself, and rootless Docker
 
-Since 0.8 two more files of the repository are overlays on the production compose file. Neither is what the installer sets up. A third arrangement, since 0.9, is not an overlay: Docker's authorization plugin with `configs/docker-authz.rego`, installed into the daemon, which leaves the compose file as it is. See [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket).
+Two files of the repository are overlays on the production compose file; neither is what the installer sets up. A third arrangement, since 0.9, is not an overlay: Docker's authorization plugin with `configs/docker-authz.rego`, installed into the daemon, which leaves the compose file as it is, the socket proxy included. See [The Docker socket](/docs/tasks/less-than-the-docker-socket).
 
 | File | Variable | Default | |
 |---|---|---|---|
-| `compose.socket-proxy.yml` | `SHIPWICK_SOCKET_PROXY_IMAGE` | the version the file pins | The image of the socket proxy between the agent and Docker. |
-| | `SHIPWICK_SOCKET_PROXY_LOG_LEVEL` | `INFO` | `DEBUG` logs every request the proxy lets through as well as the ones it refuses. |
-| | `SHIPWICK_DOCKER_SOCKET` | `/var/run/docker.sock` | The socket the proxy holds. With rootless Docker, `/run/user/<uid>/docker.sock`. |
-| `compose.rootless.yml` | `SHIPWICK_DOCKER_SOCKET` | `$XDG_RUNTIME_DIR/docker.sock` | The rootless daemon's socket, mounted into the agent in place of `/var/run/docker.sock`. |
+| `compose.direct-socket.yml` | `SHIPWICK_DOCKER_SOCKET` | `/var/run/docker.sock` | Since 1.1. Takes the socket proxy out and gives the agent the daemon's socket itself, the way every installation before 1.1 had it: it replaces the agent's list of mounts (`!override`) and removes the proxy's service (`!reset`), which takes Docker Compose 2.24.4 or newer. The agent then says so, in `GET /server`, `shipwick server status` and `shipwick doctor`. See [The socket itself](/docs/tasks/less-than-the-docker-socket#the-socket-itself). |
+| `compose.rootless.yml` | `SHIPWICK_DOCKER_SOCKET` | `$XDG_RUNTIME_DIR/docker.sock` | The rootless daemon's socket, handed to the socket proxy in place of `/var/run/docker.sock`; the agent is behind the proxy as on any server. Setting the variable in `.env` makes the overlay unnecessary. See [Rootless Docker](/docs/tasks/less-than-the-docker-socket#rootless-docker). |
+
+`compose.socket-proxy.yml`, the overlay of 0.8 to 1.0 that put the proxy in by hand, is gone from the repository: since 1.1 the production compose file has the proxy. A server that kept that overlay as its `compose.override.yml` keeps running, and the installer says to take the `socket-proxy` service and the `docker-proxy` volume out of it; see [Upgrading from 1.0 to 1.1](/docs/tasks/upgrade#upgrading-from-1-0-to-1-1).
 
 ## Dashboard variables
 

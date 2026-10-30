@@ -5,21 +5,21 @@ description: The trust model of a Shipwick installation, how to expose the API s
 
 # Security
 
-The agent holds the Docker socket, which makes it root on the server it runs on. This page describes the trust model that follows from that, how to expose the API safely and who can reach it, what Shipwick does and does not do — tokens and roles, signing in through a provider, the audit trail, what is encrypted at rest and how the key is rotated, backups and exports, what the proxy sees and logs, what a container goes without, how a release is verified — and how to report a vulnerability.
+The agent drives Docker, and whoever drives Docker is root on the server. Since 1.1 the agent reaches the daemon through a socket proxy that passes the calls it makes and refuses every other, but a request to create a container passes, so an admin token is root on the server all the same. This page describes the trust model that follows from that, how to expose the API safely and who can reach it, what Shipwick does and does not do — tokens and roles, signing in through a provider, the audit trail, what is encrypted at rest and how the key is rotated, backups and exports, what the proxy sees and logs, what a container goes without, how a release is verified — and how to report a vulnerability.
 
 ## Trust model
 
-**The Docker socket is root.** The agent needs `/var/run/docker.sock`, and anyone who controls the Docker daemon controls the host: they can start a container that mounts `/`. Consequently:
+**Driving Docker is root.** Whoever can ask the daemon for a container can ask for one that mounts `/`, and the agent's work is asking the daemon for containers. In the default installation, since 1.1, it does so through a socket proxy that passes the calls it makes and refuses every other, never through the socket itself — [The Docker socket](/docs/tasks/less-than-the-docker-socket) says what that stops and what it does not. A request to create a container passes, so:
 
 - **An `admin` token is equivalent to root SSH access to the server.** Treat it so. The token the installer prints is one.
 - **Shipwick is not a multi-tenant sandbox.** Whoever can submit a `deploy.yaml` to the agent, which any `deploy` token can, can run arbitrary images on the server, with any command, as any user inside the container.
 - **Roles limit what a token may ask the API for, not what the server trusts.** `read` sees everything, environment values masked and secrets by name only; `deploy` changes what runs, and sends images and static folders; `admin` also deletes applications, manages tokens, secrets, registry credentials and certificates, rotates the encryption key, downloads, restores or removes backups and volumes, and exports and imports the server, reads the audit trail and manages who may sign in. Since 0.6 a `deploy` token can be limited to the applications it names; that narrows what a leaked token can be used for, and it is not a wall between tenants: a limited token still reads every application's logs and configuration.
-- The same holds for anyone with access to the Docker socket, the agent's data directory or Caddy's admin socket.
+- The same holds for anyone with access to the Docker socket — the filtered one the agent holds included, since a request to create a container passes it — the agent's data directory or Caddy's admin socket.
 - **Whoever holds the backup passphrase and the bucket holds everything**: every application's data, and the agent's database together with the key to it. See [Backups and exports](#backups-and-exports).
 
-The agent container runs as root because it needs the Docker socket, which already is root-equivalent access to the host.
+**The socket proxy is the default, since 1.1.** In every installation the installer sets up, a fourth container, `socket-proxy`, holds `/var/run/docker.sock` and answers the agent the calls on its list — a method and a path each — with `403` for every other; the agent reaches Docker through a filtered socket the two share and has no other way to it. Before 1.1 the agent held the socket itself, and the proxy was an overlay to put in by hand. What the proxy stops is a fault in the agent reaching the rest of the Engine API, and every bind mount. What it does not stop is whoever holds an admin token: the proxy reads a request's path and its bind mounts, not the rest of its body, so a privileged container can still be created through it, and that is root on the server.
 
-Three arrangements give the agent less than that socket: since 0.8 a socket proxy that answers only the calls the agent makes, and rootless Docker, where the daemon and everything it starts is an ordinary user of the server; since 0.9 Docker's authorization plugin with a policy of the repository's, which refuses, for every client of the daemon, what makes a container root on the server. None is what the installer sets up, and the socket proxy does not stop whoever takes the agent over from becoming root. See [Give the agent less than the Docker socket](/docs/tasks/less-than-the-docker-socket).
+Two arrangements hold where the proxy does not. Docker's authorization plugin with a policy of the repository's, since 0.9, sees the whole request and refuses, for every client of the daemon, what makes a container root on the server; it composes with the proxy. Rootless Docker makes the daemon and everything it starts an ordinary user of the server. The installer sets up neither. The other way, `compose.direct-socket.yml`, gives the agent the socket itself for the few servers that want it, and an agent installed from a package holds it by design; the agent says which it has, in `GET /server`, `shipwick server status` and `shipwick doctor`. See [The Docker socket](/docs/tasks/less-than-the-docker-socket).
 
 ## Exposing the API
 
@@ -426,7 +426,7 @@ Vulnerabilities:
 Expected behavior, not vulnerabilities:
 
 - a holder of a `deploy` or `admin` token running arbitrary images and commands inside containers, reading environment values of containers through Docker, or otherwise controlling the server;
-- anyone with access to the Docker socket, the agent's data directory or Caddy's admin socket doing the same;
+- anyone with access to the Docker socket — the filtered one the agent holds included, since a request to create a container passes it — the agent's data directory or Caddy's admin socket doing the same; what refuses that request is Docker's authorization plugin, which [The Docker socket](/docs/tasks/less-than-the-docker-socket#behind-an-authorization-plugin) describes and the installer does not set up;
 - root on the server reading `encryption.key`, or `docker inspect` showing a running container's environment;
 - a port published with `publish` being reachable despite the host firewall;
 - exposing port 9000 to the internet against the documentation's advice;

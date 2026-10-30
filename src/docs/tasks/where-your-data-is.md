@@ -12,7 +12,7 @@ The short version: everything the agent knows is in one directory on the server,
 ## Before you begin
 
 - The layout below is the installer's: the agent, the proxy and the dashboard as containers under `/opt/shipwick`, with the agent's data in the Docker volume `shipwick_agent-data`. An agent installed [from a package](/docs/getting-started/install-from-a-package) runs as a host process with the same data directory and its settings in `/etc/shipwick/agent.env`; the proxy and the dashboard are containers there as well.
-- The agent holds the Docker socket. Whoever is root on the server, or holds an `admin` token, can read everything described here, in clear; see [Security](/docs/security#trust-model). The protections below are about copies: a backup, a snapshot, a disk, a file that left the server.
+- The agent drives Docker — since 1.1 through a socket proxy, which passes a request to create a container all the same. Whoever is root on the server, or holds an `admin` token, can read everything described here, in clear; see [Security](/docs/security#trust-model). The protections below are about copies: a backup, a snapshot, a disk, a file that left the server.
 
 ## What is stored on the server, and where
 

@@ -184,7 +184,7 @@ export default defineConfig({
             { text: 'When things break', link: '/docs/tasks/when-things-break' },
             { text: 'Reach the API without a hostname', link: '/docs/tasks/access-without-a-hostname' },
             { text: 'Run behind a corporate proxy or without internet', link: '/docs/tasks/corporate-network' },
-            { text: 'Give the agent less than the Docker socket', link: '/docs/tasks/less-than-the-docker-socket' },
+            { text: 'The Docker socket', link: '/docs/tasks/less-than-the-docker-socket' },
           ],
         },
         {

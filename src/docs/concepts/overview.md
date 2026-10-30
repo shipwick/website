@@ -17,11 +17,16 @@ Shipwick is one long-running process per server, the agent, plus clients that ta
                           │
           ┌───────────────┼───────────────┐
           ▼               ▼               ▼
-   Docker Engine API    Caddy           SQLite
+    socket proxy        Caddy           SQLite
+          │
+          ▼
+        Docker
           │
           ▼
       Containers
 ```
+
+Since 1.1 the agent never holds the Docker socket: the socket proxy does, and answers the agent the calls it makes and no other. See [The Docker socket](/docs/tasks/less-than-the-docker-socket).
 
 | Component | Role |
 |---|---|
@@ -30,9 +35,10 @@ Shipwick is one long-running process per server, the agent, plus clients that ta
 | Dashboard | Web client. Its own server holds the session and relays requests to the agent. It has no database and no state of its own. |
 | Caddy | Reverse proxy in front of the applications. Terminates TLS, obtains and renews certificates, balances across replicas, compresses responses, answers redirects, sets headers and asks for passwords where an application's `proxy` block says so, and serves static applications from disk. Since 0.5 it is Shipwick's own build, `ghcr.io/shipwick/caddy`: Caddy with the Cloudflare DNS module and, since 0.8, Shipwick's own way of finding replicas, and nothing else added, pinned to the release like the agent and the dashboard. |
 | Docker | The container runtime. The agent uses the Docker daemon that is already on the server; images are pulled from a registry, with a credential the agent keeps when the registry is private, or loaded from an archive the CLI built and sent. |
+| Socket proxy | Since 1.1. [wollomatic/socket-proxy](https://github.com/wollomatic/socket-proxy), a fourth container between the agent and Docker. It holds the Docker socket, which is root on the server, and answers the agent the calls on its list — a method and a path each — with `403` for every other; the agent reaches it through a filtered socket in a volume the two share. It has no network, no capabilities and a read-only filesystem. |
 | SQLite | One file in the agent's data directory. Holds applications, deployments, replicas, events, tokens, secrets, registry credentials, supplied certificates, job runs, backup runs, and metric and traffic samples. |
 
-There is no control plane, no cluster and no external database. The installer sets up three containers on the server: the agent, Caddy and the dashboard. See [Install on a server](/docs/getting-started/install).
+There is no control plane, no cluster and no external database. The installer sets up four containers on the server: the agent, the socket proxy, Caddy and the dashboard (three before 1.1, without the proxy). See [Install on a server](/docs/getting-started/install).
 
 ## How the components talk
 
@@ -40,7 +46,7 @@ There is no control plane, no cluster and no external database. The installer se
 
 **Browser to dashboard to agent.** The browser talks only to the dashboard's own server. That server keeps the token in an `httpOnly` cookie and relays requests to the agent with the `Authorization` header added. The browser never holds the token and never contacts the agent, so the agent needs no CORS support. Anything the dashboard does, `shipwick` and `curl` can do too.
 
-**Agent to Docker.** The agent talks to the Docker Engine API directly through the Docker socket. It never runs the `docker` command line or any shell. The standard `DOCKER_HOST` and `DOCKER_CONFIG` variables are honored. It pulls images and loads the archives the CLI sends; it builds nothing. A pull from a private registry carries the credential stored with `shipwick registry login`; the daemon holds none. See [Pull from private registries](/docs/tasks/private-registries).
+**Agent to Docker.** The agent talks to the Docker Engine API, and since 1.1 never through the Docker socket itself: in every installation the installer sets up, the socket proxy holds `/var/run/docker.sock` and answers the agent the calls on its list, and the agent reaches it through a filtered socket in a volume the two share. A request to create a container is on the list, so the proxy narrows what a fault in the agent can reach and is not a wall against whoever holds an admin token; see [The Docker socket](/docs/tasks/less-than-the-docker-socket). The agent never runs the `docker` command line or any shell. The standard `DOCKER_HOST` and `DOCKER_CONFIG` variables are honored; the compose file sets `DOCKER_HOST` to the proxy's socket, and the agent reads how it reaches Docker off that address. It pulls images and loads the archives the CLI sends; it builds nothing. A pull from a private registry carries the credential stored with `shipwick registry login`; the daemon holds none. See [Pull from private registries](/docs/tasks/private-registries).
 
 **CLI to Docker, on your machine.** With `build:` in `deploy.yaml`, `shipwick deploy` runs `docker build` where it runs, for the server's architecture, and sends the image to the agent as an archive. The build happens on the developer's machine, never on the server. See [Deployments](/docs/concepts/deployments#images-built-where-you-are).
 
