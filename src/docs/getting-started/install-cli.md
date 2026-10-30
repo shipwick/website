@@ -83,7 +83,7 @@ $env:SHIPWICK_VERSION = 'v1.0.0'; irm https://get.shipwick.com/windows | iex
 .\install.ps1 -Version v1.0.0 -Destination C:\tools\shipwick
 ```
 
-Running it again upgrades, as does `shipwick upgrade`, below, which picks the build for the machine also when the `shipwick` that runs is the x64 one. Until 0.9 the way was to download the `.exe` from the [releases page](https://github.com/shipwick/shipwick/releases) and put it on your `PATH`; that still works. `winget install Shipwick.Shipwick` follows once the package is accepted into winget-pkgs.
+Running it again upgrades, as does `shipwick upgrade`, below, which picks the build for the machine also when the `shipwick` that runs is the x64 one. Until 0.9 the way was to download the `.exe` from the [releases page](https://github.com/shipwick/shipwick/releases) and put it on your `PATH`; that still works.
 
 ## From source
 
