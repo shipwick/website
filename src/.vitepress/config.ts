@@ -112,7 +112,11 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: 'From Docker Compose', link: '/docs/tasks/from-docker-compose' },
+            { text: 'Coming from Dokku', link: '/docs/tasks/coming-from-dokku' },
+            { text: 'Coming from Coolify', link: '/docs/tasks/coming-from-coolify' },
             { text: 'Deploy from CI', link: '/docs/tasks/deploy-from-ci' },
+            { text: 'Deploy from GitLab CI', link: '/docs/tasks/deploy-from-gitlab' },
+            { text: 'Deploy from Azure Pipelines', link: '/docs/tasks/deploy-from-azure-pipelines' },
             { text: 'Staging and production', link: '/docs/tasks/staging-and-production' },
             { text: 'Scan an image before it is deployed', link: '/docs/tasks/scan-images' },
             { text: 'Roll back and redeploy', link: '/docs/tasks/roll-back' },

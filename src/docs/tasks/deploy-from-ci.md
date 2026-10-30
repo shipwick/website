@@ -147,7 +147,7 @@ Problems with the CLI or the agent belong in [shipwick/shipwick](https://github.
 
 ## Any other CI: the CLI
 
-A CI job needs no `shipwick login`. Set two environment variables:
+A CI job needs no `shipwick login`. Set two environment variables; [Deploy from GitLab CI](/docs/tasks/deploy-from-gitlab) and [Deploy from Azure Pipelines](/docs/tasks/deploy-from-azure-pipelines) show where each of those systems keeps them and what the job looks like:
 
 | Variable | |
 |---|---|
@@ -376,6 +376,7 @@ The pipeline's log is one place to look. With `SHIPWICK_WEBHOOK_URL` set on the 
 ## What's next
 
 - [Staging and production](/docs/tasks/staging-and-production): two servers, one file, and the approval before production in the pipeline.
+- [Deploy from GitLab CI](/docs/tasks/deploy-from-gitlab) and [Deploy from Azure Pipelines](/docs/tasks/deploy-from-azure-pipelines): the same three lines in those systems' files, with their variables, registries and approval gates.
 - [Scan an image before it is deployed](/docs/tasks/scan-images): a scanner between the build and the deploy step.
 - [From Docker Compose](/docs/tasks/from-docker-compose) if the application still runs from a `docker-compose.yml`.
 - [Create tokens for CI and teammates](/docs/tasks/tokens): roles, revocation, what each token did.

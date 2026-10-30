@@ -5,7 +5,7 @@ description: Move an application from a docker-compose.yml on a server to Shipwi
 
 # From Docker Compose
 
-The commonest starting point is a `docker-compose.yml` on a server, started by hand over SSH and kept running by Docker's restart policy. This page takes such a file apart and says what each part becomes in Shipwick: a Compose service is an application, described by a `deploy.yaml` of its own or as one entry of a `shipwick.yaml`, and most keys have a counterpart with a different name and a few stricter rules. Some have none, and the page says why. It ends with a three-service Compose file and the `shipwick.yaml` that replaces it, both complete and checked with `shipwick validate`.
+The commonest starting point is a `docker-compose.yml` on a server, started by hand over SSH and kept running by Docker's restart policy; an application that runs on Dokku or Coolify today has a page of its own, [Coming from Dokku](/docs/tasks/coming-from-dokku) or [Coming from Coolify](/docs/tasks/coming-from-coolify). This page takes such a file apart and says what each part becomes in Shipwick: a Compose service is an application, described by a `deploy.yaml` of its own or as one entry of a `shipwick.yaml`, and most keys have a counterpart with a different name and a few stricter rules. Some have none, and the page says why. It ends with a three-service Compose file and the `shipwick.yaml` that replaces it, both complete and checked with `shipwick validate`.
 
 ## Before you begin
 
@@ -348,4 +348,5 @@ shipwick deploy
 - [Run a stateful application](/docs/tasks/stateful-applications): the database, its backups, and reaching it from the other applications.
 - [Keep secrets on the server](/docs/tasks/secrets): where the `.env` file's values go.
 - [Deploy from CI](/docs/tasks/deploy-from-ci): the pipeline that replaces `ssh` and `docker compose up -d`.
+- [Coming from Dokku](/docs/tasks/coming-from-dokku) and [Coming from Coolify](/docs/tasks/coming-from-coolify): the same mapping for an application those run today, and how to move it across.
 - [Security](/docs/security#unprivileged-containers): what a container goes without, and why there is no key for it.

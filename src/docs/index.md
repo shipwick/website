@@ -108,7 +108,11 @@ How to do one specific thing.
 **Deploy and run**
 
 - [From Docker Compose](/docs/tasks/from-docker-compose)
+- [Coming from Dokku](/docs/tasks/coming-from-dokku)
+- [Coming from Coolify](/docs/tasks/coming-from-coolify)
 - [Deploy from CI](/docs/tasks/deploy-from-ci)
+- [Deploy from GitLab CI](/docs/tasks/deploy-from-gitlab)
+- [Deploy from Azure Pipelines](/docs/tasks/deploy-from-azure-pipelines)
 - [Staging and production](/docs/tasks/staging-and-production)
 - [Scan an image before it is deployed](/docs/tasks/scan-images)
 - [Roll back and redeploy](/docs/tasks/roll-back)
